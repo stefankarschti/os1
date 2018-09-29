@@ -175,7 +175,7 @@ str_KB			db "KB", 0
 
 [bits 64]
 kernel_main64:
-	mov ecx, 80 * 8
+	mov ecx, 80 * 25
 .lz:
 	mov esi, str_a
 	push rcx
@@ -245,7 +245,7 @@ print64:
 	mov esi, VIDEO_MEM + 160
 	mov edi, VIDEO_MEM
 	rep movsq 
-	mov ecx, 80 / 8
+	mov ecx, 160 / 8
 	mov rax, 0x0720072007200720
 	rep stosq
 	pop rax
