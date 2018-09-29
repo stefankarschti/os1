@@ -14,6 +14,6 @@ echo 'kernel.asm'
 nasm kernel.asm -f bin -o kernel.bin
 hd kernel.bin
 #objdump -D -b binary -m i386:x86-64 -M intel kernel.bin
-objdump -D -b binary -m i8086 -M intel kernel.bin
+#objdump -D -b binary -m i8086 -M intel kernel.bin
 dd if=kernel.bin of=os1.raw seek=1 conv=notrunc
 

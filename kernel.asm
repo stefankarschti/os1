@@ -175,6 +175,16 @@ str_KB			db "KB", 0
 
 [bits 64]
 kernel_main64:
+	mov ecx, 80 * 8
+.lz:
+	mov esi, str_a
+	push rcx
+	call print64
+	pop rcx
+	loop .lz
+	
+	jmp $
+	
 	mov esi, kernel_hello_msg
 	call print64
 	mov esi, kernel_hello_msg
@@ -202,11 +212,11 @@ kernel_main64:
 print64:
 	mov edi, VIDEO_MEM
 	; compose edi	
-	xor eax, eax
+	xor rax, rax
 	mov al, byte [system_info + system_info_struct.cursory]
 	imul eax, 160	
 	add edi, eax
-	xor eax, eax
+	xor rax, rax
 	mov al, byte [system_info + system_info_struct.cursorx]
 	shl eax, 1
 	add edi, eax
@@ -251,6 +261,22 @@ print64:
 	mov [edi], al
 	inc edi
 	inc edi
+	; if edi overflows, scroll up
+	cmp edi, VIDEO_MEM + 160 * 25
+	jne .next
+	sub edi, 160
+	; scroll up
+	mov ecx, 24 * 160 / 8
+	push rsi
+	push rdi
+	mov esi, VIDEO_MEM + 160
+	mov edi, VIDEO_MEM
+	rep movsq 
+	mov ecx, 160 / 8
+	mov rax, 0x0720072007200720
+	rep stosq
+	pop rdi
+	pop rsi	
 .next:
 	inc esi
 	jmp .go
@@ -293,6 +319,7 @@ print64:
 VIDEO_MEM equ 0xB8000
 kernel_hello_msg   db "[kernel64] hello at ", 10, "line 2", 10, 0 
 str_test	db "[kernel64] test", 10, 0
+str_a		db "a", 0
 
 ; Tail
 times 2048-($-$$) db 0xCC                ; Fill sectors
