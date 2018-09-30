@@ -1,8 +1,7 @@
+[bits 16]
 ; Checks whether CPU supports long mode or not.
- 
 ; Returns with carry set if CPU doesn't support long mode.
- 
-CheckCPU:
+check_long_mode:
     ; Check whether CPUID is supported or not.
     pushfd                            ; Get flags in EAX register.
  
@@ -21,73 +20,24 @@ CheckCPU:
     popfd 
  
     test eax, eax
-    jz .NoLongMode
+    jz .no_long_mode
  
     mov eax, 0x80000000   
     cpuid                 
  
     cmp eax, 0x80000001               ; Check whether extended function 0x80000001 is available are not.
-    jb .NoLongMode                    ; If not, long mode not supported.
+    jb .no_long_mode                    ; If not, long mode not supported.
  
     mov eax, 0x80000001  
     cpuid                 
     test edx, 1 << 29                 ; Test if the LM-bit, is set or not.
-    jz .NoLongMode                    ; If not Long mode not supported.
+    jz .no_long_mode                    ; If not Long mode not supported.
  
     ret
  
-.NoLongMode:
+.no_long_mode:
     stc
     ret
- 
-; Prints out a message using the BIOS.
-; es:si    Address of ASCIIZ string to print.
-Print:
-    pushad
-.PrintLoop:
-    lodsb                             ; Load the value at [@es:@si] in @al.
-    test al, al                       ; If AL is the terminator character, stop printing.
-    je .PrintDone                  	
-    mov ah, 0x0E	
-    int 0x10
-    jmp .PrintLoop                    ; Loop till the null character not found.
- 
-.PrintDone:
-    popad                             ; Pop all general purpose registers to save them.
-    ret
-    
-; Prints out a hex number using the BIOS.
-; ax	Number to print.
-PrintHex:
-    pushad
-    mov bx, ax			; need al for BIOS printing
-    mov si, bx
-    shr si, 12
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10
-    mov si, bx
-    shr si, 8
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10
-    mov si, bx
-    shr si, 4
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10
-    mov si, bx
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10
-     
-    popad                             ; Pop all general purpose registers to save them.
-    ret
-hexdigit	db "0123456789ABCDEF",0
 
 %define PAGE_PRESENT    (1 << 0)
 %define PAGE_WRITE      (1 << 1)
@@ -209,12 +159,25 @@ LongMode:
     mov fs, ax
     mov gs, ax
     mov ss, ax
- 
+
     ; Blank out the screen to a blue color.
-;    mov edi, 0xB8000
+    mov edi, 0xB8000
 ;    mov rcx, 500                      ; Since we are clearing uint64_t over here, we put the count as Count/4.
 ;    mov rax, 0x1F201F201F201F20       ; Set the value to set the screen to: Blue background, white foreground, blank spaces.
 ;    rep stosq                         ; Clear the entire screen. 
+ 
+    ; Display "Hello World!"
+    mov edi, 0x00b8000              
+ 
+    mov rax, 0x1F6C1F6C1F651F48    
+    mov [edi],rax
+ 
+    mov rax, 0x1F6F1F571F201F6F
+    mov [edi + 8], rax
+ 
+    mov rax, 0x1F211F641F6C1F72
+    mov [edi + 16], rax
   
-    jmp kernel_main64                     ; You should replace this jump to wherever you want to jump to.
+    jmp kernel_main64
+
     
