@@ -15,12 +15,15 @@ all: boot.bin kernel16.bin kernel64.elf
 	dd if=kernel16.bin of=os1.raw seek=1 conv=notrunc conv=sync
 	dd if=kernel64.elf of=os1.raw bs=512 seek=8 conv=notrunc conv=sync
 
-kernel64.elf: kernel64.o
+kernel64.elf: kernel64.o memory.o
 	$(LD) -T $(LINK_SCRIPT) $^ -o $@ --strip-all -n
-#	$(CC) $(CFLAGS) -T $(LINK_SCRIPT) kernel64.o -o kernel64.elf -nostdlib -lgcc
+#	$(CC) $(CFLAGS) -z max-page-size=0x1000 -T $(LINK_SCRIPT) kernel64.o -o kernel64.elf -nostdlib -lgcc
 	
 boot.bin: boot.asm
 	$(ASM) $(ASMFLAGS) $^ -o $@
+	
+memory.o: memory.asm
+	$(ASM) -felf64 $^ -o $@
 	
 kernel64.o: kernel64.c
 	$(CC) -c $^ -o $@ $(CFLAGS)

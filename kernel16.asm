@@ -2,6 +2,7 @@ struc system_info_struct
 	.cursorx:		resb 1
 	.cursory:		resb 1
 	.num_memory_blocks	resw 1
+	.memory_blocks_ptr	resq 1
 endstruc
 struc memory_block_struct
 	.start:		resq 1
@@ -10,7 +11,9 @@ struc memory_block_struct
 	.unused:	resd 1
 endstruc
 
-section .bss start=0x4000		; upwards
+section .bss start=0x4000
+system_info resb system_info_struct_size
+
 e_entry		resq	1
 e_phoff		resq	1
 e_shoff		resq	1
@@ -24,11 +27,10 @@ p_vaddr		resq	1
 p_filesz	resq	1
 p_memsz		resq	1
 
-system_info resb system_info_struct_size
 memory_blocks resb memory_block_struct_size
 ;...
 
-FREE_SPACE	equ	0x5000		; Pointer to free space
+FREE_SPACE		equ		0x5000		; Pointer to free space
 kernel_image	equ 	0x2000		; ELF kernel image
 
 section .text
@@ -52,6 +54,7 @@ kernel_main16:
 .disk_error:
 	mov si, str_elf_fail_disk
 	call print16
+	jmp .stop
 .elf_error:
 	mov si, str_elf_fail_check
 	call print16
@@ -80,6 +83,10 @@ kernel_main16:
 .l3:
 	; e820 success
 	mov [system_info + system_info_struct.num_memory_blocks], bp
+	mov eax, memory_blocks
+	mov [system_info + system_info_struct.memory_blocks_ptr], eax
+	xor eax, eax
+	mov [system_info + system_info_struct.memory_blocks_ptr + 4], eax
 	mov si, str_e820_success
 	call print16
 	xor ecx, ecx
