@@ -9,7 +9,7 @@ section .text
 ; preserve: RBX, RBP, R12-R15
 
 ;
-; void memset(void* ptr, uint8_t value, size_t num)
+; void memset(void* ptr, uint8_t value, uint64_t num)
 ;
 global memset
 memset:
@@ -26,7 +26,7 @@ memset:
 	ret
 
 ;
-; void memsetw(void* ptr, uint16_t value, size_t num)
+; void memsetw(void* ptr, uint16_t value, uint64_t num)
 ;
 global memsetw
 memsetw:
@@ -44,7 +44,7 @@ memsetw:
 	ret
 
 ;
-; void memcpy(void* dest, void* source, size_t num)
+; void memcpy(void* dest, void* source, uint64_t num)
 ;
 global memcpy
 memcpy:

@@ -38,18 +38,16 @@ section .text
 [bits 16]
 kernel_main16:
 	; load kernel64.elf
-	mov bx, kernel_image	                ; ES:BX = Address to load kernel into
-	mov dh, 3		                ; DH    = Number of sectors to load
-;	mov dl, [boot_device]                   ; DL    = Drive number to load from
-	mov cl, 9				; CL	= start sector
-	call disk_load_sectors                  ; Call disk load function
+	mov bx, kernel_image	            ; ES:BX = Address to load kernel into
+	mov dh, 4		                	; DH    = Number of sectors to load
+;	mov dl, [boot_device]               ; DL    = Drive number to load from
+	mov cl, 9							; CL	= start sector
+	call disk_load_sectors              ; Call disk load function
 	jc .disk_error
 	; success
 	mov eax, [kernel_image]
 	cmp eax, 0x464C457F
 	jne .elf_error
-	mov si, str_elf_load
-	call print16
 	jmp .next
 .disk_error:
 	mov si, str_elf_fail_disk
@@ -71,8 +69,6 @@ kernel_main16:
 	
 	; detect memory
 .l2:
-	mov si, str_e820_detection
-	call print16
 	mov di, memory_blocks
 	call do_e820
 	jnc .l3
@@ -87,54 +83,7 @@ kernel_main16:
 	mov [system_info + system_info_struct.memory_blocks_ptr], eax
 	xor eax, eax
 	mov [system_info + system_info_struct.memory_blocks_ptr + 4], eax
-	mov si, str_e820_success
-	call print16
-	xor ecx, ecx
-	mov cx, [system_info + system_info_struct.num_memory_blocks]
-	mov edi, memory_blocks
-.l5:		
-	; print entry
-	push cx
-	
-	;; base address
-	mov ax, [di + 6]
-	call print16_whex
-	mov ax, [di + 4]
-	call print16_whex
-	mov ax, [di + 2]
-	call print16_whex
-	mov ax, [di + 0]
-	call print16_whex
 
-	;; length
-	mov si, space
-	call print16
-	mov ax, [di + 14]
-	call print16_whex
-	mov ax, [di + 12]
-	call print16_whex
-	mov ax, [di + 10]
-	call print16_whex
-	mov ax, [di + 8]
-	call print16_whex
-
-	;; type
-	mov si, space
-	call print16
-	mov ax, [di + 18]
-	call print16_whex
-	mov ax, [di + 16]
-	call print16_whex
-
-	;; \n
-	mov si, crlf
-	call print16
-	add di, 24
-	
-	; done print entry
-	pop cx
-	loop .l5	
-.l4:
 	; TODO: detect video modes
 	
 	; save cursor position
@@ -156,11 +105,8 @@ no_long_mode:
 crlf		   	db 13, 10, 0
 space		   	db " ", 0
 str_kernel16_hello   	db "[kernel16] hello", 13, 10, 0
-str_no_long_mode   	db "[kernel16] 64bit mode not available", 13, 10, 0
-str_e820_failed		db "[kernel16] INT 15h AX=E820h failed", 13, 10, 0
-str_e820_success	db "[kernel16] INT 15h AX=E820h success", 13, 10, 0
-str_e820_detection	db "[kernel16] INT 15h AX=E820h memory detection:", 13, 10, 0
-str_elf_load    	db "[kernel16] ELF load success", 13, 10, 0
+str_no_long_mode   		db "[kernel16] 64bit mode not available", 13, 10, 0
+str_e820_failed			db "[kernel16] Memory detection failed", 13, 10, 0
 str_elf_fail_disk    	db "[kernel16] ELF load disk error", 13, 10, 0
 str_elf_fail_check    	db "[kernel16] ELF check failed", 13, 10, 0
 
@@ -234,87 +180,37 @@ kernel_main64:
 	add rsi, kernel_image
 	mov rdi, [p_vaddr]
 	mov rcx, [p_filesz]
-	rep movsb			; move program in place
+	shr rcx, 3
+	inc rcx
+	rep movsq				; move program in place
 	xor rax, rax			; clear .bss
 	mov rcx, 0x10000
-	rep stosb
+	shr rcx, 3
+	inc rcx
+	rep stosq
 	mov rsp, rdi			; init stack at top of .bss
 	mov rbp, rsp	
 
 	; and jump
-	mov ax, 0x0258
-	mov rdi, 0xB8002
-	stosw
-	mov rax, [e_entry]
-	call print64_qhex
 	mov rax, [e_entry]
 	mov rdi, system_info
 	call rax		; call kernel_main
 .l3:		
 	jmp $ ; stop here
 	
-	; print total memory available
-	xor rbx, rbx
-	xor rcx, rcx
-	mov cx, [system_info + system_info_struct.num_memory_blocks]
-	mov rax, rcx
-	call print64_qhex
-	mov rsi, crlf + 1
-	call print64
-	mov rsi, memory_blocks
-.l1:
-	push rcx
-	mov eax, [rsi + 16]	; type
-	cmp eax, 1
-	jne .l2
-	mov rax, qword [rsi]
-	call print64_qhex
-	mov rsi, space
-	call print64
-	mov rax, qword [rsi + 8]
-	call print64_qhex
-	mov rsi, space
-	call print64
-	mov rax, qword [rsi + 16]
-	call print64_qhex
-	mov rsi, crlf + 1
-	call print64
-	
-	add rbx, qword [rsi + 8]
-.l2:
-	pop rcx
-	add rsi, 24
-	loop .l1
-	
-	mov esi, crlf + 1
-	call print64
-	mov esi, str_memory_available
-	call print64
-	mov rax, rbx
-	call print64_qhex
-	mov esi, str_bytes
-	call print64
-	mov esi, crlf + 1
-	call print64
-		
 	; todo:
-	; console driver
+	; console
 	; memory mgr
 	; keyboard driver
 	; disk driver
-	; filesystem driver
-	
+	; filesystem driver	
 	
 	jmp $		; die
 	
 
-
 ; Data
-str_kernel_hello	db "[kernel64] hello", 10, "[kernel64] initializing...", 10, 0 
-str_memory_available	db "[kernel64] Total memory: ", 0
-str_bytes		db " bytes", 0
-str_ok			db "ok", 10, 0
-hexdigit		db "0123456789ABCDEF",0
+str_kernel_hello	db "[kernel64] hello", 10, 0 
+;hexdigit			db "0123456789ABCDEF",0
 
 ; Tail
 times 4096-($-$$) db 0xCC                ; Fill sectors

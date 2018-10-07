@@ -9,7 +9,7 @@
  
 /* This will only work for the 64-bit ix86 targets. */
 #if !defined(__x86_64__)
-#error "This tutorial needs to be compiled with a x86_64-elf compiler"
+#error "This kernel needs to be compiled with a x86_64-elf compiler"
 #endif
 
 #pragma pack(1)
@@ -28,6 +28,7 @@ struct system_info
 	struct memory_block* memory_blocks;
 };
 #pragma pack()
+
 
 /* Hardware text mode color constants. */
 enum vga_color {
@@ -48,7 +49,12 @@ enum vga_color {
 	VGA_COLOR_LIGHT_BROWN = 14,
 	VGA_COLOR_WHITE = 15,
 };
- 
+
+inline bool isprint(char c)
+{
+	return (c >= ' ');
+}
+
 static inline uint8_t vga_entry_color(enum vga_color fg, enum vga_color bg) 
 {
 	return fg | bg << 4;
@@ -71,7 +77,7 @@ static const size_t VGA_WIDTH = 80;
 static const size_t VGA_HEIGHT = 25;
  
 size_t terminal_row;
-size_t terminal_column;
+size_t terminal_col;
 uint8_t terminal_color;
 uint16_t* terminal_buffer;
  
@@ -80,9 +86,9 @@ void outb( unsigned short port, unsigned char val )
    asm volatile("outb %0, %1" : : "a"(val), "Nd"(port) );
 }
 
-void memset(void *ptr, char value, size_t len);
-void memsetw(void* ptr, uint16_t value, size_t num);
-void memcpy(void *dest, void *src, size_t len);
+void memset(void *ptr, char value, uint64_t len);
+void memsetw(void* ptr, uint16_t value, uint64_t num);
+void memcpy(void *dest, void *src, uint64_t len);
 
 void update_cursor(int x, int y)
 {
@@ -94,18 +100,19 @@ void update_cursor(int x, int y)
 	outb(0x3D5, (uint8_t) ((pos >> 8) & 0xFF));
 }
 
+void clrscr()
+{
+	memsetw(terminal_buffer, vga_entry(' ', terminal_color), 
+		VGA_HEIGHT * VGA_WIDTH * sizeof(terminal_buffer[0]));
+}
+
 void terminal_initialize(void) 
 {
 	terminal_row = 0;
-	terminal_column = 0;
+	terminal_col = 0;
 	terminal_color = vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK);
 	terminal_buffer = (uint16_t*) 0xB8000;
-/*	for (size_t y = 0; y < VGA_HEIGHT; y++) {
-		for (size_t x = 0; x < VGA_WIDTH; x++) {
-			const size_t index = y * VGA_WIDTH + x;
-			terminal_buffer[index] = vga_entry(' ', terminal_color);
-		}
-	}*/
+	//clrscr();
 }
  
 void terminal_setcolor(uint8_t color) 
@@ -119,23 +126,24 @@ void terminal_putentryat(char c, uint8_t color, size_t x, size_t y)
 	terminal_buffer[index] = vga_entry(c, color);
 }
  
-void terminal_putchar(char c) 
+void putchar(char c) 
 {
 	if('\n' == c)
 	{
 		terminal_row++;
-		terminal_column = 0;
+		terminal_col = 0;
 	}
-	else
+	else /*if(isprint(c))*/
 	{
-		terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
-		if(++terminal_column == VGA_WIDTH)
+		terminal_putentryat(c, terminal_color, terminal_col, terminal_row);
+		terminal_col++;
+		if(terminal_col == VGA_WIDTH)
 		{
 			terminal_row++;
-			terminal_column = 0;
+			terminal_col = 0;
 		}
 	}
-	
+
 	if(terminal_row == VGA_HEIGHT)
 	{
 		// scroll up
@@ -148,17 +156,18 @@ void terminal_putchar(char c)
 	}
 }
  
-void terminal_write(const char* data)
+// Writes the C string pointed by str to the standard output (stdout)
+void puts(char* str)
 {
-	while(*data)
+	while(*str)
 	{
-		terminal_putchar(*data);
-		data++;
+		putchar(*str);
+		str++;
 	}
-	update_cursor(terminal_column, terminal_row);
+	update_cursor(terminal_col, terminal_row);
 }
  
-char * itoa( int value, char * str, int base )
+char* itoa(uint64_t value, char *str, int base)
 {
     char * rc;
     char * ptr;
@@ -196,29 +205,49 @@ char * itoa( int value, char * str, int base )
     return rc;
 }
 
+struct system_info sysinfo;
+
 void kernel_main(struct system_info* pinfo) 
 {
+	sysinfo = *pinfo;
+	
 	/* Initialize terminal interface */
 	terminal_initialize();
  	terminal_row = pinfo->cursory;
- 	terminal_column = pinfo->cursorx;
-	update_cursor(terminal_column, terminal_row);
+ 	terminal_col = pinfo->cursorx;
+	update_cursor(terminal_col, terminal_row);
  	
 	/* Newline support is left as an exercise. */
-	terminal_write("[elf_kernel64] hello\n");
+	puts("[elf_kernel64] hello\n");
 
 	char temp[16];
 	itoa((int)(pinfo), temp, 16);
-	terminal_write("[elf_kernel64] system_info=0x");
-	terminal_write(temp);
-	terminal_write("\n");
+	puts("[elf_kernel64] system_info=0x");
+	puts(temp);
+	puts("\n");
 
 	if(pinfo != 0x4000)
+	{
+		puts("[elf_kernel] unexpected system info pointer!\n");
 		return;
+	}
 
 	uint64_t total_mem = 0;
+	puts("Memory blocks (start, length, type):\n");
 	for(int i = 0; i < pinfo->num_memory_blocks; ++i)
 	{
+		char start[16], len[16], type[16];
+		itoa(pinfo->memory_blocks[i].start, start, 16);
+		itoa(pinfo->memory_blocks[i].length, len, 16);
+		itoa(pinfo->memory_blocks[i].type, type, 16);
+
+		puts(start);
+		puts(" ");
+		puts(len);
+		puts(" ");
+		puts(type);
+		puts("\n");
+		
 		if(1 == pinfo->memory_blocks[i].type)
 		{
 			total_mem += pinfo->memory_blocks[i].length;
@@ -226,16 +255,8 @@ void kernel_main(struct system_info* pinfo)
 	}
 	total_mem >>= 20;
 	itoa((int)(total_mem), temp, 10);
-	terminal_write("[elf_kernel64] ");
-	terminal_write(temp);
-	terminal_write(" MB RAM detected\n");
-	
-	for(int i = 0; i < 25; i++)
-	{
-		itoa(i + 1, temp, 10);
-		terminal_write("[elf_kernel64] ");
-		terminal_write(temp);
-		terminal_write("\n");
-	}
+	puts("[elf_kernel64] ");
+	puts(temp);
+	puts(" MB RAM detected\n");	
 }
 

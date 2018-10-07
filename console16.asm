@@ -19,32 +19,32 @@ print16:
     
 ; Prints out a hex number using the BIOS.
 ; ax	Number to print.
-print16_whex:
-    pusha
-    mov bx, ax
-    mov si, bx
-    shr si, 12
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10
-    mov si, bx
-    shr si, 8
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10
-    mov si, bx
-    shr si, 4
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10
-    mov si, bx
-    and si, 0fh
-    mov al, [hexdigit + si]
-    mov ah, 0x0E	
-    int 0x10 
-    popa
-    ret
+;print16_whex:
+;    pusha
+;    mov bx, ax
+;    mov si, bx
+;    shr si, 12
+;    and si, 0fh
+;    mov al, [hexdigit + si]
+;    mov ah, 0x0E	
+;    int 0x10
+;    mov si, bx
+;    shr si, 8
+;    and si, 0fh
+;    mov al, [hexdigit + si]
+;    mov ah, 0x0E	
+;    int 0x10
+;    mov si, bx
+;    shr si, 4
+;    and si, 0fh
+;    mov al, [hexdigit + si]
+;    mov ah, 0x0E	
+;    int 0x10
+;    mov si, bx
+;    and si, 0fh
+;    mov al, [hexdigit + si]
+;    mov ah, 0x0E	
+;    int 0x10 
+;    popa
+;    ret
 
