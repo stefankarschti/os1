@@ -54,7 +54,7 @@ static inline uint8_t vga_entry_color(enum vga_color fg, enum vga_color bg)
 	return fg | bg << 4;
 }
  
-static inline uint16_t vga_entry(unsigned char uc, uint8_t color) 
+static inline uint16_t vga_entry(uint8_t uc, uint8_t color) 
 {
 	return (uint16_t) uc | (uint16_t) color << 8;
 }
@@ -80,37 +80,9 @@ void outb( unsigned short port, unsigned char val )
    asm volatile("outb %0, %1" : : "a"(val), "Nd"(port) );
 }
 
-void memset(char *ptr, char value, int len);
-void memcpy(char *psrc, char *pdest, int len);
-/*
-void memset(char *ptr, char value, int len)
-{
-	char *dummy_ptr;
-	int dummy_len;
-
-	asm __volatile__ (
-		"cld	\n\t"
-		"rep	\n\t"
-		"stosb	\n\t"
-		: "=c" (dummy_len), "=D" (dummy_ptr)
-		: "0" (len), "a" (value), "1" (ptr)
-	);
-}
-
-void memcpy(char *psrc, char *pdest, int len)
-{
-	char *dummy_ptr;
-	int dummy_len;
-
-	asm __volatile__ (
-		"cld	\n\t"
-		"rep	\n\t"
-		"movsb	\n\t"
-		: "=c" (dummy_len), "=D" (dummy_ptr)
-		: "0" (len), "a" (pdest), "1" (psrc)
-	);
-}
-*/
+void memset(void *ptr, char value, size_t len);
+void memsetw(void* ptr, uint16_t value, size_t num);
+void memcpy(void *dest, void *src, size_t len);
 
 void update_cursor(int x, int y)
 {
@@ -149,16 +121,30 @@ void terminal_putentryat(char c, uint8_t color, size_t x, size_t y)
  
 void terminal_putchar(char c) 
 {
-	terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
-	if (++terminal_column == VGA_WIDTH) {
+	if('\n' == c)
+	{
+		terminal_row++;
 		terminal_column = 0;
-		if (++terminal_row == VGA_HEIGHT)
+	}
+	else
+	{
+		terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
+		if(++terminal_column == VGA_WIDTH)
 		{
-			// TODO: scroll up
-//			memcpy(terminal_buffer + VGA_WIDTH, terminal_buffer, sizeof(terminal_buffer[0]) * (VGA_HEIGHT - 1) * VGA_WIDTH);
-			memset(terminal_buffer + VGA_WIDTH * (VGA_HEIGHT - 1), vga_entry(' ', terminal_color), sizeof(terminal_buffer[0]) * VGA_WIDTH);
-			terminal_row = VGA_HEIGHT - 1;
+			terminal_row++;
+			terminal_column = 0;
 		}
+	}
+	
+	if(terminal_row == VGA_HEIGHT)
+	{
+		// scroll up
+		memcpy(terminal_buffer, terminal_buffer + VGA_WIDTH, 
+			sizeof(terminal_buffer[0]) * (VGA_HEIGHT - 1) * VGA_WIDTH);
+		memsetw(terminal_buffer + (VGA_HEIGHT - 1) * VGA_WIDTH,
+			vga_entry(' ', vga_entry_color(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK)),
+			sizeof(terminal_buffer[0]) * VGA_WIDTH);
+		terminal_row = VGA_HEIGHT - 1;
 	}
 }
  
@@ -210,12 +196,8 @@ char * itoa( int value, char * str, int base )
     return rc;
 }
 
-void kernel_main() 
+void kernel_main(struct system_info* pinfo) 
 {
-	// (ugly) pointer to global list of system parameters
-	// TODO:
-	struct system_info* pinfo = (struct system_info*)0x4000;
-	
 	/* Initialize terminal interface */
 	terminal_initialize();
  	terminal_row = pinfo->cursory;
@@ -224,6 +206,15 @@ void kernel_main()
  	
 	/* Newline support is left as an exercise. */
 	terminal_write("[elf_kernel64] hello\n");
+
+	char temp[16];
+	itoa((int)(pinfo), temp, 16);
+	terminal_write("[elf_kernel64] system_info=0x");
+	terminal_write(temp);
+	terminal_write("\n");
+
+	if(pinfo != 0x4000)
+		return;
 
 	uint64_t total_mem = 0;
 	for(int i = 0; i < pinfo->num_memory_blocks; ++i)
@@ -234,10 +225,17 @@ void kernel_main()
 		}
 	}
 	total_mem >>= 20;
-	char temp[16];
 	itoa((int)(total_mem), temp, 10);
 	terminal_write("[elf_kernel64] ");
 	terminal_write(temp);
-	terminal_write(" MB RAM detected");
+	terminal_write(" MB RAM detected\n");
+	
+	for(int i = 0; i < 25; i++)
+	{
+		itoa(i + 1, temp, 10);
+		terminal_write("[elf_kernel64] ");
+		terminal_write(temp);
+		terminal_write("\n");
+	}
 }
 

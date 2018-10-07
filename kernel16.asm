@@ -248,6 +248,7 @@ kernel_main64:
 	mov rax, [e_entry]
 	call print64_qhex
 	mov rax, [e_entry]
+	mov rdi, system_info
 	call rax		; call kernel_main
 .l3:		
 	jmp $ ; stop here
