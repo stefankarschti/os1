@@ -25,13 +25,13 @@ check_long_mode:
     mov eax, 0x80000000   
     cpuid                 
  
-    cmp eax, 0x80000001               ; Check whether extended function 0x80000001 is available are not.
-    jb .no_long_mode                    ; If not, long mode not supported.
+    cmp eax, 0x80000001               ; Check whether extended function 0x80000001 is available or not.
+    jb .no_long_mode                  ; If not, long mode not supported.
  
     mov eax, 0x80000001  
     cpuid                 
     test edx, 1 << 29                 ; Test if the LM-bit, is set or not.
-    jz .no_long_mode                    ; If not Long mode not supported.
+    jz .no_long_mode                  ; If not Long mode not supported.
  
     ret
  
