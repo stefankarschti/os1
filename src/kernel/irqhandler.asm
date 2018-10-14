@@ -366,7 +366,7 @@ irq15:
 load_idt:
 	lea rax, [rsp + 8]
 	lidt [rax]
-	;sti
+	sti
 	;int 0x80 ; test it
 	ret
 
