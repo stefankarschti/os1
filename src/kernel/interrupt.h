@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#pragma pack(1)
 struct IDTDescriptor
 {
    uint16_t offset_1; // offset bits 0..15
@@ -13,14 +12,10 @@ struct IDTDescriptor
    uint16_t offset_2; // offset bits 16..31
    uint32_t offset_3; // offset bits 32..63
    uint32_t zero;     // reserved
-};
-struct IDT_PTR
-{
-	uint16_t limit;
-	uint64_t base;
-};
-#pragma pack()
+} __attribute__((packed));
 
-void idt_init(void);
+void idt_init();
+
+extern "C" void set_irq_hook(int number, void (*pFunction)());
 
 #endif 

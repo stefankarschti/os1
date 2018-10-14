@@ -56,7 +56,7 @@ static inline void lidt(void* base, uint16_t size)
     asm volatile ( "lidt %0" : : "m"(IDTR) );  // let the compiler choose an addressing mode
 }
 
-void idt_init(void)
+void idt_init()
 {
 	for(int i = 0; i < 256; i++)
 	{
@@ -93,6 +93,12 @@ void idt_init(void)
 	set_IDT(47, (uint64_t)irq15);
 
 	set_IDT(0x80, (uint64_t)int_80h);
+	
+	// clear irq hooks
+	for(int i = 0; i < 16; ++i)
+	{
+		set_irq_hook(i, nullptr);
+	}
 	
 	// load IDT
 	lidt(IDT, 256 * sizeof(IDTDescriptor));
