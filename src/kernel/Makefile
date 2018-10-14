@@ -7,8 +7,14 @@ LDSCRIPT=linker.ld
 
 all: kernel64.elf
 
-kernel64.elf: kernel.o memory.o terminal.o
-	$(LD) -T $(LDSCRIPT) $(BUILD_DIR)kernel.o $(BUILD_DIR)memory.o $(BUILD_DIR)terminal.o -o $(BUILD_DIR)$@ -n	#--strip-all
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o
+	$(LD) -T $(LDSCRIPT) \
+	$(BUILD_DIR)kernel.o \
+	$(BUILD_DIR)memory.o \
+	$(BUILD_DIR)terminal.o \
+	$(BUILD_DIR)interrupt.o \
+	$(BUILD_DIR)irqhandler.o \
+	-o $(BUILD_DIR)$@ -n
 
 memory.o: memory.asm
 	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
@@ -18,6 +24,12 @@ kernel.o: kernel.cpp
 
 terminal.o: terminal.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+interrupt.o: interrupt.c
+	$(CC) -c $^ -o $(BUILD_DIR)$@ $(CFLAGS)
+
+irqhandler.o: irqhandler.asm
+	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
 
 clean:
 	rm -f $(BUILD_DIR)kernel64.elf $(BUILD_DIR)*.o
