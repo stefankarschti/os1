@@ -16,8 +16,6 @@ global irq14
 global irq15 
 global int_80h
 
-global load_idt
- 
 global irq0_handler
 global irq1_handler
 global irq2_handler
@@ -360,13 +358,4 @@ irq15:
   pop rcx
   pop rax
   iretq
- 
-
- 
-load_idt:
-	lea rax, [rsp + 8]
-	lidt [rax]
-	sti
-	;int 0x80 ; test it
-	ret
 

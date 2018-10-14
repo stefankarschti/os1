@@ -22,7 +22,6 @@ extern "C" {
 	int irq15();
 
 	int int_80h();
-	void load_idt(IDT_PTR *address);
 }
 
 void set_IDT(int index, uint64_t address)
@@ -95,14 +94,8 @@ void idt_init(void)
 
 	set_IDT(0x80, (uint64_t)int_80h);
 	
-	// fill the IDT descriptor
-	struct IDT_PTR idt_ptr;
-	idt_ptr.limit = sizeof (struct IDTDescriptor) * 256;
-	idt_ptr.base = (uint64_t)IDT;
-
 	// load IDT
 	lidt(IDT, 256 * sizeof(IDTDescriptor));
-	//load_idt(&idt_ptr);
 	asm volatile ("int $0x80");	
 	asm volatile ("sti");
 }
