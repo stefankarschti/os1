@@ -23,7 +23,7 @@ void irq1_handler(void) {
 	if(irq_hook[1]) irq_hook[1]();
 }
  
-// IRQ2: cascade
+// IRQ2: cascade IRQ8-15
 void irq2_handler(void) {
 	outb(0x20, 0x20); //EOI
 	if(irq_hook[2]) irq_hook[2]();
@@ -41,7 +41,7 @@ void irq4_handler(void) {
 	if(irq_hook[4]) irq_hook[4]();
 }
  
-// IRQ5: LPT2 / LPT3
+// IRQ5: LPT2 / LPT3 / Sound card
 void irq5_handler(void) {
 	outb(0x20, 0x20); //EOI
 	if(irq_hook[5]) irq_hook[5]();
