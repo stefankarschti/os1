@@ -7,7 +7,7 @@ LDSCRIPT=linker.ld
 
 all: kernel64.elf
 
-kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o stdlib.o
 	$(LD) -T $(LDSCRIPT) \
 	$(BUILD_DIR)kernel.o \
 	$(BUILD_DIR)memory.o \
@@ -15,6 +15,7 @@ kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o
 	$(BUILD_DIR)interrupt.o \
 	$(BUILD_DIR)irqhandler.o \
 	$(BUILD_DIR)ihandler.o \
+	$(BUILD_DIR)stdlib.o \
 	-o $(BUILD_DIR)$@ -n
 
 memory.o: memory.asm
@@ -31,6 +32,9 @@ interrupt.o: interrupt.cpp
 
 ihandler.o: ihandler.c
 	$(CC) -c $^ -o $(BUILD_DIR)$@ $(CFLAGS)
+
+stdlib.o: ../libc/stdlib.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 irqhandler.o: irqhandler.asm
 	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@

@@ -6,6 +6,7 @@
 #include "terminal.h"
 #include "interrupt.h"
 #include "memory.h"
+#include "../libc/stdlib.h"
 
 static Terminal *gTerminal = nullptr;
 
@@ -86,6 +87,27 @@ char key_to_char(uint8_t key)
 	return (shift ? shift_map[key] : plain_map[key]) & 0xFF;
 }
 
+void on_IRQ0()
+{
+	// hook on timer IRQ
+	static int counter = 0;
+	counter++;
+	if(18 == counter)
+	{
+		counter = 0;
+		if(gTerminal)
+		{
+			static int seconds = 0;
+			seconds++;
+			char temp[16];
+			itoa(seconds, temp, 10);
+			gTerminal->write("time ");
+			gTerminal->write(temp);
+			gTerminal->write("s\n");
+		}
+	}
+}
+
 void on_IRQ1()
 {
 	// hook for keyboard handler
@@ -129,6 +151,15 @@ void on_IRQ1()
 	}
 }
 
+void set_timer(uint16_t ticks)
+{
+	asm volatile ("cli");
+	outb(0x43, 0x34); 
+	outb(0x40, ticks & 0xFF);
+	outb(0x40, (ticks >> 8) & 0xFF);
+	asm volatile ("sti");	
+}
+
 void kernel_main(system_info *pinfo)
 {
 	system_info info = *pinfo;
@@ -138,8 +169,12 @@ void kernel_main(system_info *pinfo)
 	term.write("[elf_kernel64] hello 2++!\n");
 	term.write("[elf_kernel64] setting up interrupts\n");
 	idt_init();
+	set_irq_hook(0, on_IRQ0);
 	set_irq_hook(1, on_IRQ1);
 	term.write("[elf_kernel64] still alive\n");
+	
+	// start a timer
+	set_timer(0); // once a second
 	
 stop:
 	goto stop;
