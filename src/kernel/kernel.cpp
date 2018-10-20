@@ -7,6 +7,7 @@
 #include "interrupt.h"
 #include "memory.h"
 #include "../libc/stdlib.h"
+#include "task.h"
 
 static Terminal *gTerminal = nullptr;
 
@@ -101,9 +102,9 @@ void on_IRQ0()
 			seconds++;
 			char temp[16];
 			itoa(seconds, temp, 10);
-			gTerminal->write("time ");
+//			gTerminal->write("time ");
 			gTerminal->write(temp);
-			gTerminal->write("s\n");
+			gTerminal->write("\n");
 		}
 	}
 }
@@ -160,6 +161,9 @@ void set_timer(uint16_t ticks)
 	asm volatile ("sti");	
 }
 
+void process1();
+void process2();
+
 void kernel_main(system_info *pinfo)
 {
 	system_info info = *pinfo;
@@ -176,7 +180,32 @@ void kernel_main(system_info *pinfo)
 	// start a timer
 	set_timer(0); // once a second
 	
+	// multitasking
+	initTasks();
+	//Task* task1 = newTask((void*)process1); // TODO: crash
+	//Task* task2 = newTask((void*)process2);
+	
 stop:
 	goto stop;
+}
+
+void process1()
+{
+	gTerminal->write("process1 starting\n");
+	while(1)
+	{
+		gTerminal->write("1");
+	}
+	gTerminal->write("process1 ending\n");
+}
+
+void process2()
+{
+	gTerminal->write("process2 starting\n");
+	while(1)
+	{
+		gTerminal->write("2");
+	}
+	gTerminal->write("process2 ending\n");
 }
 

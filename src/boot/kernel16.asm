@@ -39,7 +39,7 @@ section .text
 kernel_main16:
 	; load kernel64.elf
 	mov bx, kernel_image	            ; ES:BX = Address to load kernel into
-	mov dh, 20		                	; DH    = Number of sectors to load
+	mov dh, 64		                	; DH    = Number of sectors to load
 ;	mov dl, [boot_device]               ; DL    = Drive number to load from
 	mov cl, 9							; CL	= start sector
 	call disk_load_sectors              ; Call disk load function

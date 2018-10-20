@@ -13,10 +13,10 @@ char* itoa(uint64_t value, char *str, int base)
     }
     rc = ptr = str;
     // Set '-' for negative decimals.
-    if ( value < 0 && base == 10 )
+    /*if ( value < 0 && base == 10 )
     {
         *ptr++ = '-';
-    }
+    }*/
     // Remember where the numbers start.
     low = ptr;
     // The actual conversion.
