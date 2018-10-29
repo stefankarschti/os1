@@ -1,0 +1,12 @@
+start	length	description
+500h	100h	early bss
+600h	400h	early stack
+1000h	1000h	kernel_main16	kernel16.bin
+2000h	8000h	kernel_image	kernel64.elf
+A000h	4000h	memory_pages 	4 x 4k
+E000h	2000h	free
+10000h	10000h	kernel stack	64k
+20000h	*		free
+100000h	4000h	kernel code
+
+

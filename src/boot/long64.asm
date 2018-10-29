@@ -32,7 +32,8 @@ check_long_mode:
     cpuid                 
     test edx, 1 << 29                 ; Test if the LM-bit, is set or not.
     jz .no_long_mode                  ; If not Long mode not supported.
- 
+ 	
+ 	clc
     ret
  
 .no_long_mode:

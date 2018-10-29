@@ -107,35 +107,35 @@ print64:
 	ret
 	
 ; print rax as hex	
-;print64_qhex:
-;	push rbx
-;	push rcx
-;	push rdi
-;	push rsi
+print64_qhex:
+	push rbx
+	push rcx
+	push rdi
+	push rsi
 	
-;	mov rdi, .buffer
-;	add rdi, 16
-;	xor bl, bl
-;	mov byte [rdi], bl
-;	dec rdi
-;	mov rcx, 16
-;.l1:
-;	mov rsi, rax
-;	and rsi, 0xF
-;	mov bl, byte [hexdigit + rsi]
-;	mov byte [rdi], bl
-;	dec rdi
-;	shr rax, 4
-;	loop .l1
+	mov rdi, .buffer
+	add rdi, 16
+	xor bl, bl
+	mov byte [rdi], bl
+	dec rdi
+	mov rcx, 16
+.l1:
+	mov rsi, rax
+	and rsi, 0xF
+	mov bl, byte [hexdigit + rsi]
+	mov byte [rdi], bl
+	dec rdi
+	shr rax, 4
+	loop .l1
 	
-;	mov rsi, .buffer
-;	call print64
+	mov rsi, .buffer
+	call print64
 	
-;	pop rsi
-;	pop rdi
-;	pop rcx
-;	pop rbx
+	pop rsi
+	pop rdi
+	pop rcx
+	pop rbx
 
-;	ret
-;.buffer resb 17
+	ret
+.buffer resb 17
 
