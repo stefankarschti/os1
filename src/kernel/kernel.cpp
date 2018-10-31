@@ -162,8 +162,10 @@ void set_timer(uint16_t ticks)
 
 uint64_t stack1[512] __attribute__ ((aligned (4096)));
 uint64_t stack2[512] __attribute__ ((aligned (4096)));
+uint64_t stack3[512] __attribute__ ((aligned (4096)));
 void process1();
 void process2();
+void process3();
 
 void kernel_main(system_info *pinfo)
 {
@@ -182,6 +184,7 @@ void kernel_main(system_info *pinfo)
     initTasks();
     Task* task1 = newTask((void*)process1, stack1, 512);
     Task* task2 = newTask((void*)process2, stack2, 512);
+    Task* task3 = newTask((void*)process3, stack3, 512);
 
     if((task1->nexttask == task2) && (task2->nexttask == task1))
     {
@@ -195,7 +198,7 @@ void kernel_main(system_info *pinfo)
     // start multitasking
     startMultiTask(task1);
 
-
+    // we should not reach this point
 stop:
     asm volatile("hlt");
     goto stop;
@@ -221,3 +224,12 @@ void process2()
     gTerminal->write("process2 ending\n");
 }
 
+void process3()
+{
+    gTerminal->write("process3 starting\n");
+    while(1)
+    {
+        gTerminal->write("3");
+    }
+    gTerminal->write("process3 ending\n");
+}
