@@ -73,13 +73,12 @@ int_80h:
     pop rax
     iretq
 
-task1:
+panic:
     mov rsi, 0xB8000
-    ;mov ax, 'T'
     add ax, 0xF00
     mov word [rsi], ax
     hlt
-    jmp task1
+    jmp panic
 
 ; set active task to RDI
 ; switch to this task
@@ -113,7 +112,7 @@ startMultiTask:
 
     iretq
 
-counter dw 0
+counter dw 0 ; counter for timer interrupts
 task_switch_irq:
     cli
     push rax
@@ -137,7 +136,7 @@ task_switch_irq:
     je .do
     pop rdi
     mov ax, 'E'
-    call task1 ; error stop - corrupted r15
+    call panic ; error stop - corrupted r15
 
 .do:
     pop rdi
@@ -163,45 +162,13 @@ task_switch_irq:
     mov rdi, r15
     mov qword [rdi + 4 * 8], rsp
     ; get next task
-    mov r14, r15
     mov r15, qword [rdi]
-    cmp r15, 0x200000
-    jb .l3
-    mov ax, '2'
-    call task1
-
-.l3:
     mov rdi, r15
-    cmp r14, qword [rdi]
-    je .l4
-    mov ax, 'L'
-    call task1
-
-.l4:
-    cmp r15, qword [rdi + 5 * 8]
-    je .l5
-    mov ax, 'M'
-    call task1
-
-.l5:
     ; switch stack
     mov rsp, qword [rdi + 4 * 8]
 
-    mov rax, qword [rsp]
-    cmp rax, 0x1234
-    je .l51
-    mov ax, 'Z'
-    call task1
-
-.l51:
     ; restore registers
     pop r14
-    cmp r14, 0x1234
-    je .l8
-    mov ax, '8'
-    call task1
-
-.l8:
     pop r13
     pop r12
     pop r11
@@ -215,27 +182,6 @@ task_switch_irq:
     pop rcx
     pop rbx
     pop rax
-
-    iretq
-
-    ; !!
-    pop rax ; rip
-    pop rax ; CS
-    cmp rax, 8
-    je .l6
-    mov ax, '6'
-    call task1
-.l6:
-    pop rax ; flags
-    cmp rax, 0x2202
-    je .l7
-    mov ax, '7'
-    call task1
-
-.l7:
-    mov ax, 'S'
-    call task1
-
     iretq
 
 irq0:
