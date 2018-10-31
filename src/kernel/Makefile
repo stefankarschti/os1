@@ -1,8 +1,8 @@
 .PHONY: default
 default: all ;
 
-CFLAGS=-std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-asynchronous-unwind-tables
-CPPFLAGS=-std=c++14 -ffreestanding -O2 -Wall -Wextra -fno-asynchronous-unwind-tables
+CFLAGS=-std=gnu99 -ffreestanding -O -Wall -Wextra -fno-asynchronous-unwind-tables
+CPPFLAGS=-std=c++14 -ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables
 LDSCRIPT=linker.ld
 
 all: kernel64.elf

@@ -42,10 +42,8 @@ kernel_main16:
 	mov si, str_kernel16_hello
 	call print16
 	
-	; fast enable A20
-	in al, 0x92
-	or al, 2
-	out 0x92, al
+	; TODO: properly enable A20
+	call enable_a20_fast
 	
 	; check A20
 	call check_a20
@@ -284,7 +282,12 @@ kernel_main64:
 	mov rsi, str_debug
 	call print64
 	
-	; jump
+    mov rax, [e_entry]
+    call print64_qhex
+    mov rsi, newline
+    call print64
+
+        ; jump
 	mov rax, [e_entry]
 	mov rdi, system_info
 	call rax		; call kernel_main

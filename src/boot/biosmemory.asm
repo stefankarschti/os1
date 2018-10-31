@@ -47,15 +47,9 @@ do_e820:
 	stc			; "function unsupported" error exit
 	ret
 
-; The following code is public domain licensed
- 
-[bits 16]
- 
 ; Function: check_a20
 ;
 ; Purpose: to check the status of the a20 line in a completely self-contained state-preserving way.
-;          The function can be modified as necessary by removing push's at the beginning and their
-;          respective pop's at the end if complete self-containment is not required.
 ;
 ; Returns: 0 in ax if the a20 line is disabled (memory wraps around)
 ;          1 in ax if the a20 line is enabled (memory does not wrap around)
@@ -92,7 +86,7 @@ check_a20:
  	je .disabled
  	mov bx, 1
  	jmp .exit
-.disabled
+.disabled:
  	mov bx, 0
 
 .exit:
@@ -110,3 +104,13 @@ check_a20:
     popf
  
     ret
+
+; Enable A20: fast method
+enable_a20_fast:
+	push ax
+	in al, 0x92
+	or al, 2
+	out 0x92, al
+	pop ax
+	ret
+

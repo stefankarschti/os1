@@ -4,8 +4,10 @@
 IDTDescriptor IDT[256];
 
 extern "C" {
-	int irq0();
-	int irq1();
+        int task_switch_irq();
+
+        int irq0();
+        int irq1();
 	int irq2();
 	int irq3();
 	int irq4();
@@ -58,52 +60,53 @@ static inline void lidt(void* base, uint16_t size)
 
 void idt_init()
 {
-	for(int i = 0; i < 256; i++)
-	{
-		clr_IDT(i);
-	}
+    asm volatile ("cli");
+    for(int i = 0; i < 256; i++)
+    {
+        clr_IDT(i);
+    }
 
-	// remapping the PIC 
-	outb(0x20, 0x11);
-	outb(0xA0, 0x11);
-	outb(0x21, 0x20);
-	outb(0xA1, 40);
-	outb(0x21, 0x04);
-	outb(0xA1, 0x02);
-	outb(0x21, 0x01);
-	outb(0xA1, 0x01);
-	outb(0x21, 0x0);
-	outb(0xA1, 0x0);
- 
-	set_IDT(32, (uint64_t)irq0);
-	set_IDT(33, (uint64_t)irq1);
-	set_IDT(34, (uint64_t)irq2);
-	set_IDT(35, (uint64_t)irq3);
-	set_IDT(36, (uint64_t)irq4);
-	set_IDT(37, (uint64_t)irq5);
-	set_IDT(38, (uint64_t)irq6);
-	set_IDT(39, (uint64_t)irq7);
-	set_IDT(40, (uint64_t)irq8);
-	set_IDT(41, (uint64_t)irq9);
-	set_IDT(42, (uint64_t)irq10);
-	set_IDT(43, (uint64_t)irq11);
-	set_IDT(44, (uint64_t)irq12);
-	set_IDT(45, (uint64_t)irq13);
-	set_IDT(46, (uint64_t)irq14);
-	set_IDT(47, (uint64_t)irq15);
+    // remapping the PIC
+    outb(0x20, 0x11);
+    outb(0xA0, 0x11);
+    outb(0x21, 0x20);
+    outb(0xA1, 40);
+    outb(0x21, 0x04);
+    outb(0xA1, 0x02);
+    outb(0x21, 0x01);
+    outb(0xA1, 0x01);
+    outb(0x21, 0x0);
+    outb(0xA1, 0x0);
 
-	set_IDT(0x80, (uint64_t)int_80h);
-	
-	// clear irq hooks
-	for(int i = 0; i < 16; ++i)
-	{
-		set_irq_hook(i, nullptr);
-	}
-	
-	// load IDT
-	lidt(IDT, 256 * sizeof(IDTDescriptor));
-	asm volatile ("int $0x80");	
-	asm volatile ("sti");
+    set_IDT(32, (uint64_t)task_switch_irq);
+    set_IDT(33, (uint64_t)irq1);
+    set_IDT(34, (uint64_t)irq2);
+    set_IDT(35, (uint64_t)irq3);
+    set_IDT(36, (uint64_t)irq4);
+    set_IDT(37, (uint64_t)irq5);
+    set_IDT(38, (uint64_t)irq6);
+    set_IDT(39, (uint64_t)irq7);
+    set_IDT(40, (uint64_t)irq8);
+    set_IDT(41, (uint64_t)irq9);
+    set_IDT(42, (uint64_t)irq10);
+    set_IDT(43, (uint64_t)irq11);
+    set_IDT(44, (uint64_t)irq12);
+    set_IDT(45, (uint64_t)irq13);
+    set_IDT(46, (uint64_t)irq14);
+    set_IDT(47, (uint64_t)irq15);
+
+    set_IDT(0x80, (uint64_t)int_80h);
+
+    // clear irq hooks
+    for(int i = 0; i < 16; ++i)
+    {
+        set_irq_hook(i, nullptr);
+    }
+
+    // load IDT
+    lidt(IDT, 256 * sizeof(IDTDescriptor));
+    asm volatile ("int $0x80");
+    asm volatile ("sti");
 }
 
 

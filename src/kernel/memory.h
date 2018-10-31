@@ -2,6 +2,7 @@
 #define _MEMORY_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 inline size_t strlen(const char* str) 
 {
