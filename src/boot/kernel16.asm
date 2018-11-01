@@ -11,7 +11,7 @@ struc memory_block_struct
 	.unused:	resd 1
 endstruc
 
-section .bss start=0x500
+section .bss start=0x400
 system_info resb system_info_struct_size
 
 e_entry		resq	1
@@ -259,7 +259,15 @@ kernel_main64:
 	mov rsi, newline
 	call print64
 
-	; load 
+    ; clear location
+	mov rdi, [p_vaddr]
+	xor rax, rax
+	mov rcx, [p_memsz]
+	shr rcx, 3
+	cld
+	rep stosq
+
+    ; load program
 	mov rsi, [p_offset]
 	add rsi, kernel_image
 	mov rdi, [p_vaddr]
@@ -267,25 +275,25 @@ kernel_main64:
 	shr rcx, 3
 	cld
 	rep movsq				; move program in place
-
-	xor rax, rax			; clear .bss
-	mov rcx, 0x10000
-	shr rcx, 3
-	cld
-	rep stosq
 	
-	; init kernel stack 
-	mov rbp, 0x20000
-	mov rsp, rbp
+    ; init program stack
+	mov rbp, [p_memsz]
+	add rbp, 0xFFFF
+	shr rbp, 16
+	inc rbp
+	shl rbp, 16				; aligned to the end of the next 64k block
+	add rbp, 0x40000		; add 256k stack
+	add rbp, [p_vaddr]
+	mov rsp, rbp			; give at least 64k stack
 
 	; debug
 	mov rsi, str_debug
 	call print64
 	
-    mov rax, [e_entry]
-    call print64_qhex
-    mov rsi, newline
-    call print64
+        mov rax, [e_entry]
+		call print64_qhex
+		mov rsi, newline
+		call print64
 
         ; jump
 	mov rax, [e_entry]

@@ -6,22 +6,47 @@ inline bool isprint(char c)
 	return (c >= ' ');
 }
 
-Terminal::Terminal(uint16_t *screen, int numRows, int numCols)
-	: _screen(screen), _numRows(numRows), _numCols(numCols), _row(0), _col(0)
+void Terminal::clear()
 {
-	move(_row, _col);
+	memsetw(_buffer, 0x0720, 80 * 25 * 2);
+	moveCursor(0, 0);
 }
 
-void Terminal::move(int row, int col)
+void Terminal::setBuffer(uint16_t *buffer)
+{
+	_buffer = buffer;
+}
+
+void Terminal::link()
+{
+	_screen = (uint16_t*)0xB8000;
+	memcpy(_screen, _buffer, 80 * 25 * 2);
+	moveCursor(_row, _col);
+}
+
+void Terminal::unlink()
+{
+	memsetw(_screen, 0x0720, 80 * 25 * 2);
+	_screen = nullptr;
+	uint16_t pos = 0;
+	outb(0x3d4, 0x0f);
+	outb(0x3d5, (uint8_t) (pos & 0xff));
+	outb(0x3d4, 0x0e);
+	outb(0x3d5, (uint8_t) ((pos >> 8) & 0xff));
+}
+
+void Terminal::moveCursor(int row, int col)
 {
 	_row = row;
 	_col = col;
-	uint16_t pos = _row * _numCols + _col;
- 
-	outb(0x3D4, 0x0F);
-	outb(0x3D5, (uint8_t) (pos & 0xFF));
-	outb(0x3D4, 0x0E);
-	outb(0x3D5, (uint8_t) ((pos >> 8) & 0xFF));
+	if(_screen)
+	{
+		uint16_t pos = _row * _width + _col;
+		outb(0x3D4, 0x0F);
+		outb(0x3D5, (uint8_t) (pos & 0xFF));
+		outb(0x3D4, 0x0E);
+		outb(0x3D5, (uint8_t) ((pos >> 8) & 0xFF));
+	}
 }
 
 void Terminal::write(const char* str)
@@ -31,7 +56,7 @@ void Terminal::write(const char* str)
 		iput(*str);
 		str++;
 	}
-	move(_row, _col);
+	moveCursor(_row, _col);
 }
 
 void Terminal::iput(char c)
@@ -43,21 +68,26 @@ void Terminal::iput(char c)
 	}
 	else if(isprint(c))
 	{
-		_screen[_row * _numCols + _col] = c + (7 << 8);
+		_buffer[_row * _width + _col] = c + (7 << 8);
+		if(_screen) _screen[_row * _width + _col] = c + (7 << 8);
 		_col++;
-		if(_col >= _numCols)
+		if(_col >= _width)
 		{
 			_row++;
 			_col = 0;
 		}
 	}
 
-	if(_row >= _numRows)
+	if(_row >= _height)
 	{
 		// scroll up
-		memcpy(_screen, _screen + _numCols, 2 * (_numRows - 1) * _numCols);
-		memsetw(_screen + (_numRows - 1) * _numCols, ' ' + (7 << 8), 2 * _numCols);
-		_row = _numRows - 1;
+		memcpy(_buffer, _buffer + _width, 2 * (_height - 1) * _width);
+		memsetw(_buffer + (_height - 1) * _width, 0x0720, 2 * _width);
+		if(_screen)
+		{
+			memcpy(_screen, _screen + _width, 2 * (_height - 1) * _width);
+			memsetw(_screen + (_height - 1) * _width, 0x0720, 2 * _width);
+		}
+		_row = _height - 1;
 	}
 }
-

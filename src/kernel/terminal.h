@@ -6,19 +6,26 @@
 #include "stdbool.h"
 #include "stdint.h"
 
+/**
+ * @brief The Terminal class
+ */
 class Terminal
 {
 public:
-	Terminal(uint16_t *screen, int numRows, int numCols);
 	void clear();
-	void move(int row, int col);
+	void setBuffer(uint16_t *buffer);
+	void link();	// links to real screen
+	void unlink();	// unlinks from real screen
+
+	void moveCursor(int row, int col);
 	void write(const char* str);
 
 private:
-	uint16_t *_screen = nullptr;
-	int _numRows = 0;
-	int _numCols = 0;
-	int _row = 0; 
+	uint16_t *_buffer = nullptr;
+	uint16_t *_screen = nullptr;	// if not null, mirror to screen
+	const int _width = 80;
+	const int _height = 25;
+	int _row = 0;
 	int _col = 0;
 	
 	void iput(char c);

@@ -91,9 +91,11 @@ startMultiTask:
     ; start irq0 timer: 18 times/s
     mov al, 0x34
     out 0x43, al
-    xor ax, ax
-    out 0x40, al
-    out 0x40, al
+    mov ax, 1193    ; 1193182 ticks/s divided by ax
+    out 0x40, al    ; low
+    rol ax, 8
+    out 0x40, al    ; high
+    rol ax, 8
 
     pop r14
     pop r13
@@ -112,7 +114,7 @@ startMultiTask:
 
     iretq
 
-counter dw 0 ; counter for timer interrupts
+counter dw 0 ; counter (second level divider) for timer interrupts
 task_switch_irq:
     cli
     push rax
@@ -120,7 +122,7 @@ task_switch_irq:
     out 0x20, al
     inc word [counter]
     mov ax, word [counter]
-    cmp ax, 18
+    cmp ax, 1
     je .l2
     pop rax
     iretq

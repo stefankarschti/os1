@@ -1,12 +1,39 @@
+Boot Stage 1
 start	length	description
-500h	100h	early bss
-600h	400h	early stack
-1000h	1000h	kernel_main16	kernel16.bin
-2000h	8000h	kernel_image	kernel64.elf
-A000h	4000h	memory_pages 	4 x 4k
-E000h	2000h	free
-10000h	10000h	kernel stack	64k
-20000h	*		free
-100000h	4000h	kernel code
+0h		400h	int vector		1k
+400h	C00h	stack			3k
+1000h	1000h	kernel16		4k
+*
+7c00	200h	boot sector		512b
+*
+9FC00h	60400h	unusable		385k 
 
+Kernel Load Stage
+start	length	description
+0h		400h	int vector		1k
+400h	200h	bss				512b
+600h	400h	stack			1k
+1000h	1000h	kernel_main16	4k		kernel16.bin
+2000h	8000h	kernel_image	32k		kernel64.elf
+A000h	4000h	memory_pages 	16k
+E000h	91C00h	free			583k
+9FC00h	60400h	unusable		385k 
+100000h	10000h	kernel64		64k
+110000h	50000h	kernel stack	320k
+160000h	*		free
+200000h
+
+Kernel Run Stage
+start	length	description
+0h		A000h	free			40k
+A000h	4000h	memory_pages	16k
+10000h	1000h	terminal1		4k
+11000h	1000h	terminal2		4k
+12000h	1000h	terminal3		4k
+13000h	8CC00h	free			563k
+9FC00h	60400h	unusable		385k 
+100000h	10000h	kernel64		64k
+110000h	50000h	kernel stack	320k
+160000h	*		free
+200000h
 
