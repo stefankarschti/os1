@@ -1,9 +1,9 @@
 #ifndef _KEYBOARD_H_
 #define _KEYBOARD_H_
 
-/** Keyboard driver
-**/
-
+/**
+ * @brief The Keyboard class
+ */
 class Keyboard
 {
 };
