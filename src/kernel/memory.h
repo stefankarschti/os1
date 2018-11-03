@@ -30,8 +30,38 @@ inline void outb(uint16_t port, uint8_t val)
 extern "C" {
 #endif
 
-void memset(void *ptr, char value, uint64_t len);
+/**
+ * @brief memset
+ * @param ptr
+ * @param value
+ * @param num number of bytes
+ */
+void memset(void *ptr, uint8_t value, uint64_t num);
+
+/**
+ * @brief memsetw
+ * @param ptr
+ * @param value
+ * @param num number of bytes
+ */
 void memsetw(void* ptr, uint16_t value, uint64_t num);
+
+/**
+ * @brief memsetd
+ * @param ptr
+ * @param value
+ * @param num number of bytes
+ */
+void memsetd(void* ptr, uint32_t value, uint64_t num);
+
+/**
+ * @brief memsetq
+ * @param ptr
+ * @param value
+ * @param num number of bytes
+ */
+void memsetq(void* ptr, uint64_t value, uint64_t num);
+
 void memcpy(void *dest, void *src, uint64_t len);
 
 #ifdef __cplusplus

@@ -8,9 +8,10 @@
 #include "memory.h"
 #include "../libc/stdlib.h"
 #include "task.h"
+#include "pageframe.h"
 
 // system
-system_info systemInformation;
+PageFrameContainer page_frames;
 
 // multitasking
 uint64_t stack1[512] __attribute__ ((aligned (4096)));
@@ -187,16 +188,67 @@ void set_timer(uint16_t ticks)
 
 void kernel_main(system_info *pinfo)
 {
-	// copy system info
-	systemInformation = *pinfo;
+	// initialize terminals
 	for(size_t i = 0; i < numTerminals; ++i)
 	{
 		terminal[i].setBuffer(buffer[i]);
 		terminal[i].clear();
 	}
+
+	// activate terminal 0
 	activeTerminal = &terminal[0];
 	activeTerminal->link();
+
+	// greetings
 	activeTerminal->write("[elf_kernel64] hello\n");
+
+	// VM
+	activeTerminal->write("[elf_kernel64] setting up page frame allocator\n");
+	for(int i = 0; i < pinfo->num_memory_blocks; ++i)
+	{
+		char temp[32];
+		memory_block &b = pinfo->memory_blocks[i];
+		itoa(b.start, temp, 16, 16);	activeTerminal->write(temp); activeTerminal->write(" ");
+		itoa(b.length, temp, 16, 16);	activeTerminal->write(temp); activeTerminal->write(" ");
+		itoa(b.type, temp, 16);			activeTerminal->write(temp); activeTerminal->write("\n");
+	}
+
+	bool result = page_frames.Initialize(pinfo);
+	if(result)
+		activeTerminal->write("Page frame initialization successful\n");
+	else
+		activeTerminal->write("Page frame initialization failed\n");
+
+	// print page frame debug info
+	{
+		char temp[32];
+		uint64_t num;
+
+		// memory size
+		num = page_frames.MemorySize() >> 20; // MB
+		itoa(num, temp, 10);
+		activeTerminal->write("Memory size ");
+		activeTerminal->write(temp);
+		activeTerminal->write(" MB\n");
+
+		num = page_frames.MemoryEnd();
+		itoa(num, temp, 16, 16);
+		activeTerminal->write("Memory end 0x");
+		activeTerminal->write(temp);
+		activeTerminal->write("\n");
+
+		num = page_frames.PageCount();
+		itoa(num, temp, 10);
+		activeTerminal->write("Page count ");
+		activeTerminal->write(temp);
+		uint64_t num2 = (num + 7) / 8;
+		itoa(num2, temp, 10);
+		activeTerminal->write(", bitmap size is ");
+		activeTerminal->write(temp);
+		activeTerminal->write(" bytes\n");
+	}
+
+	// set up interrupts
 	activeTerminal->write("[elf_kernel64] setting up interrupts\n");
 	idt_init();
 	set_irq_hook(1, on_IRQ1); // hook keyboard irq
@@ -212,7 +264,8 @@ void kernel_main(system_info *pinfo)
 	startMultiTask(task1);
 
 	// we should not reach this point
-	activeTerminal->write("[kernel64] panic! multitasking ended; halting.\n");
+	if(task2 == task3) //
+		activeTerminal->write("[kernel64] panic! multitasking ended; halting.\n");
 
 stop:
 	asm volatile("hlt");

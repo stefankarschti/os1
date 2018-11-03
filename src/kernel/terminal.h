@@ -20,6 +20,8 @@ public:
 	void moveCursor(int row, int col);
 	void write(const char* str);
 
+	void keypress(uint16_t scancode);
+
 private:
 	uint16_t *_buffer = nullptr;
 	uint16_t *_screen = nullptr;	// if not null, mirror to screen

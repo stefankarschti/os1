@@ -13,16 +13,10 @@ section .text
 ;
 global memset
 memset:
-	push rbp
-	mov rbp, rsp
-	
 	mov rcx, rdx		; num
 	mov rax, rsi		; value
 	cld
 	rep stosb
-	
-	mov rsp, rbp
-	pop rbp
 	ret
 
 ;
@@ -30,17 +24,35 @@ memset:
 ;
 global memsetw
 memsetw:
-	push rbp
-	mov rbp, rsp
-	
 	mov rcx, rdx		; num
 	shr rcx, 1
 	mov rax, rsi		; value
 	cld
 	rep stosw
-	
-	mov rsp, rbp
-	pop rbp
+	ret
+
+;
+; void memsetw(void* ptr, uint16_t value, uint64_t num)
+;
+global memsetd
+memsetd:
+	mov rcx, rdx		; num
+	shr rcx, 2
+	mov rax, rsi		; value
+	cld
+	rep stosd
+	ret
+
+;
+; void memsetq(void* ptr, uint16_t value, uint64_t num)
+;
+global memsetq
+memsetq:
+	mov rcx, rdx		; num
+	shr rcx, 3
+	mov rax, rsi		; value
+	cld
+	rep stosq
 	ret
 
 ;
@@ -48,14 +60,14 @@ memsetw:
 ;
 global memcpy
 memcpy:
-	push rbp
-	mov rbp, rsp
+;	push rbp
+;	mov rbp, rsp
 	
 	mov rcx, rdx		; num
 	cld
 	rep movsb
 	
-	mov rsp, rbp
-	pop rbp
+;	mov rsp, rbp
+;	pop rbp
 	ret
 

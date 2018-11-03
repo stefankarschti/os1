@@ -1,6 +1,6 @@
 #include "stdlib.h"
 
-char* itoa(uint64_t value, char *str, int base)
+char* itoa(uint64_t value, char *str, int base, int minimum_digits /*= 1*/)
 {
     char * rc;
     char * ptr;
@@ -25,7 +25,9 @@ char* itoa(uint64_t value, char *str, int base)
         // Modulo is negative for negative value. This trick makes abs() unnecessary.
         *ptr++ = "zyxwvutsrqponmlkjihgfedcba9876543210123456789abcdefghijklmnopqrstuvwxyz"[35 + value % base];
         value /= base;
-    } while ( value );
+		minimum_digits--;
+	}
+	while(value || (minimum_digits > 0));
     // Terminating the string.
     *ptr-- = '\0';
     // Invert the numbers.

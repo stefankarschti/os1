@@ -7,7 +7,7 @@ LDSCRIPT=linker.ld
 
 all: kernel64.elf
 
-kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o stdlib.o task.o
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o
 	$(LD) -T $(LDSCRIPT) \
 	$(BUILD_DIR)kernel.o \
 	$(BUILD_DIR)memory.o \
@@ -17,6 +17,9 @@ kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o s
 	$(BUILD_DIR)ihandler.o \
 	$(BUILD_DIR)stdlib.o \
 	$(BUILD_DIR)task.o \
+	$(BUILD_DIR)keyboard.o \
+	$(BUILD_DIR)pageframe.o \
+	$(BUILD_DIR)virtualmemory.o \
 	-o $(BUILD_DIR)$@ -n
 
 memory.o: memory.asm
@@ -41,6 +44,15 @@ irqhandler.o: irqhandler.asm
 	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
 
 task.o: task.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+keyboard.o: keyboard.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+pageframe.o: pageframe.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+virtualmemory.o: virtualmemory.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 clean:
