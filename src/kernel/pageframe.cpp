@@ -11,7 +11,7 @@ PageFrameContainer::PageFrameContainer()
  * @param info Pointer to system information
  * @return true for success
  */
-bool PageFrameContainer::Initialize(system_info *info)
+bool PageFrameContainer::Initialize(SystemInformation *info)
 {
 	bool result = false;
 	memory_size_ = 0;

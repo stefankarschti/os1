@@ -9,7 +9,7 @@ struct MemoryBlock
 	uint32_t type;
 	uint32_t unused;
 };
-struct system_info
+struct SystemInformation
 {
 	uint8_t cursorx;
 	uint8_t cursory;

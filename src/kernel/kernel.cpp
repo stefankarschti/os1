@@ -25,7 +25,7 @@ void process3();
 
 // terminals
 const size_t kNumTerminals = 3;
-uint16_t* buffer[kNumTerminals] = {(uint16_t*)0x10000, (uint16_t*)0x11000, (uint16_t*)0x12000};
+uint16_t* terminal_buffer[kNumTerminals] = {(uint16_t*)0x10000, (uint16_t*)0x11000, (uint16_t*)0x12000};
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
@@ -64,12 +64,12 @@ bool KernelKeyboardHook(uint16_t scancode)
 	}
 }
 
-void kernel_main(system_info *info)
+void KernelMain(SystemInformation *info)
 {
 	// initialize terminals
 	for(size_t i = 0; i < kNumTerminals; ++i)
 	{
-		terminal[i].SetBuffer(buffer[i]);
+		terminal[i].SetBuffer(terminal_buffer[i]);
 		terminal[i].Clear();
 	}
 
@@ -178,11 +178,10 @@ void process2()
 	{
 		char line[256];
 		line[0] = 0;
-		myTerminal->Write("2>");
+		myTerminal->Write(":");
 		//myTerminal->readline(line);
 		myTerminal->Write("You said ");
-		myTerminal->Write(line);
-		myTerminal->Write("\n");
+		myTerminal->WriteLn(line);
 	}
 	myTerminal->Write("\nprocess2 ending\n");
 stop:

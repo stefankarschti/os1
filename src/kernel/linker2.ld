@@ -3,7 +3,7 @@
 /*            Original file taken from Bran's Kernel Development */
 /*            tutorials: http://www.osdever.net/bkerndev/index.php. */
 
-ENTRY(_Z11kernel_mainP11system_info)
+ENTRY(_Z10KernelMainP17SystemInformation)
 SECTIONS
 {
   .text 0x100000 :
