@@ -59,6 +59,45 @@ void Terminal::write(const char* str)
 	moveCursor(_row, _col);
 }
 
+void Terminal::readline(char *line)
+{
+/*
+	char *p = line;
+
+	// wait for char
+	while(!ascii_buffer_size_)
+	{
+		asm volatile("pause");
+	}
+
+	// remove first char
+	asm volatile("cli"); // TODO: proper mutex on multiprocessor
+	char c = ascii_buffer_[0];
+	memcpy(ascii_buffer_, ascii_buffer_ + 1, 32);
+	ascii_buffer_size_--;
+	asm volatile("sti");
+
+	if(isprint(c)) *p++ = c;
+	if('\n' == c)
+	{
+		*p++ = 0;
+		return;
+	}
+*/
+}
+
+void Terminal::KeyPress(char ascii, uint16_t scancode)
+{
+	/*
+	if(ascii && ascii_buffer_size_ < 32)
+	{
+		ascii_buffer_[ascii_buffer_size_] = ascii;
+		ascii_buffer_size_++;
+		ascii_buffer_[ascii_buffer_size_] = 0;
+	}
+	*/
+}
+
 void Terminal::iput(char c)
 {
 	if('\n' == c)

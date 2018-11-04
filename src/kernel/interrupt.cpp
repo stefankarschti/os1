@@ -100,7 +100,7 @@ void idt_init()
 	// clear irq hooks
 	for(int i = 0; i < 16; ++i)
 	{
-		set_irq_hook(i, nullptr);
+		set_irq_hook(i, nullptr, nullptr);
 	}
 
 	// load IDT

@@ -16,6 +16,6 @@ struct IDTDescriptor
 
 void idt_init();
 
-extern "C" void set_irq_hook(int number, void (*pFunction)());
+extern "C" void set_irq_hook(int number, void (*pFunction)(void*), void* data);
 
 #endif 

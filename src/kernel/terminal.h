@@ -20,7 +20,8 @@ public:
 	void moveCursor(int row, int col);
 	void write(const char* str);
 
-	void keypress(uint16_t scancode);
+	void readline(char *line);
+	void KeyPress(char ascii, uint16_t scancode);
 
 private:
 	uint16_t *_buffer = nullptr;
@@ -30,6 +31,9 @@ private:
 	int _row = 0;
 	int _col = 0;
 	
+	int ascii_buffer_size_ = 0;
+//	char ascii_buffer_[32 + 1];
+
 	void iput(char c);
 };
 

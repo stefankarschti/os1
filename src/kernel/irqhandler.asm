@@ -88,7 +88,7 @@ startMultiTask:
     mov r15, rdi
     mov rsp, qword [rdi + 4 * 8]
 
-    ; start irq0 timer: 18 times/s
+	; start irq0 timer: 1193182 ticks/s divided by ax
     mov al, 0x34
     out 0x43, al
     mov ax, 1193    ; 1193182 ticks/s divided by ax
