@@ -1,33 +1,28 @@
 #include "terminal.h"
 #include "memory.h"
 
-inline bool isprint(char c)
+void Terminal::Clear()
 {
-	return (c >= ' ');
+	memsetw(buffer_, 0x0720, 80 * 25 * 2);
+	MoveCursor(0, 0);
 }
 
-void Terminal::clear()
+void Terminal::SetBuffer(uint16_t *buffer)
 {
-	memsetw(_buffer, 0x0720, 80 * 25 * 2);
-	moveCursor(0, 0);
+	buffer_ = buffer;
 }
 
-void Terminal::setBuffer(uint16_t *buffer)
+void Terminal::Link()
 {
-	_buffer = buffer;
+	screen_ = (uint16_t*)0xB8000;
+	memcpy(screen_, buffer_, 80 * 25 * 2);
+	MoveCursor(row_, col_);
 }
 
-void Terminal::link()
+void Terminal::Unlink()
 {
-	_screen = (uint16_t*)0xB8000;
-	memcpy(_screen, _buffer, 80 * 25 * 2);
-	moveCursor(_row, _col);
-}
-
-void Terminal::unlink()
-{
-	memsetw(_screen, 0x0720, 80 * 25 * 2);
-	_screen = nullptr;
+	memsetw(screen_, 0x0720, 80 * 25 * 2);
+	screen_ = nullptr;
 	uint16_t pos = 0;
 	outb(0x3d4, 0x0f);
 	outb(0x3d5, (uint8_t) (pos & 0xff));
@@ -35,13 +30,13 @@ void Terminal::unlink()
 	outb(0x3d5, (uint8_t) ((pos >> 8) & 0xff));
 }
 
-void Terminal::moveCursor(int row, int col)
+void Terminal::MoveCursor(int row, int col)
 {
-	_row = row;
-	_col = col;
-	if(_screen)
+	row_ = row;
+	col_ = col;
+	if(screen_)
 	{
-		uint16_t pos = _row * _width + _col;
+		uint16_t pos = row_ * width_ + col_;
 		outb(0x3D4, 0x0F);
 		outb(0x3D5, (uint8_t) (pos & 0xFF));
 		outb(0x3D4, 0x0E);
@@ -49,17 +44,34 @@ void Terminal::moveCursor(int row, int col)
 	}
 }
 
-void Terminal::write(const char* str)
+void Terminal::Write(const char* str)
 {
 	while(*str)
 	{
-		iput(*str);
+		InternalWrite(*str);
 		str++;
 	}
-	moveCursor(_row, _col);
+	MoveCursor(row_, col_);
 }
 
-void Terminal::readline(char *line)
+void Terminal::Write(const char c)
+{
+	InternalWrite(c);
+	MoveCursor(row_, col_);
+}
+
+void Terminal::WriteLn(const char *str)
+{
+	while(*str)
+	{
+		InternalWrite(*str);
+		str++;
+	}
+	InternalWrite('\n');
+	MoveCursor(row_, col_);
+}
+
+void Terminal::ReadLn(char *line)
 {
 /*
 	char *p = line;
@@ -98,35 +110,35 @@ void Terminal::KeyPress(char ascii, uint16_t scancode)
 	*/
 }
 
-void Terminal::iput(char c)
+void Terminal::InternalWrite(char c)
 {
 	if('\n' == c)
 	{
-		_row++;
-		_col = 0;
+		row_++;
+		col_ = 0;
 	}
 	else if(isprint(c))
 	{
-		_buffer[_row * _width + _col] = c + (7 << 8);
-		if(_screen) _screen[_row * _width + _col] = c + (7 << 8);
-		_col++;
-		if(_col >= _width)
+		buffer_[row_ * width_ + col_] = c + (7 << 8);
+		if(screen_) screen_[row_ * width_ + col_] = c + (7 << 8);
+		col_++;
+		if(col_ >= width_)
 		{
-			_row++;
-			_col = 0;
+			row_++;
+			col_ = 0;
 		}
 	}
 
-	if(_row >= _height)
+	if(row_ >= height_)
 	{
 		// scroll up
-		memcpy(_buffer, _buffer + _width, 2 * (_height - 1) * _width);
-		memsetw(_buffer + (_height - 1) * _width, 0x0720, 2 * _width);
-		if(_screen)
+		memcpy(buffer_, buffer_ + width_, 2 * (height_ - 1) * width_);
+		memsetw(buffer_ + (height_ - 1) * width_, 0x0720, 2 * width_);
+		if(screen_)
 		{
-			memcpy(_screen, _screen + _width, 2 * (_height - 1) * _width);
-			memsetw(_screen + (_height - 1) * _width, 0x0720, 2 * _width);
+			memcpy(screen_, screen_ + width_, 2 * (height_ - 1) * width_);
+			memsetw(screen_ + (height_ - 1) * width_, 0x0720, 2 * width_);
 		}
-		_row = _height - 1;
+		row_ = height_ - 1;
 	}
 }

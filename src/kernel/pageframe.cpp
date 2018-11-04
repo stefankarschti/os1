@@ -18,7 +18,7 @@ bool PageFrameContainer::Initialize(system_info *info)
 	memory_end_address_ = 0;
 	for(size_t i = 0; i < info->num_memory_blocks; i++)
 	{
-		memory_block &b = info->memory_blocks[i];
+		MemoryBlock &b = info->memory_blocks[i];
 		if(1 == b.type)
 		{
 			memory_size_ += b.length;
@@ -51,7 +51,7 @@ bool PageFrameContainer::Initialize(system_info *info)
 	{
 		for(size_t i = 0; i < info->num_memory_blocks; i++)
 		{
-			memory_block &b = info->memory_blocks[i];
+			MemoryBlock &b = info->memory_blocks[i];
 			if(1 == b.type)
 			{
 				// check page start aligned

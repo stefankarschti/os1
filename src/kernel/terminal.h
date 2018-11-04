@@ -12,29 +12,32 @@
 class Terminal
 {
 public:
-	void clear();
-	void setBuffer(uint16_t *buffer);
-	void link();	// links to real screen
-	void unlink();	// unlinks from real screen
+	void Clear();
+	void SetBuffer(uint16_t *buffer);
+	void Link();	// links to real screen
+	void Unlink();	// unlinks from real screen
 
-	void moveCursor(int row, int col);
-	void write(const char* str);
+	void MoveCursor(int row, int col);
+	void Write(const char* str);
+	void Write(const char c);
+	void WriteLn(const char* str);
 
-	void readline(char *line);
+	void ReadLn(char *line);
 	void KeyPress(char ascii, uint16_t scancode);
 
 private:
-	uint16_t *_buffer = nullptr;
-	uint16_t *_screen = nullptr;	// if not null, mirror to screen
-	const int _width = 80;
-	const int _height = 25;
-	int _row = 0;
-	int _col = 0;
+	uint16_t *buffer_ = nullptr;
+	uint16_t *screen_ = nullptr;	// if not null, mirror to screen
+	const int width_ = 80;
+	const int height_ = 25;
+	int row_ = 0;
+	int col_ = 0;
 	
-	int ascii_buffer_size_ = 0;
+//	int ascii_buffer_size_ = 0;
+//	uint64_t a;
 //	char ascii_buffer_[32 + 1];
 
-	void iput(char c);
+	void InternalWrite(char c);
 };
 
 #endif

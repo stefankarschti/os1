@@ -1,8 +1,8 @@
 #ifndef _MEMORY_H_
 #define _MEMORY_H_
 
-#include <stddef.h>
 #include <stdint.h>
+#include <stddef.h>
 
 inline size_t strlen(const char* str) 
 {
@@ -24,6 +24,11 @@ inline uint8_t inb(uint16_t port)
 inline void outb(uint16_t port, uint8_t val)
 {
    asm volatile("outb %0, %1" : : "a"(val), "Nd"(port) );
+}
+
+inline int isprint(char c)
+{
+	return (c >= ' ');
 }
 
 #ifdef __cplusplus

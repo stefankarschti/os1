@@ -1,7 +1,7 @@
 #include "keyboard.h"
 #include "memory.h"
 
-void KernelKeyboardHook(uint16_t scancode);
+bool KernelKeyboardHook(uint16_t scancode);
 
 uint16_t plain_map[256] = {
 	0xf200,	0xf01b,	0xf031,	0xf032,	0xf033,	0xf034,	0xf035,	0xf036,
@@ -83,11 +83,11 @@ char key_to_char(uint8_t key)
 void Keyboard::IRQHandler(Keyboard *object)
 {
 	// hook for keyboard handler
-#define	KBDATAP		0x60	/* kbd data port */
-#define	KBSTATUSPORT	0x61	/* kbd status */
-#define	KBSTATP		0x64	/* kbd status port */
-#define	KBINRDY		0x01
-#define	KBOUTRDY	0x02
+	const uint8_t KBDATAP = 0x60;	/* kbd data port */
+	const uint8_t	KBSTATUSPORT =	0x61;	/* kbd status */
+	const uint8_t	KBSTATP = 0x64;	/* kbd status port */
+	const uint8_t	KBINRDY = 0x01;
+	const uint8_t	KBOUTRDY = 0x02;
 
 	if((inb(KBSTATP) & KBINRDY) == 0)
 		return;
@@ -111,18 +111,20 @@ void Keyboard::IRQHandler(Keyboard *object)
 	}
 
 	// first let kernel handle the scan code
-	KernelKeyboardHook(scancode);
-
-	// terminal print char if any
-	if(object->active_terminal && !brk)
+	// process further if kernel approves
+	if(KernelKeyboardHook(scancode))
 	{
-		char txt[4];
-		txt[0] = key_to_char(key);
-//		object->active_terminal->KeyPress(txt[0], scancode);
-		if(txt[0] == '\n' || (txt[0] >= ' ' && txt[0] < 0x7f))
+		// print char to active terminal if any
+		if(object->active_terminal && !brk)
 		{
-			txt[1] = 0;
-			object->active_terminal->write(txt);
+			char txt[4];
+			txt[0] = key_to_char(key);
+	//		object->active_terminal->KeyPress(txt[0], scancode);
+			if(txt[0] == '\n' || isprint(txt[0]))
+			{
+				txt[1] = 0;
+				object->active_terminal->Write(txt);
+			}
 		}
 	}
 }
