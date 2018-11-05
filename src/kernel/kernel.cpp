@@ -156,14 +156,18 @@ stop:
 
 void process1()
 {
-	Terminal *myTerminal = &terminal[0];
-	myTerminal->Write("process1 starting\n");
-	int x = 100;
-	while(x--)
+	Terminal *my_terminal = &terminal[0];
+	my_terminal->Write("process1 starting\n");
+	while(true)
 	{
-		myTerminal->Write("1");
+		char line[256];
+		line[0] = 0;
+		my_terminal->Write("terminal1:");
+		my_terminal->ReadLn(line);
+		my_terminal->Write("Command: ");
+		my_terminal->WriteLn(line);
 	}
-	myTerminal->Write("\nprocess1 ending\n");
+	my_terminal->Write("\nprocess1 ending\n");
 stop:
 	asm volatile("hlt");
 	goto stop;
@@ -171,19 +175,18 @@ stop:
 
 void process2()
 {
-	Terminal *myTerminal = &terminal[1];
-	myTerminal->Write("process2 starting\n");
-	int x = 100;
-	while(x--)
+	Terminal *my_terminal = &terminal[1];
+	my_terminal->Write("process2 starting\n");
+	while(true)
 	{
 		char line[256];
 		line[0] = 0;
-		myTerminal->Write(":");
-		myTerminal->ReadLn(line);
-		myTerminal->Write("You said ");
-		myTerminal->WriteLn(line);
+		my_terminal->Write("terminal2:");
+		my_terminal->ReadLn(line);
+		my_terminal->Write("Command: ");
+		my_terminal->WriteLn(line);
 	}
-	myTerminal->Write("\nprocess2 ending\n");
+	my_terminal->Write("\nprocess2 ending\n");
 stop:
 	asm volatile("hlt");
 	goto stop;
@@ -191,14 +194,18 @@ stop:
 
 void process3()
 {
-	Terminal *myTerminal = &terminal[2];
-	myTerminal->Write("process3 starting\n");
-	int x = 100;
-	while(x--)
+	Terminal *my_terminal = &terminal[2];
+	my_terminal->Write("process3 starting\n");
+	while(true)
 	{
-		myTerminal->Write("3");
+		char line[256];
+		line[0] = 0;
+		my_terminal->Write("terminal3:");
+		my_terminal->ReadLn(line);
+		my_terminal->Write("Command: ");
+		my_terminal->WriteLn(line);
 	}
-	myTerminal->Write("\nprocess3 ending\n");
+	my_terminal->Write("\nprocess3 ending\n");
 stop:
 	asm volatile("hlt");
 	goto stop;

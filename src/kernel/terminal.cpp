@@ -101,6 +101,8 @@ void Terminal::ReadLn(char *line)
 void Terminal::KeyPress(char ascii, uint16_t scancode)
 {
 	ascii_char_ = ascii;
+	if('\n' == ascii || isprint(ascii))
+		Write(ascii);
 }
 
 void Terminal::InternalWrite(char c)
