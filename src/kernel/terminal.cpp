@@ -73,41 +73,34 @@ void Terminal::WriteLn(const char *str)
 
 void Terminal::ReadLn(char *line)
 {
-/*
 	char *p = line;
-
-	// wait for char
-	while(!ascii_buffer_size_)
+	while(p - line < 256)
 	{
-		asm volatile("pause");
-	}
+		// wait for char
+		while(!ascii_char_)
+		{
+			asm volatile("hlt"); // TODO: multi CPU sync
+		}
 
-	// remove first char
-	asm volatile("cli"); // TODO: proper mutex on multiprocessor
-	char c = ascii_buffer_[0];
-	memcpy(ascii_buffer_, ascii_buffer_ + 1, 32);
-	ascii_buffer_size_--;
-	asm volatile("sti");
+		// remove first char
+		char c = ascii_char_;
+		ascii_char_ = 0;
 
-	if(isprint(c)) *p++ = c;
-	if('\n' == c)
-	{
-		*p++ = 0;
-		return;
+		if(isprint(c))
+		{
+			*p++ = c;
+		}
+		if('\n' == c)
+		{
+			*p++ = 0;
+			return;
+		}
 	}
-*/
 }
 
 void Terminal::KeyPress(char ascii, uint16_t scancode)
 {
-	/*
-	if(ascii && ascii_buffer_size_ < 32)
-	{
-		ascii_buffer_[ascii_buffer_size_] = ascii;
-		ascii_buffer_size_++;
-		ascii_buffer_[ascii_buffer_size_] = 0;
-	}
-	*/
+	ascii_char_ = ascii;
 }
 
 void Terminal::InternalWrite(char c)

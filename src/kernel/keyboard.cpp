@@ -119,7 +119,7 @@ void Keyboard::IRQHandler(Keyboard *object)
 		{
 			char txt[4];
 			txt[0] = key_to_char(key);
-	//		object->active_terminal->KeyPress(txt[0], scancode);
+			object->active_terminal->KeyPress(txt[0], scancode);
 			if(txt[0] == '\n' || isprint(txt[0]))
 			{
 				txt[1] = 0;

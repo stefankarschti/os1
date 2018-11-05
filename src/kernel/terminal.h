@@ -33,6 +33,7 @@ private:
 	int row_ = 0;
 	int col_ = 0;
 	
+	int ascii_char_ = 0;
 //	int ascii_buffer_size_ = 0;
 //	uint64_t a;
 //	char ascii_buffer_[32 + 1];

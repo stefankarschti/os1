@@ -179,7 +179,7 @@ void process2()
 		char line[256];
 		line[0] = 0;
 		myTerminal->Write(":");
-		//myTerminal->readline(line);
+		myTerminal->ReadLn(line);
 		myTerminal->Write("You said ");
 		myTerminal->WriteLn(line);
 	}
