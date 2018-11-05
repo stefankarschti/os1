@@ -2,6 +2,7 @@
 #define _INTERRUPT_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 struct IDTDescriptor
 {
@@ -14,8 +15,16 @@ struct IDTDescriptor
    uint32_t zero;     // reserved
 } __attribute__((packed));
 
-void idt_init();
+class Interrupts
+{
+public:
+	bool Initialize();
+	void SetIRQHandler(int number, void (*pFunction)(void*), void* data);
 
-extern "C" void set_irq_hook(int number, void (*pFunction)(void*), void* data);
+private:
+	IDTDescriptor IDT[256];
+	void set_IDT(int index, uint64_t address);
+	void clr_IDT(int index);
+};
 
 #endif 

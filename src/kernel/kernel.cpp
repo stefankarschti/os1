@@ -12,8 +12,9 @@
 #include "keyboard.h"
 
 // system
+Interrupts interrupts;
 PageFrameContainer page_frames;
-Keyboard keyboard;
+Keyboard keyboard(interrupts);
 
 // multitasking
 uint64_t stack1[512] __attribute__ ((aligned (4096)));
@@ -24,8 +25,22 @@ void process2();
 void process3();
 
 // terminals
-const size_t kNumTerminals = 3;
-uint16_t* terminal_buffer[kNumTerminals] = {(uint16_t*)0x10000, (uint16_t*)0x11000, (uint16_t*)0x12000};
+const size_t kNumTerminals = 12;
+uint16_t* terminal_buffer[kNumTerminals] =
+{
+	(uint16_t*)0x10000,
+	(uint16_t*)0x11000,
+	(uint16_t*)0x12000,
+	(uint16_t*)0x13000,
+	(uint16_t*)0x14000,
+	(uint16_t*)0x15000,
+	(uint16_t*)0x16000,
+	(uint16_t*)0x17000,
+	(uint16_t*)0x18000,
+	(uint16_t*)0x19000,
+	(uint16_t*)0x1A000,
+	(uint16_t*)0x1B000,
+};
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
@@ -53,9 +68,10 @@ uint16_t SetTimer(uint16_t frequency)
 bool KernelKeyboardHook(uint16_t scancode)
 {
 	// switch terminal hotkey
-	if(scancode >= 0x3B && scancode <= 0x3D)
+	uint16_t baseKey = 0x3B;
+	if(scancode >= baseKey && scancode < baseKey + kNumTerminals)
 	{
-		int index = scancode - 0x3B;
+		int index = scancode - baseKey;
 		if(active_terminal)
 			active_terminal->Unlink();
 		active_terminal = &terminal[index];
@@ -126,7 +142,11 @@ void KernelMain(SystemInformation *info)
 
 	// set up interrupts
 	active_terminal->WriteLn("[elf_kernel64] setting up interrupts");
-	idt_init();
+	result = interrupts.Initialize();
+	if(result)
+		active_terminal->WriteLn("Interrupts initialization successful");
+	else
+		active_terminal->WriteLn("Interrupts initialization failed");
 
 	// set up keyboard
 	active_terminal->WriteLn("[elf_kernel64] starting keyboard");
@@ -142,7 +162,7 @@ void KernelMain(SystemInformation *info)
 	Task* task3 = newTask((void*)process3, stack3, 512);
 
 	// start multitasking
-	active_terminal->Write("\n\n\nPress F1 F2 F3 to switch terminals\n\n\n");
+	active_terminal->Write("\n\n\nPress F1..F12 to switch terminals\n\n\n");
 	startMultiTask(task1);
 
 	// we should not reach this point

@@ -13,11 +13,14 @@
 class Keyboard
 {
 public:
+	Keyboard(Interrupts& ints)
+		:interrupts_(ints) {}
 	bool Initialize();
 	void SetActiveTerminal(Terminal* terminal);
 
 private:
-	Terminal *active_terminal = nullptr;
+	Interrupts &interrupts_;
+	Terminal *active_terminal_ = nullptr;
 	static void IRQHandler(Keyboard* object);
 };
 

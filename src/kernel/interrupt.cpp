@@ -1,7 +1,6 @@
 #include "interrupt.h"
 #include "memory.h"
 
-IDTDescriptor IDT[256];
 
 extern "C" {
 int task_switch_irq();
@@ -26,7 +25,9 @@ int irq15();
 int int_80h();
 }
 
-void set_IDT(int index, uint64_t address)
+extern "C" void set_irq_hook(int number, void (*pFunction)(void*), void* data);
+
+void Interrupts::set_IDT(int index, uint64_t address)
 {
 	IDT[index].offset_1 = address & 0xffff;
 	IDT[index].selector = 0x08; /* KERNEL_CODE_SEGMENT_OFFSET */
@@ -37,7 +38,7 @@ void set_IDT(int index, uint64_t address)
 	IDT[index].zero = 0;
 }
 
-void clr_IDT(int index)
+void Interrupts::clr_IDT(int index)
 {
 	IDT[index].offset_1 = 0;
 	IDT[index].selector = 0;
@@ -58,7 +59,7 @@ static inline void lidt(void* base, uint16_t size)
 	asm volatile ( "lidt %0" : : "m"(IDTR) );  // let the compiler choose an addressing mode
 }
 
-void idt_init()
+bool Interrupts::Initialize()
 {
 	asm volatile ("cli");
 	for(int i = 0; i < 256; i++)
@@ -107,6 +108,11 @@ void idt_init()
 	lidt(IDT, 256 * sizeof(IDTDescriptor));
 	asm volatile ("int $0x80");
 	asm volatile ("sti");
+}
+
+void Interrupts::SetIRQHandler(int number, void (*pFunction)(void *), void *data)
+{
+	set_irq_hook(number, pFunction, data);
 }
 
 

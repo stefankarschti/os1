@@ -115,11 +115,11 @@ void Keyboard::IRQHandler(Keyboard *object)
 	if(KernelKeyboardHook(scancode))
 	{
 		// print char to active terminal if any
-		if(object->active_terminal && !brk)
+		if(object->active_terminal_ && !brk)
 		{
 			char txt[4];
 			txt[0] = key_to_char(key);
-			object->active_terminal->KeyPress(txt[0], scancode);
+			object->active_terminal_->KeyPress(txt[0], scancode);
 //			if(txt[0] == '\n' || isprint(txt[0]))
 //			{
 //				txt[1] = 0;
@@ -131,11 +131,11 @@ void Keyboard::IRQHandler(Keyboard *object)
 
 bool Keyboard::Initialize()
 {
-	set_irq_hook(1, (void (*)(void*))IRQHandler, this); // hook keyboard irq
-
+	interrupts_.SetIRQHandler(1, (void (*)(void*))IRQHandler, this); // hook keyboard irq
+	return true; // I guess
 }
 
 void Keyboard::SetActiveTerminal(Terminal *terminal)
 {
-	active_terminal = terminal;
+	active_terminal_ = terminal;
 }
