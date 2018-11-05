@@ -68,16 +68,33 @@ uint16_t SetTimer(uint16_t frequency)
 bool KernelKeyboardHook(uint16_t scancode)
 {
 	// switch terminal hotkey
-	uint16_t baseKey = 0x3B;
-	if(scancode >= baseKey && scancode < baseKey + kNumTerminals)
+	uint16_t hotkey[kNumTerminals] =  {0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x57, 0x58};
+	int index = -1;
+	for(int i = 0; i < kNumTerminals; i++)
 	{
-		int index = scancode - baseKey;
-		if(active_terminal)
-			active_terminal->Unlink();
-		active_terminal = &terminal[index];
-		active_terminal->Link();
-		keyboard.SetActiveTerminal(active_terminal);
+		if(scancode == hotkey[i])
+		{
+			index = i;
+			break;
+		}
 	}
+	if(index >= 0)
+	{
+		if(active_terminal != &terminal[index])
+		{
+			if(active_terminal)
+				active_terminal->Unlink();
+			active_terminal = &terminal[index];
+			active_terminal->Link();
+			keyboard.SetActiveTerminal(active_terminal);
+		}
+	}
+
+	// debug print scan code
+//	uint16_t *screen = (uint16_t*)0xB8000;
+//	const char *digit = "0123456789ABCDEF";
+//	screen[160] = digit[(scancode >> 4) & 0xf] + (7<<8);
+//	screen[161] = digit[scancode & 0xf] + (7<<8);
 }
 
 void KernelMain(SystemInformation *info)
@@ -87,6 +104,10 @@ void KernelMain(SystemInformation *info)
 	{
 		terminal[i].SetBuffer(terminal_buffer[i]);
 		terminal[i].Clear();
+		char temp[16];
+		itoa(i + 1, temp, 10);
+		terminal[i].Write("Terminal ");
+		terminal[i].WriteLn(temp);
 	}
 
 	// activate terminal 0

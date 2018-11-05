@@ -120,20 +120,20 @@ void irq15_handler(void) {
 void int_handler(int number)
 {
 	// software interrupt
-	if(0x80 == number)
-	{
-		// got it
-		uint16_t *screen = (uint16_t*)0xB8000;
-		screen[80] = '8' + (7<<8);
-		screen[81] = '0' + (7<<8);
-		screen[82] = 'h' + (7<<8);
-	}
-	else
-	{
-		// got it
-		uint16_t *screen = (uint16_t*)0xB8000;
-		screen[80] = '?' + (7<<8);
-		screen[81] = '?' + (7<<8);
-		screen[82] = '?' + (7<<8);
-	}
+//	if(0x80 == number)
+//	{
+//		// got it
+//		uint16_t *screen = (uint16_t*)0xB8000;
+//		screen[80] = '8' + (7<<8);
+//		screen[81] = '0' + (7<<8);
+//		screen[82] = 'h' + (7<<8);
+//	}
+//	else
+//	{
+//		// got it
+//		uint16_t *screen = (uint16_t*)0xB8000;
+//		screen[80] = '?' + (7<<8);
+//		screen[81] = '?' + (7<<8);
+//		screen[82] = '?' + (7<<8);
+//	}
 }

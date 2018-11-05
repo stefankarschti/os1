@@ -23,8 +23,8 @@ public:
 
 private:
 	IDTDescriptor IDT[256];
-	void set_IDT(int index, uint64_t address);
-	void clr_IDT(int index);
+	void SetIDT(int index, uint64_t address);
+	void ClearIDT(int index);
 };
 
 #endif 
