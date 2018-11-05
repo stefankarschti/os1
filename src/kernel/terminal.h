@@ -21,6 +21,8 @@ public:
 	void Write(const char* str);
 	void Write(const char c);
 	void WriteLn(const char* str);
+	void WriteInt(uint64_t value, int base = 10, int minimum_digits = 1);
+	void WriteIntLn(uint64_t value, int base = 10, int minimum_digits = 1);
 
 	void ReadLn(char *line);
 	void KeyPress(char ascii, uint16_t scancode);

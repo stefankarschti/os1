@@ -1,9 +1,10 @@
 #ifndef PAGEFRAME_H
 #define PAGEFRAME_H
 
-#include "stdint.h"
-#include "stddef.h"
+#include <stdint.h>
+#include <stddef.h>
 #include "sysinfo.h"
+#include "terminal.h"
 
 /**
  * @brief The PageFrameContainer class
@@ -12,11 +13,11 @@
 class PageFrameContainer
 {
 public:
-	PageFrameContainer();
-	bool Initialize(SystemInformation *info);
+	bool Initialize(SystemInformation *info, Terminal &debug);
 	uint64_t MemorySize() { return memory_size_; }
 	uint64_t MemoryEnd() { return memory_end_address_; }
 	uint64_t PageCount() { return page_count_; }
+	uint64_t FreePageCount() { return free_page_count_; }
 
 private:
 	/**
@@ -33,6 +34,7 @@ private:
 	 * @brief page_count_
 	 */
 	uint64_t page_count_ = 0;
+	uint64_t free_page_count_ = 0;
 
 	/**
 	 * @brief bitmap_ contains 1 bit for every page:
@@ -54,7 +56,7 @@ private:
 	 *	done:
 	 *		; NOT FOUND
 	 */
-	uint64_t *bitmap_ = (uint64_t*)(0x0);
+	uint64_t *bitmap_ = (uint64_t*)(0x1C000);
 	/**
 	 * @brief bitmap_size_ number of qwords
 	 */

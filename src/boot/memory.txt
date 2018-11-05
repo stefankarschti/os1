@@ -30,7 +30,7 @@ A000h	4000h	memory_pages	16k
 10000h	1000h	terminal1		4k
 ... 	1000h	...				4k
 1B000h	1000h	terminal12		4k
-1C000h	83C00h	free			563k
+1C000h	83C00h	free			527k
 9FC00h	60400h	unusable		385k 
 100000h	10000h	kernel64		64k
 110000h	50000h	kernel stack	320k

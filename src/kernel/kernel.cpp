@@ -128,7 +128,7 @@ void KernelMain(SystemInformation *info)
 		itoa(b.type, temp, 16);			active_terminal->Write(temp); active_terminal->Write('\n');
 	}
 
-	bool result = page_frames.Initialize(info);
+	bool result = page_frames.Initialize(info, terminal[kNumTerminals - 1]);
 	if(result)
 		active_terminal->WriteLn("Page frame initialization successful");
 	else
@@ -143,7 +143,8 @@ void KernelMain(SystemInformation *info)
 		num = page_frames.MemorySize() >> 20; // MB
 		itoa(num, temp, 10);
 		active_terminal->Write("Memory size ");
-		active_terminal->WriteLn(temp);
+		active_terminal->Write(temp);
+		active_terminal->WriteLn("MB");
 
 		num = page_frames.MemoryEnd();
 		itoa(num, temp, 16, 16);
@@ -152,11 +153,17 @@ void KernelMain(SystemInformation *info)
 
 		num = page_frames.PageCount();
 		itoa(num, temp, 10);
-		active_terminal->Write("Page count ");
 		active_terminal->Write(temp);
-		uint64_t num2 = (num + 7) / 8;
+		active_terminal->WriteLn(" total pages");
+
+		num = page_frames.FreePageCount();
+		itoa(num, temp, 10);
+		active_terminal->Write(temp);
+		active_terminal->WriteLn(" free pages");
+
+		uint64_t num2 = (page_frames.PageCount() + 7) / 8;
 		itoa(num2, temp, 10);
-		active_terminal->Write(", bitmap size is ");
+		active_terminal->Write("Bitmap size is ");
 		active_terminal->Write(temp);
 		active_terminal->WriteLn(" bytes\n");
 	}

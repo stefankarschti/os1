@@ -1,5 +1,6 @@
 #include "terminal.h"
 #include "memory.h"
+#include "../libc/stdlib.h"
 
 void Terminal::Clear()
 {
@@ -69,6 +70,19 @@ void Terminal::WriteLn(const char *str)
 	}
 	InternalWrite('\n');
 	MoveCursor(row_, col_);
+}
+
+void Terminal::WriteInt(uint64_t value, int base, int minimum_digits)
+{
+	char temp[256];
+	itoa(value, temp, base, minimum_digits);
+	Write(temp);
+}
+
+void Terminal::WriteIntLn(uint64_t value, int base, int minimum_digits)
+{
+	WriteInt(value, base, minimum_digits);
+	Write('\n');
 }
 
 void Terminal::ReadLn(char *line)
