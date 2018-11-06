@@ -108,6 +108,7 @@ bool Interrupts::Initialize()
 	lidt(IDT, 256 * sizeof(IDTDescriptor));
 	asm volatile ("int $0x80");
 	asm volatile ("sti");
+	return true;
 }
 
 void Interrupts::SetIRQHandler(int number, void (*pFunction)(void *), void *data)

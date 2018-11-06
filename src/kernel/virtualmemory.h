@@ -16,9 +16,13 @@ class VirtualMemory
 {
 public:
 	VirtualMemory(PageFrameContainer &frames);
-	void SetBaseAddress(uint64_t address);
-	bool Allocate(size_t num_pages);
+	bool Initialize(uint64_t address, uint64_t num_pages); // single mode
+
+	// TODO: add VM range management
 	size_t Size();
+
+private:
+	PageFrameContainer &frames_;
 };
 
 #endif // VIRTUALMEMORY_H

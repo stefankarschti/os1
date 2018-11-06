@@ -13,11 +13,25 @@
 class PageFrameContainer
 {
 public:
-	bool Initialize(SystemInformation *info, Terminal &debug);
+	bool Initialize(SystemInformation *info);
 	uint64_t MemorySize() { return memory_size_; }
 	uint64_t MemoryEnd() { return memory_end_address_; }
 	uint64_t PageCount() { return page_count_; }
 	uint64_t FreePageCount() { return free_page_count_; }
+
+	/**
+	 * @brief Allocate one page
+	 * @param address output page address
+	 * @return bool true if success
+	 */
+	bool Allocate(uint64_t &address);
+
+	/**
+	 * @brief Free one page
+	 * @param address Address of the page
+	 * @return bool True if success
+	 */
+	bool Free(uint64_t address);
 
 private:
 	/**

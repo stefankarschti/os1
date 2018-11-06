@@ -6,16 +6,14 @@
  * @param info Pointer to system information
  * @return true for success
  */
-bool PageFrameContainer::Initialize(SystemInformation *info, Terminal& debug)
+bool PageFrameContainer::Initialize(SystemInformation *info)
 {
 	bool result = false;
 	memory_size_ = 0;
 	memory_end_address_ = 0;
-	debug.WriteInt(info->num_memory_blocks); debug.WriteLn(" memory blocks");
 	for(size_t i = 0; i < info->num_memory_blocks; i++)
 	{
 		MemoryBlock &b = info->memory_blocks[i];
-		debug.Write("(1) "); debug.WriteInt(b.start, 16, 16); debug.Write(' '); debug.WriteInt(b.length, 16, 16); debug.Write(' '); debug.WriteIntLn(b.type);
 		if(1 == b.type)
 		{
 			memory_size_ += b.length;
@@ -28,21 +26,17 @@ bool PageFrameContainer::Initialize(SystemInformation *info, Terminal& debug)
 
 	// set up page frame bitmap
 	bitmap_ = (uint64_t*)(0x1C000);
-	debug.Write("bitmap "); debug.WriteIntLn((uint64_t)bitmap_, 16, 16);
 	if(memory_size_ > 0 && memory_end_address_ > 0)
 	{
 		page_count_ = memory_end_address_ >> 12;
 		bitmap_size_ = ((page_count_ + 7) / 8 + 7) / 8; // number of qwords, round up
 
-		debug.Write("bitmap size "); debug.WriteIntLn(bitmap_size_);
-		// TODO: check fit into memory
-//		if(bitmap_ + bitmap_size_ <= (uint64_t*)0xA000)
+		// TODO: correct check fit into memory
+		if(bitmap_ + bitmap_size_ <= (uint64_t*)0x9FC00)
 		{
 			// set all pages to '0' = not available
 			// this takes care of any memory gaps
-			debug.WriteLn("set all to zero");
 			memsetq(bitmap_, 0, bitmap_size_ * 8);
-
 			result = true;
 		}
 	}
@@ -50,17 +44,14 @@ bool PageFrameContainer::Initialize(SystemInformation *info, Terminal& debug)
 	// paint pages in bitmap according to availability
 	if(result)
 	{
-		debug.WriteInt(info->num_memory_blocks); debug.WriteLn(" memory blocks");
 		for(size_t i = 0; i < info->num_memory_blocks; i++)
 		{
 			MemoryBlock &b = info->memory_blocks[i];
-			debug.Write("(2) "); debug.WriteInt(b.start, 16, 16); debug.Write(' '); debug.WriteInt(b.length, 16, 16); debug.Write(' '); debug.WriteIntLn(b.type);
 			if(1 == b.type)
 			{
 				// check page start aligned
 				if(b.start & 0xFFF)
 				{
-					debug.WriteLn("break1");
 					result = false;
 					break;
 				}
@@ -72,12 +63,9 @@ bool PageFrameContainer::Initialize(SystemInformation *info, Terminal& debug)
 				uint64_t ifirst = start_page / 64;
 				uint64_t ilast = end_page / 64;
 
-				debug.WriteInt(ifirst); debug.Write(' '); debug.WriteIntLn(ilast);
-
 				// deal with whole qwords
 				if(ifirst + 1 < ilast)
 				{
-					debug.Write("set "); debug.WriteInt(ifirst + 1); debug.Write(' '); debug.WriteIntLn(ilast);
 					memsetq(bitmap_ + ifirst + 1, 0xFFFFFFFFFFFFFFFF, 8 * (ilast - ifirst - 1));
 				}
 
@@ -99,12 +87,9 @@ bool PageFrameContainer::Initialize(SystemInformation *info, Terminal& debug)
 		auto p = bitmap_;
 		while(p < bitmap_end)
 		{
-			uint64_t val = *p;
-			debug.WriteInt(val, 2, 64);
-			debug.Write(' ');
-
 			if(*p)
 			{
+				uint64_t val = *p;
 				// at least 1 page free
 				int bit_count = 64;
 				while(bit_count-- && ipage < page_count_)
@@ -120,5 +105,64 @@ bool PageFrameContainer::Initialize(SystemInformation *info, Terminal& debug)
 		free_page_count_ = num_pages;
 	}
 
+	return result;
+}
+
+bool PageFrameContainer::Allocate(uint64_t &address)
+{
+	// TODO: check for successful initialization
+	// TODO: mark last first free qword to speed up next search
+	auto bitmap_end = bitmap_ + bitmap_size_;
+	auto p = bitmap_;
+	uint64_t ipage = 0;
+	while(p < bitmap_end)
+	{
+		if(*p)
+		{
+			uint64_t val = *p;
+			// at least 1 page free
+			int bit_count = 64;
+			while(bit_count-- && ipage < page_count_)
+			{
+				if(val & 1)
+				{
+					// this page is free
+					address = ipage << 12;
+
+					// mark as occupied
+					uint64_t mask = 1ull << (ipage % 64);
+					mask = ~mask;
+					*p &= mask;
+
+					// return this one
+					return true;
+				}
+				val >>= 1;
+				ipage++;
+			}
+		}
+		p++;
+	}
+	return false;
+}
+
+bool PageFrameContainer::Free(uint64_t address)
+{
+	// TODO: check address align
+	// TODO: check against unavailable memory pages
+	bool result = false;
+	uint64_t ipage = address >> 12;
+	if(ipage < page_count_)
+	{
+		auto p = bitmap_ + ipage / 64;
+
+		// check if occupied
+		uint64_t mask = 1ull << (ipage % 64);
+		if(0 == (*p & mask))
+		{
+			*p |= mask; // mark as free
+			result = true;
+		}
+	}
 	return result;
 }

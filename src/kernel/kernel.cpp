@@ -119,16 +119,7 @@ void KernelMain(SystemInformation *info)
 
 	// VM
 	active_terminal->WriteLn("[elf_kernel64] initializing page frame allocator");
-	for(int i = 0; i < info->num_memory_blocks; ++i)
-	{
-		char temp[32];
-		MemoryBlock &b = info->memory_blocks[i];
-		itoa(b.start, temp, 16, 16);	active_terminal->Write(temp); active_terminal->Write(" ");
-		itoa(b.length, temp, 16, 16);	active_terminal->Write(temp); active_terminal->Write(" ");
-		itoa(b.type, temp, 16);			active_terminal->Write(temp); active_terminal->Write('\n');
-	}
-
-	bool result = page_frames.Initialize(info, terminal[kNumTerminals - 1]);
+	bool result = page_frames.Initialize(info);
 	if(result)
 		active_terminal->WriteLn("Page frame initialization successful");
 	else
@@ -166,6 +157,35 @@ void KernelMain(SystemInformation *info)
 		active_terminal->Write("Bitmap size is ");
 		active_terminal->Write(temp);
 		active_terminal->WriteLn(" bytes\n");
+
+		// test allocation
+		uint64_t address = 0xFFFFFFFFFFFFFFFF;
+		for(int i = 0; i < 10; i++)
+		{
+			result = page_frames.Allocate(address);
+			if(result)
+			{
+				active_terminal->Write("page_frame.Allocate returned ");
+				active_terminal->WriteIntLn(address, 16, 16);
+			}
+			else
+			{
+				active_terminal->WriteLn("page_frame.Allocate failed");
+			}
+		}
+		for(int i = 0; i < 10; i++)
+		{
+			address = 0x1000 * i;
+			result = page_frames.Free(address);
+			if(result)
+			{
+				active_terminal->WriteLn("page_frame.Free success");
+			}
+			else
+			{
+				active_terminal->WriteLn("page_frame.Free failed");
+			}
+		}
 	}
 
 	// set up interrupts
