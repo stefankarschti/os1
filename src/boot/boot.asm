@@ -1,9 +1,9 @@
 [bits 16]
 [org 0x7c00]
-kernel_main16		equ 0x1000           ; Location for kernel in memory
+loader_main16		equ 0x1000           ; Location for kernel in memory
 _start:
 	jmp 0 : _main
-kernel_num_sectors	db 8
+loader_num_sectors	dw 8
 _main:
 	cli
 	mov ax, cs
@@ -28,19 +28,15 @@ _main:
 	mov si, str_crlf
 	call print16
 	
-	mov bx, kernel_main16	                ; ES:BX = Address to load kernel into
-	mov dh, [kernel_num_sectors]            ; DH    = Number of sectors to load
+	mov di, loader_main16	                ; ES:DI = Address to load kernel into
+	xor ebx, ebx
+	mov eax, 1								; EBX:EAX = start LBA address
 	mov dl, [boot_device]                   ; DL    = Drive number to load from
-	mov cl, 1								; CL	= start sector
-	call disk_read_lba                  ; Call disk load function
+	mov cx, word [loader_num_sectors]       ; CX    = Number of sectors to load
+	call disk_read_lba		                ; Call disk load function
 	jc .disk_error
 
-	mov ax, [kernel_main16]
-	call print16_whex
-	mov si, str_crlf
-	call print16
-
-	mov ax, [kernel_main16]
+	mov ax, [loader_main16]
 	xor ax, 0x7733
 	jz .go
 	mov si, str_sig_err
@@ -48,7 +44,7 @@ _main:
 	jmp .stop	
 .go:
 	mov dl, [boot_device]
-	jmp kernel_main16 + 2						; call kernel16 main
+	jmp loader_main16 + 2						; call kernel16 main
 .disk_error:
 	mov si, str_disk_error
 	call print16

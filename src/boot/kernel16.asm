@@ -30,16 +30,16 @@ p_memsz		resq	1
 memory_blocks resb memory_block_struct_size * 20
 ;...
 
-kernel_image	equ 	0x2000		; ELF kernel image 32k
 memory_pages	equ		0xA000		; Pointer to pages 16k
+kernel_image	equ 	0x10000		; ELF kernel image 64k
 
 section .text
 [org 0x1000]
 [bits 16]
 	dw	0x7733
-kernel_main16:
+loader_main16:
 	mov [boot_device], dl
-	mov si, str_kernel16_hello
+	mov si, str_loader16_hello
 	call print16
 	
 	; enable A20
@@ -69,14 +69,17 @@ kernel_main16:
 	jc no_long_mode
 
 	; load kernel64.elf
-	mov bx, kernel_image	            ; ES:BX = Address to load kernel into
-	mov dh, 64		                	; DH    = Number of sectors to load
+	mov ax, kernel_image >> 4
+	mov	es, ax
+	mov di, 0				            ; ES:DI = Address to load kernel into
+	xor ebx, ebx
+	mov eax, 9							; EBX:EAX = start LBA address
 	mov dl, [boot_device]               ; DL    = Drive number to load from
-	mov cl, 9							; CL	= start sector
+	mov cx, 128		                	; CX    = Number of sectors to load
 	call disk_read_lba              	; Call disk load function
 	jc .disk_error
 	; success
-	mov eax, [kernel_image]
+	mov eax, [es:0]
 	cmp eax, 0x464C457F
 	jne .elf_error
 	jmp .next
@@ -91,7 +94,9 @@ kernel_main16:
 	hlt
 	jmp .stop
 .next:	
-	
+	xor ax, ax
+	mov es, ax
+
 	; save cursor position
 	mov ah, 03h
 	xor bh, bh
@@ -130,12 +135,12 @@ no_long_mode:
 crlf		   	db 13, 10, 0
 newline			db 10, 0
 space		   	db " ", 0
-str_kernel16_hello   	db "[kernel16] hello", 13, 10, 0
-str_no_long_mode   		db "[kernel16] 64bit mode not available", 13, 10, 0
-str_e820_failed			db "[kernel16] Memory detection failed", 13, 10, 0
-str_elf_fail_disk    	db "[kernel16] ELF load disk error", 13, 10, 0
-str_elf_fail_check    	db "[kernel16] ELF check failed", 13, 10, 0
-str_a20					db "[kernel16] A20 ", 0
+str_loader16_hello   	db "[loader16] hello", 13, 10, 0
+str_no_long_mode   		db "[loader16] 64bit mode not available", 13, 10, 0
+str_e820_failed			db "[loader16] Memory detection failed", 13, 10, 0
+str_elf_fail_disk    	db "[loader16] ELF load disk error", 13, 10, 0
+str_elf_fail_check    	db "[loader16] ELF check failed", 13, 10, 0
+str_a20					db "[loader16] A20 ", 0
 str_on					db "on", 0
 str_off					db "off", 0
 boot_device 			db 0x00
@@ -147,8 +152,8 @@ boot_device 			db 0x00
 %include "console64.asm"
 
 [bits 64]
-kernel_main64:
-	mov rsi, str_kernel_hello
+loader_main64:
+	mov rsi, str_loader_hello
 	call print64
 
 	;; expand the kernel ELF at [kernel_image] (quick and dirty = no checks)
@@ -240,8 +245,7 @@ kernel_main64:
 	jmp $ ; stop here
 
 ; Data
-str_kernel_hello	db "[kernel64] hello", 10, 0 
-str_debug			db "[kernel64] debug", 10, 0
+str_loader_hello	db "[loader64] hello", 10, 0
 hexdigit			db "0123456789ABCDEF",0
 
 ; Tail

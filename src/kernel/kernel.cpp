@@ -102,7 +102,7 @@ bool KernelKeyboardHook(uint16_t scancode)
 
 void KernelMain(SystemInformation *info)
 {
-	debug.Write("[elf_kernel64] hello!\n");
+	debug.Write("[kernel64] hello!\n");
 
 	// deep copy system information
 	SystemInformation sysinfo = *info;
@@ -126,7 +126,7 @@ void KernelMain(SystemInformation *info)
 	active_terminal->MoveCursor(sysinfo.cursory, sysinfo.cursorx);
 
 	// greetings
-	active_terminal->WriteLn("[elf_kernel64] hello");
+	active_terminal->WriteLn("[kernel64] hello");
 
 	// print memory map
 	for(size_t i = 0; i < sysinfo.num_memory_blocks; i++)
@@ -138,7 +138,7 @@ void KernelMain(SystemInformation *info)
 	}
 
 	// VM
-	active_terminal->WriteLn("[elf_kernel64] initializing page frame allocator");
+	active_terminal->WriteLn("[kernel64] initializing page frame allocator");
 	bool result = page_frames.Initialize(&sysinfo);
 	if(result)
 		active_terminal->WriteLn("Page frame initialization successful");
@@ -218,7 +218,7 @@ void KernelMain(SystemInformation *info)
 	//vm.Initialize(0, 16 * 1024 * 1024 / 4096);
 
 	// set up interrupts
-	active_terminal->WriteLn("[elf_kernel64] setting up interrupts");
+	active_terminal->WriteLn("[kernel64] setting up interrupts");
 	result = interrupts.Initialize();
 	if(result)
 		active_terminal->WriteLn("Interrupts initialization successful");
@@ -226,7 +226,7 @@ void KernelMain(SystemInformation *info)
 		active_terminal->WriteLn("Interrupts initialization failed");
 
 	// set up keyboard
-	active_terminal->WriteLn("[elf_kernel64] starting keyboard");
+	active_terminal->WriteLn("[kernel64] starting keyboard");
 	keyboard.Initialize();
 	keyboard.SetActiveTerminal(active_terminal);
 

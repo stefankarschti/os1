@@ -14,9 +14,11 @@ start	length	description
 400h	200h	bss				512b
 600h	400h	stack			1k
 1000h	1000h	kernel_main16	4k		kernel16.bin
-2000h	8000h	kernel_image	32k		kernel64.elf
+2000h	8000h	free			64k
 A000h	4000h	memory_pages 	16k
-E000h	91C00h	free			583k
+*				free
+10000h	10000h	kernel_image	64k		kernel64.elf
+20000h	7FC00h	free			519k
 9FC00h	60400h	unusable		385k 
 100000h	10000h	kernel64		64k
 110000h	50000h	kernel stack	320k

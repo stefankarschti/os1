@@ -170,6 +170,6 @@ LongMode:
     mov eax, 0x1F741F69
     mov [rdi + 8], eax
  
-    jmp kernel_main64
+	jmp loader_main64
 
     
