@@ -34,7 +34,7 @@ A000h	4000h	memory_pages	16k
 9FC00h	60400h	unusable		385k 
 100000h	10000h	kernel64		64k
 110000h	50000h	kernel stack	320k
-160000h	*		free
+160000h	*		free 
 200000h
 
 

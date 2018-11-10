@@ -16,11 +16,12 @@ bool PageFrameContainer::Initialize(SystemInformation *info)
 		MemoryBlock &b = info->memory_blocks[i];
 		if(1 == b.type)
 		{
+			// add to usable memory size
 			memory_size_ += b.length;
-			if(memory_end_address_ < b.start + b.length)
-			{
-				memory_end_address_ = b.start + b.length;
-			}
+		}
+		if(memory_end_address_ < b.start + b.length)
+		{
+			memory_end_address_ = b.start + b.length;
 		}
 	}
 
@@ -105,6 +106,37 @@ bool PageFrameContainer::Initialize(SystemInformation *info)
 		free_page_count_ = num_pages;
 	}
 
+	// mark bitmap_ pages as occupied
+	if(result)
+	{
+		uint64_t p = (uint64_t)bitmap_;
+		uint64_t bitmap_end = (uint64_t)(bitmap_ + bitmap_size_);
+		do
+		{
+			// set page occupied
+			SetBusy(p);
+
+			// next
+			p += 0x1000;
+		}
+		while(p < bitmap_end);
+	}
+
+	// mark kernel pages occupied
+	if(result)
+	{
+		uint64_t p = 0x0;
+		uint64_t end = 0x200000; // 2M
+		while(p < end)
+		{
+			// set page occupied
+			SetBusy(p);
+
+			// next
+			p += 0x1000;
+		}
+	}
+
 	return result;
 }
 
@@ -165,4 +197,16 @@ bool PageFrameContainer::Free(uint64_t address)
 		}
 	}
 	return result;
+}
+
+void PageFrameContainer::SetFree(uint64_t address)
+{
+	uint64_t ipage = address >> 12;
+	bitmap_[ipage / 64] |= (1ull << (ipage % 64));
+}
+
+void PageFrameContainer::SetBusy(uint64_t address)
+{
+	uint64_t ipage = address >> 12;
+	bitmap_[ipage / 64] &= ~(1ull << (ipage % 64));
 }

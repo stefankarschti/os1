@@ -9,7 +9,9 @@
 #include "../libc/stdlib.h"
 #include "task.h"
 #include "pageframe.h"
+#include "virtualmemory.h"
 #include "keyboard.h"
+#include "debug.h"
 
 // system
 Interrupts interrupts;
@@ -99,15 +101,20 @@ bool KernelKeyboardHook(uint16_t scancode)
 
 void KernelMain(SystemInformation *info)
 {
+	debug.Write("hello!\n");
+	// deep copy system information
+	SystemInformation sysinfo = *info;
+	MemoryBlock memory_blocks[sysinfo.num_memory_blocks];
+	memcpy(memory_blocks, info->memory_blocks, sizeof(MemoryBlock) * sysinfo.num_memory_blocks);
+	sysinfo.memory_blocks = memory_blocks;
+
 	// initialize terminals
 	for(size_t i = 0; i < kNumTerminals; ++i)
 	{
 		terminal[i].SetBuffer(terminal_buffer[i]);
 		terminal[i].Clear();
-		char temp[16];
-		itoa(i + 1, temp, 10);
 		terminal[i].Write("Terminal ");
-		terminal[i].WriteLn(temp);
+		terminal[i].WriteIntLn(i + 1);
 	}
 
 	// activate terminal 0
@@ -117,9 +124,18 @@ void KernelMain(SystemInformation *info)
 	// greetings
 	active_terminal->WriteLn("[elf_kernel64] hello");
 
+	// print memory map
+	for(size_t i = 0; i < sysinfo.num_memory_blocks; i++)
+	{
+		MemoryBlock &b = sysinfo.memory_blocks[i];
+		debug.WriteInt(b.start, 16, 16); debug.Write(' ');
+		debug.WriteInt(b.length, 16, 16); debug.Write(' ');
+		debug.WriteIntLn(b.type);
+	}
+
 	// VM
 	active_terminal->WriteLn("[elf_kernel64] initializing page frame allocator");
-	bool result = page_frames.Initialize(info);
+	bool result = page_frames.Initialize(&sysinfo);
 	if(result)
 		active_terminal->WriteLn("Page frame initialization successful");
 	else
@@ -156,37 +172,46 @@ void KernelMain(SystemInformation *info)
 		itoa(num2, temp, 10);
 		active_terminal->Write("Bitmap size is ");
 		active_terminal->Write(temp);
-		active_terminal->WriteLn(" bytes\n");
+		active_terminal->WriteLn(" bytes");
 
-		// test allocation
-		uint64_t address = 0xFFFFFFFFFFFFFFFF;
-		for(int i = 0; i < 10; i++)
+		if((false))
 		{
-			result = page_frames.Allocate(address);
-			if(result)
+			// test allocation
+			uint64_t address = 0xFFFFFFFFFFFFFFFF;
+			for(int i = 0; i < 10; i++)
 			{
-				active_terminal->Write("page_frame.Allocate returned ");
-				active_terminal->WriteIntLn(address, 16, 16);
+				result = page_frames.Allocate(address);
+				if(result)
+				{
+					active_terminal->Write("page_frame.Allocate returned ");
+					active_terminal->WriteIntLn(address, 16, 16);
+				}
+				else
+				{
+					active_terminal->WriteLn("page_frame.Allocate failed");
+				}
 			}
-			else
+			// test deallocation
+			for(int i = 0; i < 10; i++)
 			{
-				active_terminal->WriteLn("page_frame.Allocate failed");
-			}
-		}
-		for(int i = 0; i < 10; i++)
-		{
-			address = 0x1000 * i;
-			result = page_frames.Free(address);
-			if(result)
-			{
-				active_terminal->WriteLn("page_frame.Free success");
-			}
-			else
-			{
-				active_terminal->WriteLn("page_frame.Free failed");
+				address = 0x1000 * i;
+				result = page_frames.Free(address);
+				if(result)
+				{
+					active_terminal->WriteLn("page_frame.Free success");
+				}
+				else
+				{
+					active_terminal->WriteLn("page_frame.Free failed");
+				}
 			}
 		}
 	}
+
+	// set up VM for kernel
+	VirtualMemory vm(page_frames);
+	active_terminal->WriteLn("Allocating 16M virtual memory");
+	//vm.Initialize(0, 16 * 1024 * 1024 / 4096);
 
 	// set up interrupts
 	active_terminal->WriteLn("[elf_kernel64] setting up interrupts");
@@ -210,7 +235,7 @@ void KernelMain(SystemInformation *info)
 	Task* task3 = newTask((void*)process3, stack3, 512);
 
 	// start multitasking
-	active_terminal->Write("\n\n\nPress F1..F12 to switch terminals\n\n\n");
+	active_terminal->WriteLn("Press F1..F12 to switch terminals");
 	startMultiTask(task1);
 
 	// we should not reach this point

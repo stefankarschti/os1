@@ -15,14 +15,22 @@
 class VirtualMemory
 {
 public:
+	static const uint64_t PAGE_PRESENT	= 1 << 0;
+	static const uint64_t PAGE_WRITE	= 1 << 1;
+
 	VirtualMemory(PageFrameContainer &frames);
 	bool Initialize(uint64_t address, uint64_t num_pages); // single mode
+	void Free();
 
 	// TODO: add VM range management
-	size_t Size();
+	uint64_t Size();
 
 private:
 	PageFrameContainer &frames_;
+	bool initialized_;
+	uint64_t pag4_;
+
+	void InternalFree(uint64_t* pag, int level);
 };
 
 #endif // VIRTUALMEMORY_H

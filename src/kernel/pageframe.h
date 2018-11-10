@@ -75,6 +75,9 @@ private:
 	 * @brief bitmap_size_ number of qwords
 	 */
 	uint64_t bitmap_size_ = 0;
+
+	void SetFree(uint64_t address);
+	void SetBusy(uint64_t address);
 };
 
 #endif // PAGEFRAME_H

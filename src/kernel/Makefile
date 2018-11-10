@@ -1,13 +1,14 @@
 .PHONY: default
 default: all ;
 
-CFLAGS=-std=gnu99 -ffreestanding -O -Wall -Wextra -fno-asynchronous-unwind-tables
-CPPFLAGS=-std=c++14 -ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables
+INCLUDE=../libc
+CFLAGS=-I$(INCLUDE) -std=gnu99 -ffreestanding -O -Wall -Wextra -fno-asynchronous-unwind-tables
+CPPFLAGS=-I$(INCLUDE) -std=c++14 -ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables
 LDSCRIPT=linker2.ld
 
 all: kernel64.elf
 
-kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o
 	$(LD) -T $(LDSCRIPT) \
 	$(BUILD_DIR)kernel.o \
 	$(BUILD_DIR)memory.o \
@@ -20,6 +21,7 @@ kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o s
 	$(BUILD_DIR)keyboard.o \
 	$(BUILD_DIR)pageframe.o \
 	$(BUILD_DIR)virtualmemory.o \
+	$(BUILD_DIR)debug.o \
 	-o $(BUILD_DIR)$@ -n
 
 memory.o: memory.asm
@@ -53,6 +55,9 @@ pageframe.o: pageframe.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 virtualmemory.o: virtualmemory.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+debug.o: debug.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 clean:
