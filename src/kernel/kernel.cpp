@@ -128,22 +128,10 @@ void KernelMain(SystemInformation *info)
 	// greetings
 	active_terminal->WriteLn("[kernel64] hello");
 
-	// print memory map
-	for(size_t i = 0; i < sysinfo.num_memory_blocks; i++)
-	{
-		MemoryBlock &b = sysinfo.memory_blocks[i];
-		debug.WriteInt(b.start, 16, 16); debug.Write(' ');
-		debug.WriteInt(b.length, 16, 16); debug.Write(' ');
-		debug.WriteIntLn(b.type);
-	}
-
-	// VM
+	// initialize page frames
 	active_terminal->WriteLn("[kernel64] initializing page frame allocator");
-	bool result = page_frames.Initialize(&sysinfo);
-	if(result)
-		active_terminal->WriteLn("Page frame initialization successful");
-	else
-		active_terminal->WriteLn("Page frame initialization failed");
+	bool result = page_frames.Initialize(sysinfo);
+	active_terminal->WriteLn(result ? "Success" : "Failure");
 
 	// print page frame debug info
 	{
@@ -214,8 +202,8 @@ void KernelMain(SystemInformation *info)
 
 	// set up VM for kernel
 	VirtualMemory vm(page_frames);
-	active_terminal->WriteLn("Allocating 16M virtual memory");
-	//vm.Initialize(0, 16 * 1024 * 1024 / 4096);
+	active_terminal->WriteLn("Allocating some virtual memory");
+	vm.Initialize(0, 16 * 256);
 
 	// set up interrupts
 	active_terminal->WriteLn("[kernel64] setting up interrupts");

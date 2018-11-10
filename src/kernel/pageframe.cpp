@@ -7,14 +7,17 @@
  * @param info Pointer to system information
  * @return true for success
  */
-bool PageFrameContainer::Initialize(SystemInformation *info)
+bool PageFrameContainer::Initialize(SystemInformation &info)
 {
 	bool result = false;
 	memory_size_ = 0;
 	memory_end_address_ = 0;
-	for(size_t i = 0; i < info->num_memory_blocks; i++)
+	for(size_t i = 0; i < info.num_memory_blocks; i++)
 	{
-		MemoryBlock &b = info->memory_blocks[i];
+		MemoryBlock &b = info.memory_blocks[i];
+		debug.WriteInt(b.start, 16, 16); debug.Write(' ');
+		debug.WriteInt(b.length, 16, 16); debug.Write(' ');
+		debug.WriteIntLn(b.type);
 		if(1 == b.type)
 		{
 			// add to usable memory size
@@ -27,7 +30,7 @@ bool PageFrameContainer::Initialize(SystemInformation *info)
 	}
 
 	// set up page frame bitmap
-	debug.Write("bitmap_ is ");
+	debug.Write("bitmap_ was ");
 	debug.WriteIntLn((uint64_t)bitmap_, 16);
 	bitmap_ = (uint64_t*)(0x1C000);
 	if(memory_size_ > 0 && memory_end_address_ > 0)
@@ -48,9 +51,9 @@ bool PageFrameContainer::Initialize(SystemInformation *info)
 	// paint pages in bitmap according to availability
 	if(result)
 	{
-		for(size_t i = 0; i < info->num_memory_blocks; i++)
+		for(size_t i = 0; i < info.num_memory_blocks; i++)
 		{
-			MemoryBlock &b = info->memory_blocks[i];
+			MemoryBlock &b = info.memory_blocks[i];
 			if(1 == b.type)
 			{
 				// check page start aligned
@@ -129,7 +132,7 @@ bool PageFrameContainer::Initialize(SystemInformation *info)
 	if(result)
 	{
 		uint64_t p = 0x0;
-		uint64_t end = 0x200000; // 2M
+		uint64_t end = 0x160000;
 		while(p < end)
 		{
 			// set page occupied
@@ -140,24 +143,39 @@ bool PageFrameContainer::Initialize(SystemInformation *info)
 		}
 	}
 
+	// debug page frames
+	if(false)
+	{
+		auto bitmap_end = bitmap_ + bitmap_size_;
+		for(auto p = bitmap_; p < bitmap_end; p++)
+		{
+			debug.WriteInt((p - bitmap_) * 64);
+			debug.Write(' ');
+			debug.WriteIntLn(*p, 2, 64);
+		}
+	}
+
 	return result;
 }
 
 bool PageFrameContainer::Allocate(uint64_t &address)
 {
 	// TODO: check for successful initialization
+	if(0 == bitmap_)
+		return false;
 	// TODO: mark last first free qword to speed up next search
 	auto bitmap_end = bitmap_ + bitmap_size_;
 	auto p = bitmap_;
 	uint64_t ipage = 0;
+//	debug.Write("allocate ");
 	while(p < bitmap_end)
 	{
 		if(*p)
 		{
-			uint64_t val = *p;
 			// at least 1 page free
-			int bit_count = 64;
-			while(bit_count-- && ipage < page_count_)
+			uint64_t val = *p;
+			ipage = (p - bitmap_) * 64;
+			while(val)
 			{
 				if(val & 1)
 				{
@@ -170,6 +188,7 @@ bool PageFrameContainer::Allocate(uint64_t &address)
 					*p &= mask;
 
 					// return this one
+//					debug.Write("0x");debug.WriteIntLn(address, 16);
 					return true;
 				}
 				val >>= 1;
@@ -178,6 +197,7 @@ bool PageFrameContainer::Allocate(uint64_t &address)
 		}
 		p++;
 	}
+//	debug.WriteLn("false");
 	return false;
 }
 

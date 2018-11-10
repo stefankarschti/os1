@@ -13,7 +13,7 @@
 class PageFrameContainer
 {
 public:
-	bool Initialize(SystemInformation *info);
+	bool Initialize(SystemInformation &info);
 	uint64_t MemorySize() { return memory_size_; }
 	uint64_t MemoryEnd() { return memory_end_address_; }
 	uint64_t PageCount() { return page_count_; }
@@ -70,7 +70,7 @@ private:
 	 *	done:
 	 *		; NOT FOUND
 	 */
-	uint64_t *bitmap_ = (uint64_t*)(0x1C000);
+	uint64_t *bitmap_;
 	/**
 	 * @brief bitmap_size_ number of qwords
 	 */

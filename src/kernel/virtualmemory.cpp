@@ -1,5 +1,6 @@
 #include "virtualmemory.h"
 #include "memory.h"
+#include "debug.h"
 
 VirtualMemory::VirtualMemory(PageFrameContainer &frames)
 	: frames_(frames), initialized_(false), pag4_(~0ull)
@@ -14,9 +15,13 @@ bool VirtualMemory::Initialize(uint64_t address, uint64_t num_pages)
 
 	// Allocate PML4
 	result = frames_.Allocate(pag4_);
+	debug.WriteLn("pag4_");
 	if(!result) return result;
 	memsetq((void*)pag4_, 0, 4096);
 	initialized_ = true;
+
+	//
+
 
 	// create page tables
 	uint64_t virtual_pointer = address;
@@ -25,22 +30,28 @@ bool VirtualMemory::Initialize(uint64_t address, uint64_t num_pages)
 	{
 		uint64_t *pag = (uint64_t*)pag4_;
 		uint64_t bits = 39;
-
+		int level = 4;
 		while(bits >= 12)
 		{
 			uint64_t idx = (virtual_pointer >> bits) & 0x1FF;
 			uint64_t pag_next = pag[idx] & ~(0xFFFull);
-			if(0 == (pag_next & PAGE_PRESENT))
+			if(0 == (pag[idx] & PAGE_PRESENT))
 			{
 				// Allocate next level
-				result = frames_.Allocate(pag_next); // TODO: check failure
+				result = frames_.Allocate(pag_next);
 				if(!result) return result;
-				memsetq((void*)pag_next, 0, 4096);
+				if(level > 1)
+				{
+					debug.Write("clear 0x");debug.WriteIntLn(pag_next, 16);
+					memsetq((void*)pag_next, 0, 4096);
+				}
 				pag[idx] = (pag_next & ~(0xFFFull)) | PAGE_PRESENT | PAGE_WRITE;
+				debug.Write("pag");debug.WriteInt(level);debug.Write("[");debug.WriteInt(idx);debug.Write("]=0x");debug.WriteIntLn(pag[idx], 16);
 			}
 
 			bits -= 9;
 			pag = (uint64_t*)pag_next;
+			level--;
 		}
 
 		// next page
