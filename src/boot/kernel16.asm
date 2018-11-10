@@ -27,10 +27,10 @@ p_vaddr		resq	1
 p_filesz	resq	1
 p_memsz		resq	1
 
-memory_blocks resb memory_block_struct_size
+memory_blocks resb memory_block_struct_size * 20
 ;...
 
-kernel_image	equ 	0x2000		; ELF kernel image 16k
+kernel_image	equ 	0x2000		; ELF kernel image 32k
 memory_pages	equ		0xA000		; Pointer to pages 16k
 
 section .text
@@ -42,7 +42,7 @@ kernel_main16:
 	mov si, str_kernel16_hello
 	call print16
 	
-	; TODO: properly enable A20
+	; enable A20
 	call enable_a20_fast
 	
 	; check A20
@@ -59,9 +59,14 @@ kernel_main16:
 	call print16
 	mov si, str_off
 	call print16
+	jmp $ ; // can't work with this
 .a20_next:
 	mov si, crlf
 	call print16
+
+	; check long mode
+	call check_long_mode
+	jc no_long_mode
 
 	; load kernel64.elf
 	mov bx, kernel_image	            ; ES:BX = Address to load kernel into
@@ -86,23 +91,14 @@ kernel_main16:
 	hlt
 	jmp .stop
 .next:	
-
-	; 1	
-	mov ax, 1
-	call print16_whex
-	mov si, crlf
-	call print16
-
-	; check long mode
-	call check_long_mode
-	jc no_long_mode
 	
-	; 2
-	mov ax, 2
-	call print16_whex
-	mov si, crlf
-	call print16
-	
+	; save cursor position
+	mov ah, 03h
+	xor bh, bh
+	int 10h
+	mov byte [system_info + system_info_struct.cursorx], dl
+	mov byte [system_info + system_info_struct.cursory], dh
+
 	; detect memory
 .l2:
 	mov di, memory_blocks
@@ -114,56 +110,15 @@ kernel_main16:
 	jmp $			; can't detect memory. die here
 .l3:
 	; e820 success
-	mov [system_info + system_info_struct.num_memory_blocks], bp
+	mov word [system_info + system_info_struct.num_memory_blocks], bp
 	mov eax, memory_blocks
-	mov [system_info + system_info_struct.memory_blocks_ptr], eax
+	mov dword [system_info + system_info_struct.memory_blocks_ptr], eax
 	xor eax, eax
-	mov [system_info + system_info_struct.memory_blocks_ptr + 4], eax
+	mov dword [system_info + system_info_struct.memory_blocks_ptr + 4], eax
 
-	; print memory blocks
-	mov cx, [system_info + system_info_struct.num_memory_blocks]
-	mov si, memory_blocks
-.l4:
-	mov bx, 8
-	call print16_mhex
-	add si, bx
-	
-	push si
-	mov si, space
-	call print16
-	pop si
-
-	mov bx, 8
-	call print16_mhex
-	add si, bx
-
-	push si
-	mov si, space
-	call print16
-	pop si
-
-	mov bx, 4
-	call print16_mhex
-	add si, bx
-
-	push si
-	mov si, crlf
-	call print16
-	pop si
-	
-	add si, 4 ; skip unused
-	loop .l4
-	
 	; TODO: detect video modes
-	
-	; save cursor position
-	mov ah, 03h
-	xor bh, bh
-	int 10h
-	mov byte [system_info + system_info_struct.cursorx], dl
-	mov byte [system_info + system_info_struct.cursory], dh
-	
-	; switch to long mode	
+
+	; switch to long mode
 	mov edi, memory_pages
 	jmp SwitchToLongMode
 	
@@ -249,16 +204,6 @@ kernel_main64:
 	mov rax, [kernel_image + rsi]
 	mov [p_memsz], rax
 
-	; debug
-	mov rsi, str_debug
-	call print64
-	
-	mov rsi, 0xA000 + 0x3000 + 0x100 * 8
-	mov rax, [rsi]
-	call print64_qhex
-	mov rsi, newline
-	call print64
-
     ; clear location
 	mov rdi, [p_vaddr]
 	xor rax, rax
@@ -286,19 +231,10 @@ kernel_main64:
 	add rbp, [p_vaddr]
 	mov rsp, rbp			; give at least 64k stack
 
-	; debug
-	mov rsi, str_debug
-	call print64
-	
-        mov rax, [e_entry]
-		call print64_qhex
-		mov rsi, newline
-		call print64
-
-        ; jump
+	; jump
 	mov rax, [e_entry]
 	mov rdi, system_info
-	call rax		; call kernel_main
+	call rax		; call KernelMain
 .l3:		
 	hlt
 	jmp $ ; stop here

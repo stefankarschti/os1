@@ -83,17 +83,17 @@ char key_to_char(uint8_t key)
 void Keyboard::IRQHandler(Keyboard *object)
 {
 	// hook for keyboard handler
-	const uint8_t KBDATAP = 0x60;	/* kbd data port */
-	const uint8_t	KBSTATUSPORT =	0x61;	/* kbd status */
-	const uint8_t	KBSTATP = 0x64;	/* kbd status port */
+	const uint16_t KBDATAPORT = 0x60;	/* kbd data port */
+//	const uint16_t KBSTATUS =	0x61;	/* kbd status */
+	const uint16_t KBSTATPORT = 0x64;	/* kbd status port */
 	const uint8_t	KBINRDY = 0x01;
-	const uint8_t	KBOUTRDY = 0x02;
+//	const uint8_t	KBOUTRDY = 0x02;
 
-	if((inb(KBSTATP) & KBINRDY) == 0)
+	if((inb(KBSTATPORT) & KBINRDY) == 0)
 		return;
 
 	// read scan code
-	uint8_t scancode = inb(0x60);
+	uint8_t scancode = inb(KBDATAPORT);
 	uint8_t brk = scancode & 0x80;
 	uint8_t key = scancode & 0x7f;
 

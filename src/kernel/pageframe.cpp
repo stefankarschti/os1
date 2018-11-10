@@ -1,5 +1,6 @@
 #include "pageframe.h"
 #include "memory.h"
+#include "debug.h"
 
 /**
  * @brief PageFrameContainer::Initialize
@@ -26,6 +27,8 @@ bool PageFrameContainer::Initialize(SystemInformation *info)
 	}
 
 	// set up page frame bitmap
+	debug.Write("bitmap_ is ");
+	debug.WriteIntLn((uint64_t)bitmap_, 16);
 	bitmap_ = (uint64_t*)(0x1C000);
 	if(memory_size_ > 0 && memory_end_address_ > 0)
 	{

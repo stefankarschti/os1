@@ -13,6 +13,11 @@ void Terminal::SetBuffer(uint16_t *buffer)
 	buffer_ = buffer;
 }
 
+void Terminal::Copy(uint16_t *buffer)
+{
+	memcpy(buffer_, buffer, 80 * 25 * 2);
+}
+
 void Terminal::Link()
 {
 	screen_ = (uint16_t*)0xB8000;

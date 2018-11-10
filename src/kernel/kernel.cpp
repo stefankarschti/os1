@@ -72,7 +72,7 @@ bool KernelKeyboardHook(uint16_t scancode)
 	// switch terminal hotkey
 	uint16_t hotkey[kNumTerminals] =  {0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x57, 0x58};
 	int index = -1;
-	for(int i = 0; i < kNumTerminals; i++)
+	for(unsigned i = 0; i < kNumTerminals; i++)
 	{
 		if(scancode == hotkey[i])
 		{
@@ -97,11 +97,13 @@ bool KernelKeyboardHook(uint16_t scancode)
 //	const char *digit = "0123456789ABCDEF";
 //	screen[160] = digit[(scancode >> 4) & 0xf] + (7<<8);
 //	screen[161] = digit[scancode & 0xf] + (7<<8);
+	return true;
 }
 
 void KernelMain(SystemInformation *info)
 {
-	debug.Write("hello!\n");
+	debug.Write("[elf_kernel64] hello!\n");
+
 	// deep copy system information
 	SystemInformation sysinfo = *info;
 	MemoryBlock memory_blocks[sysinfo.num_memory_blocks];
@@ -119,7 +121,9 @@ void KernelMain(SystemInformation *info)
 
 	// activate terminal 0
 	active_terminal = &terminal[0];
+	active_terminal->Copy((uint16_t*)0xB8000);
 	active_terminal->Link();
+	active_terminal->MoveCursor(sysinfo.cursory, sysinfo.cursorx);
 
 	// greetings
 	active_terminal->WriteLn("[elf_kernel64] hello");

@@ -14,6 +14,7 @@ class Terminal
 public:
 	void Clear();
 	void SetBuffer(uint16_t *buffer);
+	void Copy(uint16_t *buffer);
 	void Link();	// links to real screen
 	void Unlink();	// unlinks from real screen
 

@@ -6,7 +6,7 @@ print64:
 	; compose edi	
 	xor rax, rax
 	mov al, byte [system_info + system_info_struct.cursory]
-	imul eax, 160	
+	imul eax, 160
 	add edi, eax
 	xor rax, rax
 	mov al, byte [system_info + system_info_struct.cursorx]
