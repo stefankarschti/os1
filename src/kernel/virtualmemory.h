@@ -28,10 +28,25 @@ public:
 	 */
 	bool Allocate(uint64_t start_address, uint64_t num_pages);
 
-
+	/**
+	 * @brief Free
+	 * @param start_address
+	 * @param num_pages
+	 * @return
+	 */
 	bool Free(uint64_t start_address, uint64_t num_pages);
 
+	/**
+	 * @brief Free
+	 * @return
+	 */
 	bool Free();
+
+	/**
+	 * @brief Root
+	 * @return PML4 pointer
+	 */
+	uint64_t Root();
 	uint64_t Size();
 
 private:

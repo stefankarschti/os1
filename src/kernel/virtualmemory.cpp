@@ -203,6 +203,15 @@ bool VirtualMemory::Free()
 	return true;
 }
 
+uint64_t VirtualMemory::Root()
+{
+	if(!initialized_)
+	{
+		debug("VirtualMemory::Root() warning: VirtualMemory not initialized")();
+	}
+	return root_;
+}
+
 void VirtualMemory::ForceFreeTable(uint64_t *pag, int level)
 {
 	for(uint64_t idx = 0; idx < 512; ++idx)

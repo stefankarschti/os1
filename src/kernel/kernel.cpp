@@ -210,6 +210,7 @@ void KernelMain(SystemInformation *info)
 //	debug(vm.Allocate(0x8000000000, 5) ? "Success" : "Failure")();
 //	debug(vm.Allocate(0x8000000000, 2) ? "Success" : "Failure")();
 //	debug(vm.Allocate(0x1000, 262144) ? "Success" : "Failure")();
+	debug("VM root=")(vm.Root(), 16)();
 	debug(vm.Free() ? "Success" : "Failure")();
 
 	// set up interrupts
