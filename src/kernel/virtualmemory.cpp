@@ -20,20 +20,17 @@ bool VirtualMemory::Initialize(uint64_t address, uint64_t num_pages)
 	memsetq((void*)pag4_, 0, 4096);
 	initialized_ = true;
 
-	//
-
-
 	// create page tables
-	uint64_t virtual_pointer = address;
-	uint64_t end = address + (num_pages << 12);
-	while(virtual_pointer < end)
+	uint64_t *pag = (uint64_t*)pag4_;
+	uint64_t bits = 39;
+	int level = 4;
+	while(bits >= 12)
 	{
-		uint64_t *pag = (uint64_t*)pag4_;
-		uint64_t bits = 39;
-		int level = 4;
-		while(bits >= 12)
+		uint64_t ibegin = (address >> bits) & 0x1FF;
+		uint64_t iend = (((address + (num_pages << 12) - 1) >> bits) & 0x1FF) + 1;
+		for(auto idx = ibegin; idx < iend; ++idx)
 		{
-			uint64_t idx = (virtual_pointer >> bits) & 0x1FF;
+			// iterate entries at this level
 			uint64_t pag_next = pag[idx] & ~(0xFFFull);
 			if(0 == (pag[idx] & PAGE_PRESENT))
 			{
@@ -46,17 +43,16 @@ bool VirtualMemory::Initialize(uint64_t address, uint64_t num_pages)
 					memsetq((void*)pag_next, 0, 4096);
 				}
 				pag[idx] = (pag_next & ~(0xFFFull)) | PAGE_PRESENT | PAGE_WRITE;
-				debug.Write("pag");debug.WriteInt(level);debug.Write("[");debug.WriteInt(idx);debug.Write("]=0x");debug.WriteIntLn(pag[idx], 16);
+//				debug.Write("pag");debug.WriteInt(level);debug.Write("[");debug.WriteInt(idx);debug.Write("]=0x");debug.WriteIntLn(pag[idx], 16);
+//				debug.s("pag").u(level).s("[").u(idx).s("]=0x").u(pag[idx], 16).nl();
+				debug("pag")(level)("[")(idx)("]=0x")(pag[idx], 16)();
 			}
-
-			bits -= 9;
-			pag = (uint64_t*)pag_next;
-			level--;
 		}
-
-		// next page
-		virtual_pointer += 0x1000;
+		break;
+		bits -= 9;
+		level--;
 	}
+
 
 	return result;
 }

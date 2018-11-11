@@ -57,3 +57,41 @@ void Debug::WriteIntLn(uint64_t value, int base, int minimum_digits)
 	WriteInt(value, base, minimum_digits);
 	Write('\n');
 }
+
+Debug &Debug::operator()()
+{
+	Write('\n');
+	return *this;
+}
+
+Debug &Debug::operator()(const char *str)
+{
+	Write(str);
+	return *this;
+}
+
+Debug &Debug::operator()(uint64_t value, int base, int minimum_digits)
+{
+	char temp[256];
+	itoa(value, temp, base, minimum_digits);
+	return (*this)(temp);
+}
+
+Debug &Debug::s(const char *str)
+{
+	Write(str);
+	return *this;
+}
+
+Debug &Debug::u(uint64_t value, int base, int minimum_digits)
+{
+	char temp[256];
+	itoa(value, temp, base, minimum_digits);
+	return (*this)(temp);
+}
+
+Debug &Debug::nl()
+{
+	Write('\n');
+	return *this;
+}
