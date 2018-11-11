@@ -202,8 +202,13 @@ void KernelMain(SystemInformation *info)
 
 	// set up VM for kernel
 	VirtualMemory vm(page_frames);
+
 	active_terminal->WriteLn("Allocating some virtual memory");
-	vm.Initialize(0, 16 * 256);
+	debug(vm.Allocate(0x1000, 3) ? "Success" : "Failure")();
+	debug(vm.Free(0x0, 3) ? "Success" : "Failure")();
+//	debug(vm.Allocate(0x100000, 3) ? "Success" : "Failure")();
+//	debug(vm.Allocate(0x8000000000, 5) ? "Success" : "Failure")();
+//	debug(vm.Allocate(0x8000000000, 2) ? "Success" : "Failure")();
 
 	// set up interrupts
 	active_terminal->WriteLn("[kernel64] setting up interrupts");

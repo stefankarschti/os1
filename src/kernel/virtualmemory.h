@@ -19,18 +19,29 @@ public:
 	static const uint64_t PAGE_WRITE	= 1 << 1;
 
 	VirtualMemory(PageFrameContainer &frames);
-	bool Initialize(uint64_t address, uint64_t num_pages); // single mode
-	void Free();
 
-	// TODO: add VM range management
+	/**
+	 * @brief Allocate a new range to the virtual memory
+	 * @param start_address must be aligned to page boundary
+	 * @param num_pages must be greater than 0
+	 * @return true if successful
+	 */
+	bool Allocate(uint64_t start_address, uint64_t num_pages);
+
+
+	bool Free(uint64_t start_address, uint64_t num_pages);
+
+	bool Free();
 	uint64_t Size();
 
 private:
 	PageFrameContainer &frames_;
 	bool initialized_;
-	uint64_t pag4_;
+	uint64_t root_;
 
-	void InternalFree(uint64_t* pag, int level);
+	void FreeTable(uint64_t* pag, int level);
+	bool AllocEntry(uint64_t &entry, bool clear);
+	bool FreeEntry(uint64_t &entry, bool is_table);
 };
 
 #endif // VIRTUALMEMORY_H
