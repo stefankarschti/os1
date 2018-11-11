@@ -39,7 +39,7 @@ private:
 	bool initialized_;
 	uint64_t root_;
 
-	void FreeTable(uint64_t* pag, int level);
+	void ForceFreeTable(uint64_t* pag, int level);
 	bool AllocEntry(uint64_t &entry, bool clear);
 	bool FreeEntry(uint64_t &entry, bool is_table);
 };

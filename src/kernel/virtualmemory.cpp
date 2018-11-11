@@ -177,6 +177,7 @@ bool VirtualMemory::Free(uint64_t start_address, uint64_t num_pages)
 		if(0 == root_)
 		{
 			initialized_ = false;
+			root_ = ~0ull;
 		}
 		else
 		{
@@ -194,7 +195,7 @@ bool VirtualMemory::Free()
 	{
 		// some allocation has happened (at least partial)
 		// pag4_ is valid
-		FreeTable((uint64_t*)root_, 4);
+		ForceFreeTable((uint64_t*)root_, 4);
 		initialized_ = false;
 		frames_.Free(root_);
 		root_ = ~0ull;
@@ -202,15 +203,15 @@ bool VirtualMemory::Free()
 	return true;
 }
 
-void VirtualMemory::FreeTable(uint64_t *pag, int level)
+void VirtualMemory::ForceFreeTable(uint64_t *pag, int level)
 {
 	for(uint64_t idx = 0; idx < 512; ++idx)
 	{
-		if(pag[idx] & PAGE_PRESENT)
+		if(pag[idx])
 		{
 			uint64_t address = pag[idx] & ~(0xFFFull);
 			if(level > 1)
-				FreeTable((uint64_t*)address, level - 1);
+				ForceFreeTable((uint64_t*)address, level - 1);
 			frames_.Free(address);
 		}
 	}
