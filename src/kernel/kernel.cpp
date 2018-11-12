@@ -100,6 +100,19 @@ bool KernelKeyboardHook(uint16_t scancode)
 	return true;
 }
 
+void onPageFault(void *vp, uint64_t error)
+{
+	if(active_terminal)
+	{
+		active_terminal->Write("Page Fault");
+	}
+	debug("Page Fault")(" at 0x")((uint64_t)vp, 16)(" error ")(error, 2, 5)();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
 void KernelMain(SystemInformation *info)
 {
 	debug.Write("[kernel64] hello!\n");
@@ -140,28 +153,28 @@ void KernelMain(SystemInformation *info)
 
 		// memory size
 		num = page_frames.MemorySize() >> 20; // MB
-		itoa(num, temp, 10);
+		utoa(num, temp, 10);
 		active_terminal->Write("Memory size ");
 		active_terminal->Write(temp);
 		active_terminal->WriteLn("MB");
 
 		num = page_frames.MemoryEnd();
-		itoa(num, temp, 16, 16);
+		utoa(num, temp, 16, 16);
 		active_terminal->Write("Memory end 0x");
 		active_terminal->WriteLn(temp);
 
 		num = page_frames.PageCount();
-		itoa(num, temp, 10);
+		utoa(num, temp, 10);
 		active_terminal->Write(temp);
 		active_terminal->WriteLn(" total pages");
 
 		num = page_frames.FreePageCount();
-		itoa(num, temp, 10);
+		utoa(num, temp, 10);
 		active_terminal->Write(temp);
 		active_terminal->WriteLn(" free pages");
 
 		uint64_t num2 = (page_frames.PageCount() + 7) / 8;
-		itoa(num2, temp, 10);
+		utoa(num2, temp, 10);
 		active_terminal->Write("Bitmap size is ");
 		active_terminal->Write(temp);
 		active_terminal->WriteLn(" bytes");
@@ -220,6 +233,13 @@ void KernelMain(SystemInformation *info)
 		active_terminal->WriteLn("Interrupts initialization successful");
 	else
 		active_terminal->WriteLn("Interrupts initialization failed");
+	active_terminal->WriteLn("Set up #PF");
+	interrupts.SetPFHook(onPageFault);
+	active_terminal->WriteLn("Trigger #PF");
+	uint64_t *p = (uint64_t*)0x200008;
+//	uint64_t a = *p;
+	*p = 101;
+	return; // die
 
 	// set up keyboard
 	active_terminal->WriteLn("[kernel64] starting keyboard");

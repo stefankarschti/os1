@@ -13,6 +13,7 @@
 class PageFrameContainer
 {
 public:
+	PageFrameContainer();
 	bool Initialize(SystemInformation &info);
 	uint64_t MemorySize() { return memory_size_; }
 	uint64_t MemoryEnd() { return memory_end_address_; }
@@ -75,6 +76,7 @@ private:
 	 * @brief bitmap_size_ number of qwords
 	 */
 	uint64_t bitmap_size_ = 0;
+	bool initialized_ = false;
 
 	void SetFree(uint64_t address);
 	void SetBusy(uint64_t address);

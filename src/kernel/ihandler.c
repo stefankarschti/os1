@@ -13,6 +13,24 @@ void set_irq_hook(int number, void (*hook)(void*), void *data)
 	}
 }
 
+void (*(int_hook[256]))(void*);
+void *int_data[256];
+
+void set_int_hook(int number, void (*hook)(void*), void *data)
+{
+	if(number >= 0 && number < 256)
+	{
+		int_hook[number] = hook;
+		int_data[number] = data;
+	}
+}
+
+void (*int_0E_hook)(void*, uint64_t) = NULL;
+void set_int_0E_hook(void (*hook)(void*, uint64_t))
+{
+	int_0E_hook = hook;
+}
+
 // IRQ0: Timer 
 void irq0_handler(void) {
 	outb(0x20, 0x20); //EOI
@@ -136,4 +154,9 @@ void int_handler(int number)
 //		screen[81] = '?' + (7<<8);
 //		screen[82] = '?' + (7<<8);
 //	}
+}
+
+void int_0E_handler(void* vp, uint64_t error)
+{
+	if(int_0E_hook) int_0E_hook(vp, error);
 }

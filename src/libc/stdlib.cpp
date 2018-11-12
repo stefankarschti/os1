@@ -1,6 +1,6 @@
 #include "stdlib.h"
 
-char* itoa(uint64_t value, char *str, int base, int minimum_digits /*= 1*/)
+char* utoa(uint64_t value, char *str, int base /*= 10*/, int minimum_digits /*= 1*/)
 {
     char * rc;
     char * ptr;

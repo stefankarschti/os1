@@ -16,25 +16,6 @@ global irq12
 global irq13
 global irq14
 global irq15 
-global int_80h
-
-global irq0_handler
-global irq1_handler
-global irq2_handler
-global irq3_handler
-global irq4_handler
-global irq5_handler
-global irq6_handler
-global irq7_handler
-global irq8_handler
-global irq9_handler
-global irq10_handler
-global irq11_handler
-global irq12_handler
-global irq13_handler
-global irq14_handler
-global irq15_handler
-global int_handler
 
 extern irq0_handler
 extern irq1_handler
@@ -52,8 +33,9 @@ extern irq12_handler
 extern irq13_handler
 extern irq14_handler
 extern irq15_handler
-extern int_handler
 
+global int_80h
+extern int_handler
 int_80h:
     push rax
     push rcx
@@ -72,6 +54,14 @@ int_80h:
     pop rcx
     pop rax
     iretq
+
+global int_0Eh
+extern int_0E_handler
+int_0Eh:
+	mov rdi, cr2	; vp
+	pop rsi			; error code
+	call int_0E_handler
+	iretq
 
 panic:
     mov rsi, 0xB8000
@@ -127,7 +117,7 @@ task_switch_irq:
     pop rax
     iretq
 
-.l2: ; every second
+.l2: ; every tick
     xor ax, ax
     mov word [counter], ax
     pop rax

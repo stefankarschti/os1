@@ -22,10 +22,13 @@ int irq13();
 int irq14();
 int irq15();
 
+int int_0Eh();	// #PF page fault
 int int_80h();
 }
 
 extern "C" void set_irq_hook(int number, void (*pFunction)(void*), void* data);
+extern "C" void set_int_hook(int number, void (*pFunction)(void*), void* data);
+extern "C" void set_int_0E_hook(void (*hook)(void*, uint64_t));
 
 void Interrupts::SetIDT(int index, uint64_t address)
 {
@@ -96,6 +99,8 @@ bool Interrupts::Initialize()
 	SetIDT(46, (uint64_t)irq14);
 	SetIDT(47, (uint64_t)irq15);
 
+	// set interrupt vectors
+	SetIDT(0x0E, (uint64_t)int_0Eh);
 	SetIDT(0x80, (uint64_t)int_80h);
 
 	// clear irq hooks
@@ -104,9 +109,14 @@ bool Interrupts::Initialize()
 		set_irq_hook(i, nullptr, nullptr);
 	}
 
+	// clear int hooks
+	for(int i = 0; i < 256; ++i)
+	{
+		set_int_hook(i, nullptr, nullptr);
+	}
+
 	// load IDT
 	lidt(IDT, 256 * sizeof(IDTDescriptor));
-	asm volatile ("int $0x80");
 	asm volatile ("sti");
 	return true;
 }
@@ -114,6 +124,16 @@ bool Interrupts::Initialize()
 void Interrupts::SetIRQHandler(int number, void (*pFunction)(void *), void *data)
 {
 	set_irq_hook(number, pFunction, data);
+}
+
+void Interrupts::SetINTHandler(int number, void (*pFunction)(void *), void *data)
+{
+	set_int_hook(number, pFunction, data);
+}
+
+void Interrupts::SetPFHook(void (*hook)(void *, uint64_t))
+{
+	set_int_0E_hook(hook);
 }
 
 

@@ -2,13 +2,19 @@
 #include "memory.h"
 #include "debug.h"
 
+PageFrameContainer::PageFrameContainer()
+	:initialized_(false)
+{
+}
+
 /**
  * @brief PageFrameContainer::Initialize
- * @param info Pointer to system information
+ * @param info System information containing memory blocks
  * @return true for success
  */
 bool PageFrameContainer::Initialize(SystemInformation &info)
 {
+	if(initialized_) return false;
 	bool result = false;
 	memory_size_ = 0;
 	memory_end_address_ = 0;
@@ -155,19 +161,21 @@ bool PageFrameContainer::Initialize(SystemInformation &info)
 		}
 	}
 
+	if(result)
+		initialized_ = true;
+
 	return result;
 }
 
 bool PageFrameContainer::Allocate(uint64_t &address)
 {
-	// TODO: check for successful initialization
-	if(0 == bitmap_)
+	// check for successful initialization
+	if(!initialized_)
 		return false;
 	// TODO: mark last first free qword to speed up next search
 	auto bitmap_end = bitmap_ + bitmap_size_;
 	auto p = bitmap_;
 	uint64_t ipage = 0;
-//	debug.Write("allocate ");
 	while(p < bitmap_end)
 	{
 		if(*p)
@@ -188,7 +196,6 @@ bool PageFrameContainer::Allocate(uint64_t &address)
 					*p &= mask;
 
 					// return this one
-//					debug.Write("0x");debug.WriteIntLn(address, 16);
 					return true;
 				}
 				val >>= 1;
@@ -197,14 +204,20 @@ bool PageFrameContainer::Allocate(uint64_t &address)
 		}
 		p++;
 	}
-//	debug.WriteLn("false");
 	return false;
 }
 
 bool PageFrameContainer::Free(uint64_t address)
 {
-	// TODO: check address align
-	// TODO: check against unavailable memory pages
+	if(!initialized_) return false;
+	// check address align
+	if(address & 0xFFF)
+	{
+		debug("free frame 0x")(address, 16)();
+		debug("address not aligned")();
+		return false;
+	}
+
 	bool result = false;
 	uint64_t ipage = address >> 12;
 	if(ipage < page_count_)

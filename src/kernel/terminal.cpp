@@ -80,7 +80,7 @@ void Terminal::WriteLn(const char *str)
 void Terminal::WriteInt(uint64_t value, int base, int minimum_digits)
 {
 	char temp[256];
-	itoa(value, temp, base, minimum_digits);
+	utoa(value, temp, base, minimum_digits);
 	Write(temp);
 }
 
