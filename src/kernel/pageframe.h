@@ -14,7 +14,14 @@ class PageFrameContainer
 {
 public:
 	PageFrameContainer();
-	bool Initialize(SystemInformation &info);
+	/**
+	 * @brief Initialize
+	 * @param info : system information
+	 * @param bitmap_address : base address
+	 * @param bitmap_limit : limit number of u64 in bitmap
+	 * @return
+	 */
+	bool Initialize(SystemInformation &info, uint64_t bitmap_address, uint64_t bitmap_limit);
 	uint64_t MemorySize() { return memory_size_; }
 	uint64_t MemoryEnd() { return memory_end_address_; }
 	uint64_t PageCount() { return page_count_; }
@@ -76,8 +83,10 @@ private:
 	 * @brief bitmap_size_ number of qwords
 	 */
 	uint64_t bitmap_size_ = 0;
+	uint64_t bitmap_limit_ = 0;
 	bool initialized_ = false;
 
+	// direct manipulators - restricted access
 	void SetFree(uint64_t address);
 	void SetBusy(uint64_t address);
 };

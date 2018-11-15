@@ -7,12 +7,7 @@ PageFrameContainer::PageFrameContainer()
 {
 }
 
-/**
- * @brief PageFrameContainer::Initialize
- * @param info System information containing memory blocks
- * @return true for success
- */
-bool PageFrameContainer::Initialize(SystemInformation &info)
+bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_address, uint64_t bitmap_limit)
 {
 	if(initialized_) return false;
 	bool result = false;
@@ -36,21 +31,27 @@ bool PageFrameContainer::Initialize(SystemInformation &info)
 	}
 
 	// set up page frame bitmap
-	debug.Write("bitmap_ was ");
-	debug.WriteIntLn((uint64_t)bitmap_, 16);
-	bitmap_ = (uint64_t*)(0x1C000);
+	bitmap_ = (uint64_t*)(bitmap_address);
+	bitmap_limit_ = bitmap_limit;
+	debug("bitmap_ 0x")((uint64_t)bitmap_, 16)(" limit ")(bitmap_limit_)();
+
 	if(memory_size_ > 0 && memory_end_address_ > 0)
 	{
 		page_count_ = memory_end_address_ >> 12;
 		bitmap_size_ = ((page_count_ + 7) / 8 + 7) / 8; // number of qwords, round up
 
 		// TODO: correct check fit into memory
-		if(bitmap_ + bitmap_size_ <= (uint64_t*)0x9FC00)
+		if(bitmap_size_ <= bitmap_limit_)
 		{
 			// set all pages to '0' = not available
 			// this takes care of any memory gaps
 			memsetq(bitmap_, 0, bitmap_size_ * 8);
 			result = true;
+		}
+		else
+		{
+			debug("bitmap limit exceeded: ")(bitmap_size_)();
+			result = false;
 		}
 	}
 
@@ -121,31 +122,26 @@ bool PageFrameContainer::Initialize(SystemInformation &info)
 	// mark bitmap_ pages as occupied
 	if(result)
 	{
-		uint64_t p = (uint64_t)bitmap_;
-		uint64_t bitmap_end = (uint64_t)(bitmap_ + bitmap_size_);
-		do
+		uint64_t bitmap_end = (uint64_t)(bitmap_ + bitmap_limit_);
+		for(uint64_t vp = (uint64_t)bitmap_; vp < bitmap_end; vp += 0x1000)
 		{
-			// set page occupied
-			SetBusy(p);
-
-			// next
-			p += 0x1000;
+			SetBusy(vp);
 		}
-		while(p < bitmap_end);
 	}
 
 	// mark kernel pages occupied
 	if(result)
 	{
-		uint64_t p = 0x0;
-		uint64_t end = 0x160000;
-		while(p < end)
+		// mark kernel low data pages as busy
+		for(uint64_t vp = 0; vp < 0x20000; vp += 0x1000)
 		{
-			// set page occupied
-			SetBusy(p);
+			SetBusy(vp);
+		}
 
-			// next
-			p += 0x1000;
+		// mark kernel code & stack as busy
+		for(uint64_t vp = 0x100000; vp < 0x160000; vp += 0x1000)
+		{
+			SetBusy(vp);
 		}
 	}
 

@@ -8,7 +8,7 @@ VirtualMemory::VirtualMemory(PageFrameContainer &frames)
 {
 }
 
-bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages)
+bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages, bool identity_map)
 {
 	if(!num_pages)
 	{
@@ -88,7 +88,17 @@ bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages)
 		uint64_t *pag3 = (uint64_t*)(pag4[idx4] & ~(0xFFFull));
 		uint64_t *pag2 = (uint64_t*)(pag3[idx3] & ~(0xFFFull));
 		uint64_t *pag1 = (uint64_t*)(pag2[idx2] & ~(0xFFFull));
-		if(!AllocEntry(pag1[idx1], false)) return false;
+		if(identity_map)
+		{
+			// map identity page
+			debug(" ident 0x")(vp, 16);
+			pag1[idx1] = (vp & ~(0xFFFull)) | PAGE_PRESENT | PAGE_WRITE;
+		}
+		else
+		{
+			// allocate VM page
+			if(!AllocEntry(pag1[idx1], false)) return false;
+		}
 		debug();
 	}
 
@@ -210,6 +220,13 @@ uint64_t VirtualMemory::Root()
 		debug("VirtualMemory::Root() warning: VirtualMemory not initialized")();
 	}
 	return root_;
+}
+
+bool VirtualMemory::Activate()
+{
+	if(!initialized_) return false;
+	asm volatile( "mov %0, %%cr3" : : "r"(root_) );
+	return true;
 }
 
 void VirtualMemory::ForceFreeTable(uint64_t *pag, int level)

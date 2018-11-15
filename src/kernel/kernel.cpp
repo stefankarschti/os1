@@ -19,30 +19,27 @@ PageFrameContainer page_frames;
 Keyboard keyboard(interrupts);
 
 // multitasking
-uint64_t stack1[512] __attribute__ ((aligned (4096)));
-uint64_t stack2[512] __attribute__ ((aligned (4096)));
-uint64_t stack3[512] __attribute__ ((aligned (4096)));
 void process1();
 void process2();
 void process3();
 
 // terminals
 const size_t kNumTerminals = 12;
-uint16_t* terminal_buffer[kNumTerminals] =
-{
-	(uint16_t*)0x10000,
-	(uint16_t*)0x11000,
-	(uint16_t*)0x12000,
-	(uint16_t*)0x13000,
-	(uint16_t*)0x14000,
-	(uint16_t*)0x15000,
-	(uint16_t*)0x16000,
-	(uint16_t*)0x17000,
-	(uint16_t*)0x18000,
-	(uint16_t*)0x19000,
-	(uint16_t*)0x1A000,
-	(uint16_t*)0x1B000,
-};
+//uint16_t* terminal_buffer[kNumTerminals] =
+//{
+//	(uint16_t*)0x10000,
+//	(uint16_t*)0x11000,
+//	(uint16_t*)0x12000,
+//	(uint16_t*)0x13000,
+//	(uint16_t*)0x14000,
+//	(uint16_t*)0x15000,
+//	(uint16_t*)0x16000,
+//	(uint16_t*)0x17000,
+//	(uint16_t*)0x18000,
+//	(uint16_t*)0x19000,
+//	(uint16_t*)0x1A000,
+//	(uint16_t*)0x1B000,
+//};
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
@@ -115,7 +112,8 @@ void onPageFault(void *vp, uint64_t error)
 
 void KernelMain(SystemInformation *info)
 {
-	debug.Write("[kernel64] hello!\n");
+	bool result;
+	debug("[kernel64] hello!\n");
 
 	// deep copy system information
 	SystemInformation sysinfo = *info;
@@ -123,28 +121,45 @@ void KernelMain(SystemInformation *info)
 	memcpy(memory_blocks, info->memory_blocks, sizeof(MemoryBlock) * sysinfo.num_memory_blocks);
 	sysinfo.memory_blocks = memory_blocks;
 
+	// initialize page frames
+	debug("initializing page frame allocator")();
+	result = page_frames.Initialize(sysinfo, 0x20000, 0x40000 / 8);
+	debug(result ? "Success" : "Failure")();
+	if(!result) return;
+
+	// create kernel page tables
+	VirtualMemory kvm(page_frames);
+	debug("create kernel identity page tables")();
+	result = kvm.Allocate(0x0, 16 * 256, true);
+	debug(result ? "Success" : "Failure")();
+	if(!result) return;
+
+	// switch to kernel page frames
+	kvm.Activate();
+	debug("kvm activated")();
+
 	// initialize terminals
 	for(size_t i = 0; i < kNumTerminals; ++i)
 	{
-		terminal[i].SetBuffer(terminal_buffer[i]);
-		terminal[i].Clear();
-		terminal[i].Write("Terminal ");
-		terminal[i].WriteIntLn(i + 1);
+		uint64_t p;
+		if(page_frames.Allocate(p))
+		{
+			debug("allocate terminal ")(i + 1)(" at 0x")(p, 16)();
+			terminal[i].SetBuffer((uint16_t*)p);
+			terminal[i].Clear();
+			terminal[i].Write("Terminal ");
+			terminal[i].WriteIntLn(i + 1);
+		}
 	}
 
 	// activate terminal 0
-	active_terminal = &terminal[0];
+	active_terminal = &terminal[11];
 	active_terminal->Copy((uint16_t*)0xB8000);
 	active_terminal->Link();
 	active_terminal->MoveCursor(sysinfo.cursory, sysinfo.cursorx);
 
 	// greetings
 	active_terminal->WriteLn("[kernel64] hello");
-
-	// initialize page frames
-	active_terminal->WriteLn("[kernel64] initializing page frame allocator");
-	bool result = page_frames.Initialize(sysinfo);
-	active_terminal->WriteLn(result ? "Success" : "Failure");
 
 	// print page frame debug info
 	{
@@ -213,19 +228,6 @@ void KernelMain(SystemInformation *info)
 		}
 	}
 
-	// set up VM for kernel
-	VirtualMemory vm(page_frames);
-
-	active_terminal->WriteLn("Allocating some virtual memory");
-	debug(vm.Allocate(0x1000, 3) ? "Success" : "Failure")();
-//	debug(vm.Free(0x0, 3) ? "Success" : "Failure")();
-//	debug(vm.Allocate(0x100000, 3) ? "Success" : "Failure")();
-//	debug(vm.Allocate(0x8000000000, 5) ? "Success" : "Failure")();
-//	debug(vm.Allocate(0x8000000000, 2) ? "Success" : "Failure")();
-//	debug(vm.Allocate(0x1000, 262144) ? "Success" : "Failure")();
-	debug("VM root=")(vm.Root(), 16)();
-	debug(vm.Free() ? "Success" : "Failure")();
-
 	// set up interrupts
 	active_terminal->WriteLn("[kernel64] setting up interrupts");
 	result = interrupts.Initialize();
@@ -239,28 +241,38 @@ void KernelMain(SystemInformation *info)
 	uint64_t *p = (uint64_t*)0x200008;
 //	uint64_t a = *p;
 	*p = 101;
-	return; // die
 
 	// set up keyboard
 	active_terminal->WriteLn("[kernel64] starting keyboard");
 	keyboard.Initialize();
 	keyboard.SetActiveTerminal(active_terminal);
 
-
 	// multitasking
 	active_terminal->WriteLn("[elf_kernel64] initializing multitasking");
+	uint64_t stack1;
+	uint64_t stack2;
+	uint64_t stack3;
+	result = page_frames.Allocate(stack1);
+	if(result) 	debug("alloc stack1 at 0x")(stack1, 16)(); else debug("alloc stack1 failed")();
+	if(!result) return;
+	result = page_frames.Allocate(stack2);
+	if(result) 	debug("alloc stack2 at 0x")(stack2, 16)(); else debug("alloc stack2 failed")();
+	if(!result) return;
+	result = page_frames.Allocate(stack3);
+	if(result) 	debug("alloc stack3 at 0x")(stack3, 16)(); else debug("alloc stack3 failed")();
+	if(!result) return;
+
 	initTasks();
-	Task* task1 = newTask((void*)process1, stack1, 512);
-	Task* task2 = newTask((void*)process2, stack2, 512);
-	Task* task3 = newTask((void*)process3, stack3, 512);
+	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, 512);
+	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, 512);
+	//Task* task3 = newTask((void*)process3, (uint64_t*)stack3, 512);
 
 	// start multitasking
 	active_terminal->WriteLn("Press F1..F12 to switch terminals");
 	startMultiTask(task1);
 
 	// we should not reach this point
-	if(task2 == task3) //
-		active_terminal->WriteLn("[kernel64] panic! multitasking ended; halting.");
+	active_terminal->WriteLn("[kernel64] panic! multitasking ended; halting.");
 
 stop:
 	asm volatile("hlt");

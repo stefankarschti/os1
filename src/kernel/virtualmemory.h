@@ -21,12 +21,13 @@ public:
 	VirtualMemory(PageFrameContainer &frames);
 
 	/**
-	 * @brief Allocate a new range to the virtual memory
-	 * @param start_address must be aligned to page boundary
-	 * @param num_pages must be greater than 0
+	 * @brief Allocate a new range to the virtual memory, or identity map range
+	 * @param start_address : must be aligned to page boundary
+	 * @param num_pages : must be greater than 0
+	 * @param identity_map : identity map VM rather than alloc frames
 	 * @return true if successful
 	 */
-	bool Allocate(uint64_t start_address, uint64_t num_pages);
+	bool Allocate(uint64_t start_address, uint64_t num_pages, bool identity_map);
 
 	/**
 	 * @brief Free
@@ -47,7 +48,12 @@ public:
 	 * @return PML4 pointer
 	 */
 	uint64_t Root();
-	uint64_t Size();
+
+	/**
+	 * @brief Activate the page tables
+	 * @return true if successful
+	 */
+	bool Activate();
 
 private:
 	PageFrameContainer &frames_;
