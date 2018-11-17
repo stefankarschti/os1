@@ -1,11 +1,14 @@
 #include "task.h"
+#include "debug.h"
 
-Task taskList[32];
+Task* taskList = (Task*)(0x8);
 uint64_t nextpid = 1;
+const size_t kNumTasks = 32;
 
 void initTasks()
 {
-    size_t maxTasks = sizeof(taskList) / sizeof(Task);
+	size_t maxTasks = kNumTasks;
+	debug("max tasks ")(maxTasks)();
     for(size_t i = 0; i < maxTasks; ++i)
     {
         taskList[i].pid = 0;
@@ -14,11 +17,12 @@ void initTasks()
 
 Task* nextfreetss()
 {
-    size_t maxTasks = sizeof(taskList) / sizeof(Task);
-    for(size_t i = 0; i < maxTasks; ++i)
+	size_t maxTasks = kNumTasks;
+	for(size_t i = 0; i < maxTasks; ++i)
     {
         if(0 == taskList[i].pid)
         {
+			debug("allocate task ")(i)(" 0x")((uint64_t)(taskList + i), 16)();
             return taskList + i;
         }
     }
@@ -29,8 +33,8 @@ void linkTasks()
 {
     Task* first = nullptr;
     Task* last = nullptr;
-    size_t maxTasks = sizeof(taskList) / sizeof(Task);
-    for(size_t i = 0; i < maxTasks; ++i)
+	size_t maxTasks = kNumTasks;
+	for(size_t i = 0; i < maxTasks; ++i)
     {
         if(taskList[i].pid)
         {
@@ -50,40 +54,38 @@ void linkTasks()
     {
         last->nexttask = first;
     }
+
+	debug("task linkage:")();
+	for(size_t i = 0; i < maxTasks; ++i)
+	{
+		if(taskList[i].pid)
+		{
+			debug("0x")((uint64_t)(taskList + i), 16)(" -> ")("0x")((uint64_t)(taskList[i].nexttask), 16)();
+		}
+	}
+	debug("done")();
 }
 
 Task* newTask(void *code, uint64_t *stack, size_t stack_len)
 {
-    struct Task *task = nextfreetss();
+	Task *task = nextfreetss();
     if(nullptr == task)
         return nullptr;
 
-    task->pid = nextpid++;
+	task->pid = nextpid;
+	nextpid++;
     task->waiting = 0;
-//    task->cr3 = (long) VCreatePageDir(task->pid, 0);
-    task->rsp = (uint64_t) (&stack[stack_len - 19]); // RSP - check value!!!
-    task->r15 = (uint64_t) task;
+	task->regs.rsp = (uint64_t) (stack + stack_len - 5);
+	task->regs.r15 = (uint64_t) task;
+	task->regs.cr3 = 0x60000;
 
-    stack[stack_len -  1] = DATA_SEG;        // SS
-    stack[stack_len -  2] = (uint64_t)stack; // RSP
-    stack[stack_len -  3] = 0x2202;          // FLAGS
-    stack[stack_len -  4] = CODE_SEG;        // CS
-    stack[stack_len -  5] = (uint64_t) code; // RIP
-    stack[stack_len -  6] = 0; // RAX
-    stack[stack_len -  7] = 0; // RBX
-    stack[stack_len -  8] = 0; // RCX
-    stack[stack_len -  9] = 0; // RDX
-    stack[stack_len - 10] = 0; // RDI
-    stack[stack_len - 11] = 0; // RSI
-    stack[stack_len - 12] = 0; // RBP
-    stack[stack_len - 13] = 0; // R8
-    stack[stack_len - 14] = 0; // R9
-    stack[stack_len - 15] = 0; // R10
-    stack[stack_len - 16] = 0; // R11
-    stack[stack_len - 17] = 0; // R12
-    stack[stack_len - 18] = 0; // R13
-    stack[stack_len - 19] = 0x1234; // R14
+	stack[stack_len - 1] = DATA_SEG;        // SS
+	stack[stack_len - 2] = (uint64_t)stack; // RSP
+	stack[stack_len - 3] = 0x2202;          // FLAGS
+	stack[stack_len - 4] = CODE_SEG;        // CS
+	stack[stack_len - 5] = (uint64_t)code;  // RIP
 
+	debug("new task 0x")((uint64_t)(task), 16)(" pid ")(task->pid)(" cr3 0x")(task->regs.cr3, 16)(" code 0x")((uint64_t)code, 16)();
 //    asm volatile("cli");
     linkTasks();
 //    asm volatile("sti");

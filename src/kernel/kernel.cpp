@@ -153,7 +153,7 @@ void KernelMain(SystemInformation *info)
 	}
 
 	// activate terminal 0
-	active_terminal = &terminal[11];
+	active_terminal = &terminal[0];
 	active_terminal->Copy((uint16_t*)0xB8000);
 	active_terminal->Link();
 	active_terminal->MoveCursor(sysinfo.cursory, sysinfo.cursorx);
@@ -262,10 +262,12 @@ void KernelMain(SystemInformation *info)
 	if(result) 	debug("alloc stack3 at 0x")(stack3, 16)(); else debug("alloc stack3 failed")();
 	if(!result) return;
 
+	asm volatile("cli");
 	initTasks();
+	debug("sizeof Task is ")(sizeof(Task))();
 	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, 512);
 	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, 512);
-	//Task* task3 = newTask((void*)process3, (uint64_t*)stack3, 512);
+	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, 512);
 
 	// start multitasking
 	active_terminal->WriteLn("Press F1..F12 to switch terminals");
@@ -285,6 +287,15 @@ void process1()
 	my_terminal->Write("process1 starting\n");
 	while(true)
 	{
+		extern Task *taskList;
+		Task* task = &taskList[0];
+		my_terminal->Write("task 0x");
+		my_terminal->WriteIntLn((uint64_t)task, 16);
+		my_terminal->Write("pid=");
+		my_terminal->WriteIntLn(task->pid);
+		my_terminal->Write("cr3=");
+		my_terminal->WriteIntLn(task->regs.cr3, 16);
+
 		char line[256];
 		line[0] = 0;
 		my_terminal->Write("terminal1:");
@@ -304,6 +315,15 @@ void process2()
 	my_terminal->Write("process2 starting\n");
 	while(true)
 	{
+		extern Task *taskList;
+		Task* task = &taskList[1];
+		my_terminal->Write("task 0x");
+		my_terminal->WriteIntLn((uint64_t)task, 16);
+		my_terminal->Write("pid=");
+		my_terminal->WriteIntLn(task->pid);
+		my_terminal->Write("cr3=");
+		my_terminal->WriteIntLn(task->regs.cr3, 16);
+
 		char line[256];
 		line[0] = 0;
 		my_terminal->Write("terminal2:");
@@ -323,6 +343,15 @@ void process3()
 	my_terminal->Write("process3 starting\n");
 	while(true)
 	{
+		extern Task *taskList;
+		Task* task = &taskList[2];
+		my_terminal->Write("task 0x");
+		my_terminal->WriteIntLn((uint64_t)task, 16);
+		my_terminal->Write("pid=");
+		my_terminal->WriteIntLn(task->pid);
+		my_terminal->Write("cr3=");
+		my_terminal->WriteIntLn(task->regs.cr3, 16);
+
 		char line[256];
 		line[0] = 0;
 		my_terminal->Write("terminal3:");

@@ -8,13 +8,14 @@ LDSCRIPT=linker2.ld
 
 all: kernel64.elf
 
-kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o multitask.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o
 	$(LD) -T $(LDSCRIPT) \
 	$(BUILD_DIR)kernel.o \
 	$(BUILD_DIR)memory.o \
 	$(BUILD_DIR)terminal.o \
 	$(BUILD_DIR)interrupt.o \
 	$(BUILD_DIR)irqhandler.o \
+	$(BUILD_DIR)multitask.o \
 	$(BUILD_DIR)ihandler.o \
 	$(BUILD_DIR)stdlib.o \
 	$(BUILD_DIR)task.o \
@@ -43,6 +44,9 @@ stdlib.o: ../libc/stdlib.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 irqhandler.o: irqhandler.asm
+	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
+
+multitask.o: multitask.asm
 	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
 
 task.o: task.cpp
