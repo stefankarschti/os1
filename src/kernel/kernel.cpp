@@ -248,26 +248,27 @@ void KernelMain(SystemInformation *info)
 	keyboard.SetActiveTerminal(active_terminal);
 
 	// multitasking
-	active_terminal->WriteLn("[elf_kernel64] initializing multitasking");
+	active_terminal->WriteLn("[kernel64] initializing multitasking");
 	uint64_t stack1;
 	uint64_t stack2;
 	uint64_t stack3;
-	result = page_frames.Allocate(stack1);
+	const uint64_t stack_num_pages = 1;
+	result = page_frames.Allocate(stack1, stack_num_pages);
 	if(result) 	debug("alloc stack1 at 0x")(stack1, 16)(); else debug("alloc stack1 failed")();
 	if(!result) return;
-	result = page_frames.Allocate(stack2);
+	result = page_frames.Allocate(stack2, stack_num_pages);
 	if(result) 	debug("alloc stack2 at 0x")(stack2, 16)(); else debug("alloc stack2 failed")();
 	if(!result) return;
-	result = page_frames.Allocate(stack3);
+	result = page_frames.Allocate(stack3, stack_num_pages);
 	if(result) 	debug("alloc stack3 at 0x")(stack3, 16)(); else debug("alloc stack3 failed")();
 	if(!result) return;
 
 	asm volatile("cli");
 	initTasks();
 	debug("sizeof Task is ")(sizeof(Task))();
-	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, 512);
-	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, 512);
-	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, 512);
+	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, stack_num_pages * 4096 / 8);
+	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, stack_num_pages * 4096 / 8);
+	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, stack_num_pages * 4096 / 8);
 
 	// start multitasking
 	active_terminal->WriteLn("Press F1..F12 to switch terminals");
@@ -295,6 +296,8 @@ void process1()
 		my_terminal->WriteIntLn(task->pid);
 		my_terminal->Write("cr3=");
 		my_terminal->WriteIntLn(task->regs.cr3, 16);
+		my_terminal->Write("rsp=");
+		my_terminal->WriteIntLn(task->regs.rsp, 16);
 
 		char line[256];
 		line[0] = 0;
@@ -323,6 +326,8 @@ void process2()
 		my_terminal->WriteIntLn(task->pid);
 		my_terminal->Write("cr3=");
 		my_terminal->WriteIntLn(task->regs.cr3, 16);
+		my_terminal->Write("rsp=");
+		my_terminal->WriteIntLn(task->regs.rsp, 16);
 
 		char line[256];
 		line[0] = 0;
@@ -351,6 +356,8 @@ void process3()
 		my_terminal->WriteIntLn(task->pid);
 		my_terminal->Write("cr3=");
 		my_terminal->WriteIntLn(task->regs.cr3, 16);
+		my_terminal->Write("rsp=");
+		my_terminal->WriteIntLn(task->regs.rsp, 16);
 
 		char line[256];
 		line[0] = 0;

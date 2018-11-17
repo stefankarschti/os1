@@ -29,10 +29,18 @@ public:
 
 	/**
 	 * @brief Allocate one page
-	 * @param address output page address
+	 * @param [out] address : page address
 	 * @return bool true if success
 	 */
 	bool Allocate(uint64_t &address);
+
+	/**
+	 * @brief Allocate block of pages
+	 * @param [out] address : block address
+	 * @param page_count : number of pages
+	 * @return
+	 */
+	bool Allocate(uint64_t &address, unsigned page_count);
 
 	/**
 	 * @brief Free one page
@@ -87,8 +95,9 @@ private:
 	bool initialized_ = false;
 
 	// direct manipulators - restricted access
-	void SetFree(uint64_t address);
-	void SetBusy(uint64_t address);
+	void SetFree(uint64_t ipage);
+	void SetBusy(uint64_t ipage);
+	bool IsFree(uint64_t ipage);
 };
 
 #endif // PAGEFRAME_H

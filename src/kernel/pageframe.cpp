@@ -125,7 +125,7 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 		uint64_t bitmap_end = (uint64_t)(bitmap_ + bitmap_limit_);
 		for(uint64_t vp = (uint64_t)bitmap_; vp < bitmap_end; vp += 0x1000)
 		{
-			SetBusy(vp);
+			SetBusy(vp >> 12);
 		}
 	}
 
@@ -135,13 +135,13 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 		// mark kernel low data pages as busy
 		for(uint64_t vp = 0; vp < 0x20000; vp += 0x1000)
 		{
-			SetBusy(vp);
+			SetBusy(vp >> 12);
 		}
 
 		// mark kernel code & stack as busy
 		for(uint64_t vp = 0x100000; vp < 0x160000; vp += 0x1000)
 		{
-			SetBusy(vp);
+			SetBusy(vp >> 12);
 		}
 	}
 
@@ -203,6 +203,37 @@ bool PageFrameContainer::Allocate(uint64_t &address)
 	return false;
 }
 
+bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
+{
+	// check for successful initialization
+	if(!initialized_)
+		return false;
+	if(count == 0)
+		return false;
+
+	debug("allocate ")(count)(" pages")();
+
+	int64_t last_free = -1;
+	for(int64_t i = 0; i < page_count_; i++)
+	{
+		if(IsFree(i))
+		{
+			if(last_free < 0) last_free = i;
+			if(i - last_free + 1 == count)
+			{
+				debug("return ")(last_free)(" to ")(i)();
+				address = last_free << 12;
+				for(auto j = last_free; j <= i; ++j)
+					SetBusy(j);
+				return true;
+			}
+		}
+		else
+			last_free = -1;
+	}
+	return false;
+}
+
 bool PageFrameContainer::Free(uint64_t address)
 {
 	if(!initialized_) return false;
@@ -231,14 +262,17 @@ bool PageFrameContainer::Free(uint64_t address)
 	return result;
 }
 
-void PageFrameContainer::SetFree(uint64_t address)
+void PageFrameContainer::SetFree(uint64_t ipage)
 {
-	uint64_t ipage = address >> 12;
 	bitmap_[ipage / 64] |= (1ull << (ipage % 64));
 }
 
-void PageFrameContainer::SetBusy(uint64_t address)
+void PageFrameContainer::SetBusy(uint64_t ipage)
 {
-	uint64_t ipage = address >> 12;
 	bitmap_[ipage / 64] &= ~(1ull << (ipage % 64));
+}
+
+bool PageFrameContainer::IsFree(uint64_t ipage)
+{
+	return (bitmap_[ipage / 64] & (1ull << (ipage % 64))) != 0;
 }

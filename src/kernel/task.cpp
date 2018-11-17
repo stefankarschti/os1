@@ -70,7 +70,9 @@ Task* newTask(void *code, uint64_t *stack, size_t stack_len)
 {
 	Task *task = nextfreetss();
     if(nullptr == task)
-        return nullptr;
+	{
+		return nullptr;
+	}
 
 	task->pid = nextpid;
 	nextpid++;
@@ -79,13 +81,14 @@ Task* newTask(void *code, uint64_t *stack, size_t stack_len)
 	task->regs.r15 = (uint64_t) task;
 	task->regs.cr3 = 0x60000;
 
-	stack[stack_len - 1] = DATA_SEG;        // SS
-	stack[stack_len - 2] = (uint64_t)stack; // RSP
-	stack[stack_len - 3] = 0x2202;          // FLAGS
-	stack[stack_len - 4] = CODE_SEG;        // CS
-	stack[stack_len - 5] = (uint64_t)code;  // RIP
+	stack[stack_len - 1] = DATA_SEG;						// SS
+	stack[stack_len - 2] = (uint64_t)(stack + stack_len);	// RSP
+	stack[stack_len - 3] = 0x2202;							// FLAGS
+	stack[stack_len - 4] = CODE_SEG;						// CS
+	stack[stack_len - 5] = (uint64_t)code;					// RIP
 
-	debug("new task 0x")((uint64_t)(task), 16)(" pid ")(task->pid)(" cr3 0x")(task->regs.cr3, 16)(" code 0x")((uint64_t)code, 16)();
+	debug("new task 0x")((uint64_t)(task), 16)(" pid ")(task->pid)(" cr3 0x")(task->regs.cr3, 16)(" code 0x")((uint64_t)code, 16)
+			(" stack 0x")((uint64_t)stack, 16)(" stack len ")(stack_len)(" rsp 0x")(task->regs.rsp, 16)();
 //    asm volatile("cli");
     linkTasks();
 //    asm volatile("sti");
