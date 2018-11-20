@@ -2,19 +2,20 @@
 default: all ;
 
 INCLUDE=../libc
-CFLAGS=-I$(INCLUDE) -std=gnu99 -ffreestanding -O -Wall -Wextra -fno-asynchronous-unwind-tables
+CFLAGS=-I$(INCLUDE) -std=gnu99 -ffreestanding -O1 -Wall -Wextra -fno-asynchronous-unwind-tables
 CPPFLAGS=-I$(INCLUDE) -std=c++14 -ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables
 LDSCRIPT=linker2.ld
 
 all: kernel64.elf
 
-kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o multitask.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o inthandler.o multitask.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o
 	$(LD) -T $(LDSCRIPT) \
 	$(BUILD_DIR)kernel.o \
 	$(BUILD_DIR)memory.o \
 	$(BUILD_DIR)terminal.o \
 	$(BUILD_DIR)interrupt.o \
 	$(BUILD_DIR)irqhandler.o \
+	$(BUILD_DIR)inthandler.o \
 	$(BUILD_DIR)multitask.o \
 	$(BUILD_DIR)ihandler.o \
 	$(BUILD_DIR)stdlib.o \
@@ -44,6 +45,9 @@ stdlib.o: ../libc/stdlib.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 irqhandler.o: irqhandler.asm
+	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
+
+inthandler.o: inthandler.asm
 	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
 
 multitask.o: multitask.asm

@@ -22,13 +22,33 @@ int irq13();
 int irq14();
 int irq15();
 
+int int_00h();	// #DE
+int int_01h();	// #DB
+int int_02h();	// NMI
+int int_03h();	// #BP
+int int_04h();	// #OF
+int int_05h();	// #BR
+int int_06h();	// #UD
+int int_07h();	// #NM
+int int_08h();	// #DF
+int int_09h();	// coprocessor
+int int_0Ah();	// #TS
+int int_0Bh();	// #NP
+int int_0Ch();	// #SS
+int int_0Dh();	// #GP
 int int_0Eh();	// #PF page fault
-int int_80h();
+
+int int_10h();	// #MF
+int int_11h();	// #AC
+int int_12h();	// #MC
+int int_13h();	// #XF
+
+int int_1Dh();	// #VC
+int int_1Eh();	// #SX
 }
 
 extern "C" void set_irq_hook(int number, void (*pFunction)(void*), void* data);
-extern "C" void set_int_hook(int number, void (*pFunction)(void*), void* data);
-extern "C" void set_int_0E_hook(void (*hook)(void*, uint64_t));
+extern "C" void set_exception_handler(int number, void (*handler)(uint64_t, uint64_t, uint64_t));
 
 void Interrupts::SetIDT(int index, uint64_t address)
 {
@@ -83,6 +103,7 @@ bool Interrupts::Initialize()
 	outb(0xA1, 0x0);
 
 	SetIDT(32, (uint64_t)task_switch_irq);
+//	SetIDT(32, (uint64_t)irq0);
 	SetIDT(33, (uint64_t)irq1);
 	SetIDT(34, (uint64_t)irq2);
 	SetIDT(35, (uint64_t)irq3);
@@ -99,9 +120,28 @@ bool Interrupts::Initialize()
 	SetIDT(46, (uint64_t)irq14);
 	SetIDT(47, (uint64_t)irq15);
 
-	// set interrupt vectors
+	// set exception vectors
+	SetIDT(0x00, (uint64_t)int_00h);
+	SetIDT(0x01, (uint64_t)int_01h);
+	SetIDT(0x02, (uint64_t)int_02h);
+	SetIDT(0x03, (uint64_t)int_03h);
+	SetIDT(0x04, (uint64_t)int_04h);
+	SetIDT(0x05, (uint64_t)int_05h);
+	SetIDT(0x06, (uint64_t)int_06h);
+	SetIDT(0x07, (uint64_t)int_07h);
+	SetIDT(0x08, (uint64_t)int_08h);
+	SetIDT(0x09, (uint64_t)int_09h);
+	SetIDT(0x0A, (uint64_t)int_0Ah);
+	SetIDT(0x0B, (uint64_t)int_0Bh);
+	SetIDT(0x0C, (uint64_t)int_0Ch);
+	SetIDT(0x0D, (uint64_t)int_0Dh);
 	SetIDT(0x0E, (uint64_t)int_0Eh);
-	SetIDT(0x80, (uint64_t)int_80h);
+	SetIDT(0x10, (uint64_t)int_10h);
+	SetIDT(0x11, (uint64_t)int_11h);
+	SetIDT(0x12, (uint64_t)int_12h);
+	SetIDT(0x13, (uint64_t)int_13h);
+	SetIDT(0x1D, (uint64_t)int_1Dh);
+	SetIDT(0x1E, (uint64_t)int_1Eh);
 
 	// clear irq hooks
 	for(int i = 0; i < 16; ++i)
@@ -112,7 +152,7 @@ bool Interrupts::Initialize()
 	// clear int hooks
 	for(int i = 0; i < 256; ++i)
 	{
-		set_int_hook(i, nullptr, nullptr);
+		set_exception_handler(i, nullptr);
 	}
 
 	// load IDT
@@ -126,14 +166,7 @@ void Interrupts::SetIRQHandler(int number, void (*pFunction)(void *), void *data
 	set_irq_hook(number, pFunction, data);
 }
 
-void Interrupts::SetINTHandler(int number, void (*pFunction)(void *), void *data)
+void Interrupts::SetExceptionHandler(int number, void (*handler)(uint64_t, uint64_t, uint64_t))
 {
-	set_int_hook(number, pFunction, data);
+	set_exception_handler(number, handler);
 }
-
-void Interrupts::SetPFHook(void (*hook)(void *, uint64_t))
-{
-	set_int_0E_hook(hook);
-}
-
-

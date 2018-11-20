@@ -25,21 +25,6 @@ void process3();
 
 // terminals
 const size_t kNumTerminals = 12;
-//uint16_t* terminal_buffer[kNumTerminals] =
-//{
-//	(uint16_t*)0x10000,
-//	(uint16_t*)0x11000,
-//	(uint16_t*)0x12000,
-//	(uint16_t*)0x13000,
-//	(uint16_t*)0x14000,
-//	(uint16_t*)0x15000,
-//	(uint16_t*)0x16000,
-//	(uint16_t*)0x17000,
-//	(uint16_t*)0x18000,
-//	(uint16_t*)0x19000,
-//	(uint16_t*)0x1A000,
-//	(uint16_t*)0x1B000,
-//};
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
@@ -97,13 +82,441 @@ bool KernelKeyboardHook(uint16_t scancode)
 	return true;
 }
 
-void onPageFault(void *vp, uint64_t error)
+void onException00(uint64_t rip, uint64_t rsp, uint64_t error)
 {
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#DE-Divide-by-Zero-Error Exception";
 	if(active_terminal)
 	{
-		active_terminal->Write("Page Fault");
+		active_terminal->WriteLn(name);
 	}
-	debug("Page Fault")(" at 0x")((uint64_t)vp, 16)(" error ")(error, 2, 5)();
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException01(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#DB-Debug Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException02(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "NMI-Non-Maskable-Interrupt Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException03(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#BP-Breakpoint Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException04(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#OF-Overflow Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException05(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#BR-Bound-Range Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException06(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#UD-Invalid-Opcode Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException07(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#NM-Device-Not-Available Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException08(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#DF-Double-Fault Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException09(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "Coprocessor-Segment-Overrun Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException0A(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#TS-Invalid-TSS Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException0B(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#NP-Segment-Not-Present Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException0C(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#SS-Stack Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException0D(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );	
+
+	const char *name = "#GP-General-Protection Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException0E(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#PF-Page-Fault Exception";
+	if(active_terminal)
+	{
+		active_terminal->Write("#PF-Page-Fault Exception");
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException10(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#MF-x87 Floating-Point Exception-Pending";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException11(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#AC-Alignment-Check Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException12(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#MC-Machine-Check Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException13(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#XF-SIMD Floating-Point Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException1D(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#VC -- VMM Communication Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
+	stop:
+	asm("cli");
+	asm("hlt");
+	goto stop;
+}
+
+void onException1E(uint64_t rip, uint64_t rsp, uint64_t error)
+{
+	uint64_t cr2, cr3, r15;
+	asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
+	asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
+	asm volatile( "mov %%r15, %0" : "=r"(r15) );
+
+	const char *name = "#SX-Security Exception";
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
+	debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
+	Registers *regs = (Registers*)(0x10000);
+	regs->print();
 	stop:
 	asm("cli");
 	asm("hlt");
@@ -113,6 +526,7 @@ void onPageFault(void *vp, uint64_t error)
 void KernelMain(SystemInformation *info)
 {
 	bool result;
+	debug((uint64_t)(&debug), 16);
 	debug("[kernel64] hello!\n");
 
 	// deep copy system information
@@ -193,39 +607,6 @@ void KernelMain(SystemInformation *info)
 		active_terminal->Write("Bitmap size is ");
 		active_terminal->Write(temp);
 		active_terminal->WriteLn(" bytes");
-
-		if((false))
-		{
-			// test allocation
-			uint64_t address = 0xFFFFFFFFFFFFFFFF;
-			for(int i = 0; i < 10; i++)
-			{
-				result = page_frames.Allocate(address);
-				if(result)
-				{
-					active_terminal->Write("page_frame.Allocate returned ");
-					active_terminal->WriteIntLn(address, 16, 16);
-				}
-				else
-				{
-					active_terminal->WriteLn("page_frame.Allocate failed");
-				}
-			}
-			// test deallocation
-			for(int i = 0; i < 10; i++)
-			{
-				address = 0x1000 * i;
-				result = page_frames.Free(address);
-				if(result)
-				{
-					active_terminal->WriteLn("page_frame.Free success");
-				}
-				else
-				{
-					active_terminal->WriteLn("page_frame.Free failed");
-				}
-			}
-		}
 	}
 
 	// set up interrupts
@@ -236,11 +617,34 @@ void KernelMain(SystemInformation *info)
 	else
 		active_terminal->WriteLn("Interrupts initialization failed");
 	active_terminal->WriteLn("Set up #PF");
-	interrupts.SetPFHook(onPageFault);
-	active_terminal->WriteLn("Trigger #PF");
-	uint64_t *p = (uint64_t*)0x200008;
+
+	// set exception handlers
+	interrupts.SetExceptionHandler( 0, onException00);
+	interrupts.SetExceptionHandler( 1, onException01);
+	interrupts.SetExceptionHandler( 2, onException02);
+	interrupts.SetExceptionHandler( 3, onException03);
+	interrupts.SetExceptionHandler( 4, onException04);
+	interrupts.SetExceptionHandler( 5, onException05);
+	interrupts.SetExceptionHandler( 6, onException06);
+	interrupts.SetExceptionHandler( 7, onException07);
+	interrupts.SetExceptionHandler( 8, onException08);
+	interrupts.SetExceptionHandler( 9, onException09);
+	interrupts.SetExceptionHandler(10, onException0A);
+	interrupts.SetExceptionHandler(11, onException0B);
+	interrupts.SetExceptionHandler(12, onException0C);
+	interrupts.SetExceptionHandler(13, onException0D);
+	interrupts.SetExceptionHandler(14, onException0E);
+	interrupts.SetExceptionHandler(16, onException10);
+	interrupts.SetExceptionHandler(17, onException11);
+	interrupts.SetExceptionHandler(18, onException12);
+	interrupts.SetExceptionHandler(19, onException13);
+	interrupts.SetExceptionHandler(29, onException1D);
+	interrupts.SetExceptionHandler(30, onException1E);
+
+//	active_terminal->WriteLn("Trigger #PF");
+//	uint64_t *p = (uint64_t*)0x0000DDFD200008;
 //	uint64_t a = *p;
-	*p = 101;
+//	*p = a + 1;
 
 	// set up keyboard
 	active_terminal->WriteLn("[kernel64] starting keyboard");
@@ -248,31 +652,51 @@ void KernelMain(SystemInformation *info)
 	keyboard.SetActiveTerminal(active_terminal);
 
 	// multitasking
+	asm volatile("cli");
 	active_terminal->WriteLn("[kernel64] initializing multitasking");
+	debug("[kernel64] initializing multitasking")();
 	uint64_t stack1;
 	uint64_t stack2;
 	uint64_t stack3;
-	const uint64_t stack_num_pages = 1;
-	result = page_frames.Allocate(stack1, stack_num_pages);
+	const uint64_t k_stack_num_pages = 1;
+	result = page_frames.Allocate(stack1, k_stack_num_pages);
 	if(result) 	debug("alloc stack1 at 0x")(stack1, 16)(); else debug("alloc stack1 failed")();
 	if(!result) return;
-	result = page_frames.Allocate(stack2, stack_num_pages);
+	result = page_frames.Allocate(stack2, k_stack_num_pages);
 	if(result) 	debug("alloc stack2 at 0x")(stack2, 16)(); else debug("alloc stack2 failed")();
 	if(!result) return;
-	result = page_frames.Allocate(stack3, stack_num_pages);
+	result = page_frames.Allocate(stack3, k_stack_num_pages);
 	if(result) 	debug("alloc stack3 at 0x")(stack3, 16)(); else debug("alloc stack3 failed")();
 	if(!result) return;
 
-	asm volatile("cli");
 	initTasks();
 	debug("sizeof Task is ")(sizeof(Task))();
-	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, stack_num_pages * 4096 / 8);
-	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, stack_num_pages * 4096 / 8);
-	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, stack_num_pages * 4096 / 8);
+	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * 4096 / 8);
+	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * 4096 / 8);
+//	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
 
 	// start multitasking
-	active_terminal->WriteLn("Press F1..F12 to switch terminals");
-	startMultiTask(task1);
+	if(task1 /*&& task2 && task3*/)
+	{
+		debug("start multitasking")();
+		active_terminal->WriteLn("Press F1..F12 to switch terminals");
+
+		debug("task1 pid ")(task1->pid)();
+		task1->regs.print();
+		debug("interrupt stack:")();
+		debug("RIP=")(*(uint64_t*)(task1->regs.rsp), 16)();
+		debug("CS=")(*(uint64_t*)(task1->regs.rsp + 8), 16)();
+		debug("RFLAGS=")(*(uint64_t*)(task1->regs.rsp + 16), 16)();
+		debug("RSP=")(*(uint64_t*)(task1->regs.rsp + 24), 16)();
+		debug("SS=")(*(uint64_t*)(task1->regs.rsp + 32), 16)();
+
+		startMultiTask(task1);
+	}
+	else
+	{
+		debug("Task creation failed")();
+		active_terminal->WriteLn("Task creation failed");
+	}
 
 	// we should not reach this point
 	active_terminal->WriteLn("[kernel64] panic! multitasking ended; halting.");
@@ -285,28 +709,33 @@ stop:
 void process1()
 {
 	Terminal *my_terminal = &terminal[0];
-	my_terminal->Write("process1 starting\n");
 	while(true)
 	{
-		extern Task *taskList;
-		Task* task = &taskList[0];
-		my_terminal->Write("task 0x");
-		my_terminal->WriteIntLn((uint64_t)task, 16);
-		my_terminal->Write("pid=");
-		my_terminal->WriteIntLn(task->pid);
-		my_terminal->Write("cr3=");
-		my_terminal->WriteIntLn(task->regs.cr3, 16);
-		my_terminal->Write("rsp=");
-		my_terminal->WriteIntLn(task->regs.rsp, 16);
-
-		char line[256];
-		line[0] = 0;
-		my_terminal->Write("terminal1:");
-		my_terminal->ReadLn(line);
-		my_terminal->Write("Command: ");
-		my_terminal->WriteLn(line);
+		my_terminal->Write('1');
 	}
-	my_terminal->Write("\nprocess1 ending\n");
+//	Terminal *my_terminal = &terminal[0];
+//	my_terminal->Write("process1 starting\n");
+//	while(true)
+//	{
+//		extern Task *taskList;
+//		Task* task = &taskList[0];
+//		my_terminal->Write("task 0x");
+//		my_terminal->WriteIntLn((uint64_t)task, 16);
+//		my_terminal->Write("pid=");
+//		my_terminal->WriteIntLn(task->pid);
+//		my_terminal->Write("cr3=");
+//		my_terminal->WriteIntLn(task->regs.cr3, 16);
+//		my_terminal->Write("rsp=");
+//		my_terminal->WriteIntLn(task->regs.rsp, 16);
+
+//		char line[256];
+//		line[0] = 0;
+//		my_terminal->Write("terminal1:");
+//		my_terminal->ReadLn(line);
+//		my_terminal->Write("Command: ");
+//		my_terminal->WriteLn(line);
+//	}
+//	my_terminal->Write("\nprocess1 ending\n");
 stop:
 	asm volatile("hlt");
 	goto stop;
@@ -315,28 +744,33 @@ stop:
 void process2()
 {
 	Terminal *my_terminal = &terminal[1];
-	my_terminal->Write("process2 starting\n");
 	while(true)
 	{
-		extern Task *taskList;
-		Task* task = &taskList[1];
-		my_terminal->Write("task 0x");
-		my_terminal->WriteIntLn((uint64_t)task, 16);
-		my_terminal->Write("pid=");
-		my_terminal->WriteIntLn(task->pid);
-		my_terminal->Write("cr3=");
-		my_terminal->WriteIntLn(task->regs.cr3, 16);
-		my_terminal->Write("rsp=");
-		my_terminal->WriteIntLn(task->regs.rsp, 16);
-
-		char line[256];
-		line[0] = 0;
-		my_terminal->Write("terminal2:");
-		my_terminal->ReadLn(line);
-		my_terminal->Write("Command: ");
-		my_terminal->WriteLn(line);
+		my_terminal->Write('2');
 	}
-	my_terminal->Write("\nprocess2 ending\n");
+//	Terminal *my_terminal = &terminal[1];
+//	my_terminal->Write("process2 starting\n");
+//	while(true)
+//	{
+//		extern Task *taskList;
+//		Task* task = &taskList[1];
+//		my_terminal->Write("task 0x");
+//		my_terminal->WriteIntLn((uint64_t)task, 16);
+//		my_terminal->Write("pid=");
+//		my_terminal->WriteIntLn(task->pid);
+//		my_terminal->Write("cr3=");
+//		my_terminal->WriteIntLn(task->regs.cr3, 16);
+//		my_terminal->Write("rsp=");
+//		my_terminal->WriteIntLn(task->regs.rsp, 16);
+
+//		char line[256];
+//		line[0] = 0;
+//		my_terminal->Write("terminal2:");
+//		my_terminal->ReadLn(line);
+//		my_terminal->Write("Command: ");
+//		my_terminal->WriteLn(line);
+//	}
+//	my_terminal->Write("\nprocess2 ending\n");
 stop:
 	asm volatile("hlt");
 	goto stop;
@@ -344,12 +778,22 @@ stop:
 
 void process3()
 {
+	debug("process3 starting")();
 	Terminal *my_terminal = &terminal[2];
-	my_terminal->Write("process3 starting\n");
+	my_terminal->WriteLn("process3 starting");
+//	while(true)
+//	{
+//		extern Task *taskList;
+//		Task* task = &taskList[2];
+//		debug("task3")();
+//		task->regs.print();
+//	}
 	while(true)
 	{
 		extern Task *taskList;
 		Task* task = &taskList[2];
+		debug("task3")();
+		task->regs.print();
 		my_terminal->Write("task 0x");
 		my_terminal->WriteIntLn((uint64_t)task, 16);
 		my_terminal->Write("pid=");

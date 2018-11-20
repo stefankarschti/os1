@@ -1,7 +1,7 @@
 #include "virtualmemory.h"
 #include "memory.h"
-#include "debug.h"
 #include <stdlib.h>
+#include "debug.h"
 
 VirtualMemory::VirtualMemory(PageFrameContainer &frames)
 	: frames_(frames), initialized_(false), root_(~0ull)
@@ -40,11 +40,10 @@ bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages, bool id
 	for(auto vp = start_address; vp < end_address; vp += (1ull << 39))
 	{
 		uint64_t idx4 = (vp >> 39) & 0x1FF;
-		uint64_t mem = (vp >> 39) << 39;
-		uint64_t len = 1ull << 39;
-		debug(idx4)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
+//		uint64_t mem = (vp >> 39) << 39;
+//		uint64_t len = 1ull << 39;
+//		debug(idx4)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
 		if(!AllocEntry(pag4[idx4], true)) return false;
-		debug();
 	}
 
 	// level 3
@@ -52,12 +51,11 @@ bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages, bool id
 	{
 		uint64_t idx4 = (vp >> 39) & 0x1FF;
 		uint64_t idx3 = (vp >> 30) & 0x1FF;
-		uint64_t mem = (vp >> 30) << 30;
-		uint64_t len = 1ull << 30;
-		debug(idx4)("/")(idx3)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
+//		uint64_t mem = (vp >> 30) << 30;
+//		uint64_t len = 1ull << 30;
+//		debug(idx4)("/")(idx3)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
 		uint64_t *pag3 = (uint64_t*)(pag4[idx4] & ~(0xFFFull));
 		if(!AllocEntry(pag3[idx3], true)) return false;
-		debug();
 	}
 
 	// level 2
@@ -66,13 +64,12 @@ bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages, bool id
 		uint64_t idx4 = (vp >> 39) & 0x1FF;
 		uint64_t idx3 = (vp >> 30) & 0x1FF;
 		uint64_t idx2 = (vp >> 21) & 0x1FF;
-		uint64_t mem = (vp >> 21) << 21;
-		uint64_t len = 1ull << 21;
-		debug(idx4)("/")(idx3)("/")(idx2)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
+//		uint64_t mem = (vp >> 21) << 21;
+//		uint64_t len = 1ull << 21;
+//		debug(idx4)("/")(idx3)("/")(idx2)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
 		uint64_t *pag3 = (uint64_t*)(pag4[idx4] & ~(0xFFFull));
 		uint64_t *pag2 = (uint64_t*)(pag3[idx3] & ~(0xFFFull));
 		if(!AllocEntry(pag2[idx2], true)) return false;
-		debug();
 	}
 
 	// level 1
@@ -82,16 +79,16 @@ bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages, bool id
 		uint64_t idx3 = (vp >> 30) & 0x1FF;
 		uint64_t idx2 = (vp >> 21) & 0x1FF;
 		uint64_t idx1 = (vp >> 12) & 0x1FF;
-		uint64_t mem = (vp >> 12) << 12;
-		uint64_t len = 1ull << 12;
-		debug(idx4)("/")(idx3)("/")(idx2)("/")(idx1)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
+//		uint64_t mem = (vp >> 12) << 12;
+//		uint64_t len = 1ull << 12;
+//		debug(idx4)("/")(idx3)("/")(idx2)("/")(idx1)(" 0x")(mem, 16)(" 0x")(mem + len, 16);
 		uint64_t *pag3 = (uint64_t*)(pag4[idx4] & ~(0xFFFull));
 		uint64_t *pag2 = (uint64_t*)(pag3[idx3] & ~(0xFFFull));
 		uint64_t *pag1 = (uint64_t*)(pag2[idx2] & ~(0xFFFull));
 		if(identity_map)
 		{
 			// map identity page
-			debug(" ident 0x")(vp, 16);
+//			debug(" ident 0x")(vp, 16)();
 			pag1[idx1] = (vp & ~(0xFFFull)) | PAGE_PRESENT | PAGE_WRITE;
 		}
 		else
@@ -99,7 +96,6 @@ bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages, bool id
 			// allocate VM page
 			if(!AllocEntry(pag1[idx1], false)) return false;
 		}
-		debug();
 	}
 
 	return true;
@@ -249,14 +245,15 @@ bool VirtualMemory::AllocEntry(uint64_t &entry, bool clear)
 	{
 		uint64_t new_pag;
 		if(!frames_.Allocate(new_pag))	return false;
-		debug(" alloc 0x")(new_pag, 16);
+//		debug(" alloc 0x")(new_pag, 16);
 		if(clear)
 		{
-			debug(" clear");
+//			debug(" clear");
 			memsetq((void*)new_pag, 0, 4096);
 		}
 		entry = (new_pag & ~(0xFFFull)) | PAGE_PRESENT | PAGE_WRITE;
 	}
+//	debug();
 	return true;
 }
 

@@ -20,8 +20,7 @@ class Interrupts
 public:
 	bool Initialize();
 	void SetIRQHandler(int number, void (*pFunction)(void*), void* data);
-	void SetINTHandler(int number, void (*pFunction)(void*), void* data);
-	void SetPFHook(void (*hook)(void*, uint64_t));
+	void SetExceptionHandler(int number, void (*handler)(uint64_t, uint64_t, uint64_t));
 
 private:
 	IDTDescriptor IDT[256];

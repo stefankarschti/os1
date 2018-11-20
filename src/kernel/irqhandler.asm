@@ -1,20 +1,3 @@
-global irq0
-global irq1
-global irq2
-global irq3
-global irq4
-global irq5
-global irq6
-global irq7
-global irq8
-global irq9
-global irq10
-global irq11
-global irq12
-global irq13
-global irq14
-global irq15 
-
 extern irq0_handler
 extern irq1_handler
 extern irq2_handler
@@ -32,321 +15,92 @@ extern irq13_handler
 extern irq14_handler
 extern irq15_handler
 
-global int_80h
-extern int_handler
-int_80h:
-    push rax
-    push rcx
-    push rdx
-    push r8
-    push r9
-    push r10
-    push r11
-    mov rdi, 80h
-    call int_handler
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rdx
-    pop rcx
-    pop rax
-    iretq
+extern saveregs
+extern restoreregs
 
-global int_0Eh
-extern int_0E_handler
-int_0Eh:
-	mov rdi, cr2	; vp
-	pop rsi			; error code
-	call int_0E_handler
+global irq0
+irq0:
+	call saveregs
+	call irq0_handler
+	call restoreregs
+	iretq
+ 
+global irq1
+irq1:
+	call saveregs
+	call irq1_handler
+	call restoreregs
 	iretq
 
-
-irq0:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
-  call irq0_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
-  iretq
- 
-irq1:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
-  call irq1_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
-  iretq
- 
+global irq2
 irq2:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
-  call irq2_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
-  iretq
+	call saveregs
+	call irq2_handler
+	call restoreregs
+	iretq
  
+global irq3
 irq3:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq3_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq4
 irq4:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq4_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq5
 irq5:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq5_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq6
 irq6:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq6_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq7
 irq7:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq7_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq8
 irq8:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq8_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq9
 irq9:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq9_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq10
 irq10:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq10_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq11
 irq11:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq11_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq12
 irq12:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq12_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq13
 irq13:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq13_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq14
 irq14:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq14_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
  
+global irq15
 irq15:
-  push rax
-  push rcx
-  push rdx
-  push r8
-  push r9
-  push r10
-  push r11
   call irq15_handler
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rdx
-  pop rcx
-  pop rax
   iretq
 

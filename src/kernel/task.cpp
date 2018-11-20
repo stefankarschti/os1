@@ -1,18 +1,20 @@
 #include "task.h"
+#include "memory.h"
 #include "debug.h"
 
+Task** current_task = (Task**)(0x0);
 Task* taskList = (Task*)(0x8);
 uint64_t nextpid = 1;
 const size_t kNumTasks = 32;
 
 void initTasks()
 {
-	size_t maxTasks = kNumTasks;
-	debug("max tasks ")(maxTasks)();
-    for(size_t i = 0; i < maxTasks; ++i)
-    {
-        taskList[i].pid = 0;
-    }
+	debug("max tasks ")(kNumTasks)();
+//	memsetq(taskList, 0, kNumTasks * sizeof(Task));
+	for(int i = 0; i < kNumTasks; ++i)
+	{
+		taskList[i].pid = 0;
+	}
 }
 
 Task* nextfreetss()
@@ -74,12 +76,26 @@ Task* newTask(void *code, uint64_t *stack, size_t stack_len)
 		return nullptr;
 	}
 
-	task->pid = nextpid;
-	nextpid++;
-    task->waiting = 0;
-	task->regs.rsp = (uint64_t) (stack + stack_len - 5);
+	task->pid = nextpid++;
+	task->timer = 0;
+	task->regs.rax = 0;
+	task->regs.rbx = 0;
+	task->regs.rcx = 0;
+	task->regs.rdx = 0;
+	task->regs.rsi = 0;
+	task->regs.rdi = 0;
+	task->regs.rbp = 0;
+	task->regs.rsp = (uint64_t) (&stack[stack_len - 5]);
+	task->regs.r08 = 0;
+	task->regs.r09 = 0;
+	task->regs.r10 = 0;
+	task->regs.r11 = 0;
+	task->regs.r12 = 0;
+	task->regs.r13 = 0;
+	task->regs.r14 = 0;
 	task->regs.r15 = (uint64_t) task;
 	task->regs.cr3 = 0x60000;
+	task->regs.rfl = 0x2202;
 
 	stack[stack_len - 1] = DATA_SEG;						// SS
 	stack[stack_len - 2] = (uint64_t)(stack + stack_len);	// RSP
@@ -95,3 +111,25 @@ Task* newTask(void *code, uint64_t *stack, size_t stack_len)
     return task;
 }
 
+
+void Registers::print()
+{
+	debug("RAX=")(rax, 16, 16)();
+	debug("RBX=")(rbx, 16, 16)();
+	debug("RCX=")(rcx, 16, 16)();
+	debug("RDX=")(rdx, 16, 16)();
+	debug("RSI=")(rsi, 16, 16)();
+	debug("RDI=")(rdi, 16, 16)();
+	debug("RBP=")(rbp, 16, 16)();
+	debug("RSP=")(rsp, 16, 16)();
+	debug("R08=")(r08, 16, 16)();
+	debug("R09=")(r09, 16, 16)();
+	debug("R10=")(r10, 16, 16)();
+	debug("R11=")(r11, 16, 16)();
+	debug("R12=")(r12, 16, 16)();
+	debug("R13=")(r13, 16, 16)();
+	debug("R14=")(r14, 16, 16)();
+	debug("R15=")(r15, 16, 16)();
+	debug("RFL=")(rfl, 16, 16)();
+	debug("CR3=")(cr3, 16, 16)();
+}

@@ -211,7 +211,7 @@ bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
 	if(count == 0)
 		return false;
 
-	debug("allocate ")(count)(" pages")();
+//	debug("allocate ")(count)(" pages")();
 
 	int64_t last_free = -1;
 	for(int64_t i = 0; i < page_count_; i++)
@@ -221,7 +221,7 @@ bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
 			if(last_free < 0) last_free = i;
 			if(i - last_free + 1 == count)
 			{
-				debug("return ")(last_free)(" to ")(i)();
+//				debug("return ")(last_free)(" to ")(i)();
 				address = last_free << 12;
 				for(auto j = last_free; j <= i; ++j)
 					SetBusy(j);

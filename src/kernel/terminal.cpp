@@ -1,9 +1,11 @@
-#include "terminal.h"
 #include "memory.h"
-#include "../libc/stdlib.h"
+#include <stdlib.h>
+#include "debug.h"
+#include "terminal.h"
 
 void Terminal::Clear()
 {
+	if(!buffer_) return;
 	memsetw(buffer_, 0x0720, 80 * 25 * 2);
 	MoveCursor(0, 0);
 }
@@ -11,15 +13,18 @@ void Terminal::Clear()
 void Terminal::SetBuffer(uint16_t *buffer)
 {
 	buffer_ = buffer;
+	screen_ = nullptr;
 }
 
 void Terminal::Copy(uint16_t *buffer)
 {
+	if(!buffer_) return;
 	memcpy(buffer_, buffer, 80 * 25 * 2);
 }
 
 void Terminal::Link()
 {
+	if(!buffer_) return;
 	screen_ = (uint16_t*)0xB8000;
 	memcpy(screen_, buffer_, 80 * 25 * 2);
 	MoveCursor(row_, col_);
@@ -27,8 +32,11 @@ void Terminal::Link()
 
 void Terminal::Unlink()
 {
-	memsetw(screen_, 0x0720, 80 * 25 * 2);
-	screen_ = nullptr;
+	if(screen_)
+	{
+		memsetw(screen_, 0x0720, 80 * 25 * 2);
+		screen_ = nullptr;
+	}
 	uint16_t pos = 0;
 	outb(0x3d4, 0x0f);
 	outb(0x3d5, (uint8_t) (pos & 0xff));
@@ -126,6 +134,8 @@ void Terminal::KeyPress(char ascii, uint16_t scancode)
 
 void Terminal::InternalWrite(char c)
 {
+	if(!buffer_) return;
+	auto s = screen_;
 	if('\n' == c)
 	{
 		row_++;
@@ -134,7 +144,7 @@ void Terminal::InternalWrite(char c)
 	else if(isprint(c))
 	{
 		buffer_[row_ * width_ + col_] = c + (7 << 8);
-		if(screen_) screen_[row_ * width_ + col_] = c + (7 << 8);
+		if(s) s[row_ * width_ + col_] = c + (7 << 8);
 		col_++;
 		if(col_ >= width_)
 		{
@@ -148,10 +158,10 @@ void Terminal::InternalWrite(char c)
 		// scroll up
 		memcpy(buffer_, buffer_ + width_, 2 * (height_ - 1) * width_);
 		memsetw(buffer_ + (height_ - 1) * width_, 0x0720, 2 * width_);
-		if(screen_)
+		if(s)
 		{
-			memcpy(screen_, screen_ + width_, 2 * (height_ - 1) * width_);
-			memsetw(screen_ + (height_ - 1) * width_, 0x0720, 2 * width_);
+			memcpy(s, s + width_, 2 * (height_ - 1) * width_);
+			memsetw(s + (height_ - 1) * width_, 0x0720, 2 * width_);
 		}
 		row_ = height_ - 1;
 	}

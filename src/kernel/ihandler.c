@@ -13,24 +13,6 @@ void set_irq_hook(int number, void (*hook)(void*), void *data)
 	}
 }
 
-void (*(int_hook[256]))(void*);
-void *int_data[256];
-
-void set_int_hook(int number, void (*hook)(void*), void *data)
-{
-	if(number >= 0 && number < 256)
-	{
-		int_hook[number] = hook;
-		int_data[number] = data;
-	}
-}
-
-void (*int_0E_hook)(void*, uint64_t) = NULL;
-void set_int_0E_hook(void (*hook)(void*, uint64_t))
-{
-	int_0E_hook = hook;
-}
-
 // IRQ0: Timer 
 void irq0_handler(void) {
 	outb(0x20, 0x20); //EOI
@@ -135,28 +117,24 @@ void irq15_handler(void) {
 	if(irq_hook[15]) irq_hook[15](irq_data[15]);
 }
 
-void int_handler(int number)
+
+///
+/// CPU Exception Handlers
+///
+void (*(exception_handler_function[32]))(uint64_t, uint64_t, uint64_t);
+void set_exception_handler(int number, void (*handler)(uint64_t, uint64_t, uint64_t))
 {
-	// software interrupt
-//	if(0x80 == number)
-//	{
-//		// got it
-//		uint16_t *screen = (uint16_t*)0xB8000;
-//		screen[80] = '8' + (7<<8);
-//		screen[81] = '0' + (7<<8);
-//		screen[82] = 'h' + (7<<8);
-//	}
-//	else
-//	{
-//		// got it
-//		uint16_t *screen = (uint16_t*)0xB8000;
-//		screen[80] = '?' + (7<<8);
-//		screen[81] = '?' + (7<<8);
-//		screen[82] = '?' + (7<<8);
-//	}
+	// set hook for exception interrupts
+	if(number >= 0 && number < 32)
+	{
+		exception_handler_function[number] = handler;
+	}
 }
 
-void int_0E_handler(void* vp, uint64_t error)
+void exception_handler(uint64_t number, uint64_t rip, uint64_t rsp, uint64_t error)
 {
-	if(int_0E_hook) int_0E_hook(vp, error);
+	if(number < 32)
+	{
+		if(exception_handler_function[number]) exception_handler_function[number](rip, rsp, error);
+	}
 }
