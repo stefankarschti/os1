@@ -41,66 +41,92 @@ irq2:
  
 global irq3
 irq3:
-  call irq3_handler
-  iretq
+	call saveregs
+	call irq3_handler
+	call restoreregs
+	iretq
  
 global irq4
 irq4:
-  call irq4_handler
-  iretq
+	call saveregs
+	call irq4_handler
+	call restoreregs
+	iretq
  
 global irq5
 irq5:
-  call irq5_handler
-  iretq
+	call saveregs
+	call irq5_handler
+	call restoreregs
+	iretq
  
 global irq6
 irq6:
-  call irq6_handler
-  iretq
+	call saveregs
+	call irq6_handler
+	call restoreregs
+	iretq
  
 global irq7
 irq7:
-  call irq7_handler
-  iretq
+	call saveregs
+	call irq7_handler
+	call restoreregs
+	iretq
  
 global irq8
 irq8:
-  call irq8_handler
-  iretq
+	call saveregs
+	call irq8_handler
+	call restoreregs
+	iretq
  
 global irq9
 irq9:
-  call irq9_handler
-  iretq
+	call saveregs
+	call irq9_handler
+	call restoreregs
+	iretq
  
 global irq10
 irq10:
-  call irq10_handler
-  iretq
+	call saveregs
+	call irq10_handler
+	call restoreregs
+	iretq
  
 global irq11
 irq11:
-  call irq11_handler
-  iretq
+	call saveregs
+	call irq11_handler
+	call restoreregs
+	iretq
  
 global irq12
 irq12:
-  call irq12_handler
-  iretq
+	call saveregs
+	call irq12_handler
+	call restoreregs
+	iretq
  
 global irq13
 irq13:
-  call irq13_handler
-  iretq
+	call saveregs
+	call irq13_handler
+	call restoreregs
+	iretq
  
 global irq14
 irq14:
-  call irq14_handler
-  iretq
+	call saveregs
+	call irq14_handler
+	call restoreregs
+	iretq
  
 global irq15
 irq15:
-  call irq15_handler
-  iretq
+	call saveregs
+	call irq15_handler
+	call restoreregs
+	iretq
 

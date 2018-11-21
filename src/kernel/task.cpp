@@ -5,13 +5,13 @@
 Task** current_task = (Task**)(0x0);
 Task* taskList = (Task*)(0x8);
 uint64_t nextpid = 1;
-const size_t kNumTasks = 32;
+const size_t k_num_tasks = 32;
 
 void initTasks()
 {
-	debug("max tasks ")(kNumTasks)();
-//	memsetq(taskList, 0, kNumTasks * sizeof(Task));
-	for(int i = 0; i < kNumTasks; ++i)
+	debug("max tasks ")(k_num_tasks)();
+//	memset((void*)(0x0), 0, 0x20000);
+	for(int i = 0; i < k_num_tasks; ++i)
 	{
 		taskList[i].pid = 0;
 	}
@@ -19,7 +19,7 @@ void initTasks()
 
 Task* nextfreetss()
 {
-	size_t maxTasks = kNumTasks;
+	size_t maxTasks = k_num_tasks;
 	for(size_t i = 0; i < maxTasks; ++i)
     {
         if(0 == taskList[i].pid)
@@ -35,7 +35,7 @@ void linkTasks()
 {
     Task* first = nullptr;
     Task* last = nullptr;
-	size_t maxTasks = kNumTasks;
+	size_t maxTasks = k_num_tasks;
 	for(size_t i = 0; i < maxTasks; ++i)
     {
         if(taskList[i].pid)
@@ -77,7 +77,8 @@ Task* newTask(void *code, uint64_t *stack, size_t stack_len)
 	}
 
 	task->pid = nextpid++;
-	task->timer = 0;
+	task->timer = 10;
+//	task->quanta = 10;	// reload value
 	task->regs.rax = 0;
 	task->regs.rbx = 0;
 	task->regs.rcx = 0;

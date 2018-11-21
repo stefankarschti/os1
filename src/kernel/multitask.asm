@@ -22,11 +22,11 @@ startMultiTask:
 	je .do
 	mov ax, 'E'
 	call panic ; error stop - corrupted r15
-.do
+.do:
 ; start irq0 timer: 1193182 ticks/s divided by ax
 	mov al, 0x34
 	out 0x43, al
-	mov ax, 0 ;1193    ; 1193182 ticks/s divided by ax
+	mov ax, 1193    ; 1193182 ticks/s divided by ax
 	out 0x40, al    ; low
 	rol ax, 8
 	out 0x40, al    ; high
@@ -34,13 +34,10 @@ startMultiTask:
 
 	; restore registers
 	mov rax, [r15 + regs + 17 * 8]
-	mov rbx, cr3
-	cmp rax, rbx
-	je .l1
-	mov ax, 'C' ; panic: corrupted cr3
-	call panic
-.l1:
-	;	mov cr3, rax
+	mov cr3, rax
+	mov rax, [r15 + regs + 16 * 8]
+	push rax
+	popf
 	mov rax, [r15 + regs + 0 * 8]
 	mov rbx, [r15 + regs + 1 * 8]
 	mov rcx, [r15 + regs + 2 * 8]
@@ -57,61 +54,29 @@ startMultiTask:
 	mov r13, [r15 + regs + 13 * 8]
 	mov r14, [r15 + regs + 14 * 8]
 	mov r15, [r15 + regs + 15 * 8]
-
-;	cmp rsp, 0x77fd8
-;	je .l0
-;	mov ax, '0'
-;	call panic
-;.l0
-;	mov rax, [rsp]
-;	cmp rax, 0x1029b9
-;	je .l4
-;	mov ax, '1'
-;	call panic
-;.l4
-;	mov rax, [rsp + 8]
-;	cmp rax, 08h
-;	je .l2
-;	mov ax, '2'
-;	call panic
-;.l2
-;	mov rax, [rsp + 16]
-;	cmp rax, 2202h
-;	je .l3
-;	mov ax, '3'
-;	call panic
-;.l3
-;	mov rax, [rsp + 24]
-;	cmp rax, 0x78000
-;	je .l5
-;	mov ax, '4'
-;	call panic
-;.l5
-;	mov rax, [rsp + 32]
-;	cmp rax, 0x10
-;	je .l6
-;	mov ax, '5'
-;	call panic
-;.l6
-
 	iretq
 
 global task_switch_irq
 task_switch_irq:
 	cli
+	mov r15, [current_task]
 
-	cmp r15, [current_task]
-	je .l1
-	mov ax, '0'
-	call panic ; error stop - corrupted r15
-
-.l1:
 	cmp r15, [r15 + regs + 15 * 8]
 	je .do
 	mov ax, 'E'
 	call panic ; error stop - corrupted r15
-
 .do:
+
+	; decrement timer
+	dec qword [r15 + 2 * 8]
+	jz .switch
+	push rax
+	mov al, 0x20
+	out 0x20, al
+	pop rax
+	iretq
+
+.switch:
 	; save registers
 	mov [r15 + regs + 0 * 8], rax
 	mov [r15 + regs + 1 * 8], rbx
@@ -134,20 +99,20 @@ task_switch_irq:
 	mov rax, cr3
 	mov [r15 + regs + 17 * 8], rax
 
+	; reload timer
+	mov rax, 10 ;[r15 + 3 * 8]
+	mov [r15 + 2 * 8], rax
+
 	; task switch
 	mov r15, [r15]
 	mov [current_task], r15
 
 	; restore registers
 	mov rax, [r15 + regs + 17 * 8]
-	mov rbx, cr3
-	cmp rax, rbx
-	je .l2
-	mov ax, 'C' ; panic: corrupted cr3
-	call panic
-
-.l2:
-;	mov cr3, rax
+	mov cr3, rax
+	mov rax, [r15 + regs + 16 * 8]
+	push rax
+	popf
 	mov rax, [r15 + regs + 0 * 8]
 	mov rbx, [r15 + regs + 1 * 8]
 	mov rcx, [r15 + regs + 2 * 8]
@@ -164,8 +129,6 @@ task_switch_irq:
 	mov r13, [r15 + regs + 13 * 8]
 	mov r14, [r15 + regs + 14 * 8]
 	mov r15, [r15 + regs + 15 * 8]
-	; RFLAGS will be restored by iretq
-
 	push rax
 	mov al, 0x20
 	out 0x20, al

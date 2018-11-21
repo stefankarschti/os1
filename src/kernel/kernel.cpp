@@ -616,7 +616,7 @@ void KernelMain(SystemInformation *info)
 		active_terminal->WriteLn("Interrupts initialization successful");
 	else
 		active_terminal->WriteLn("Interrupts initialization failed");
-	active_terminal->WriteLn("Set up #PF");
+	active_terminal->WriteLn("Set up exception handlers");
 
 	// set exception handlers
 	interrupts.SetExceptionHandler( 0, onException00);
@@ -673,10 +673,10 @@ void KernelMain(SystemInformation *info)
 	debug("sizeof Task is ")(sizeof(Task))();
 	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * 4096 / 8);
 	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * 4096 / 8);
-//	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
+	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
 
 	// start multitasking
-	if(task1 /*&& task2 && task3*/)
+	if(task1 && task2 && task3)
 	{
 		debug("start multitasking")();
 		active_terminal->WriteLn("Press F1..F12 to switch terminals");
