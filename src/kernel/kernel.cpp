@@ -552,6 +552,43 @@ void KernelMain(SystemInformation *info)
 	kvm.Activate();
 	debug("kvm activated")();
 
+	// debug multitask reset if zero first 128KB bug:
+	{
+		//memset(0, 0, 0x20000);
+		uint8_t* p = (uint8_t*)(0x0);
+		uint8_t* e = (uint8_t*)(0x20000);
+		while(p < e)
+		{
+			debug((uint64_t)p, 16, 16)(":");
+			for(int i = 0; i < 32; ++i)
+			{
+				if(0 == i % 8) debug(" ");
+				debug(p[i], 16, 2);
+			}
+			debug(" ");
+			char *s = (char*)p;
+			for(int i = 0; i < 32; ++i)
+			{
+				if(s[i] >= 32 && s[i] < 0x7F)
+					debug.Write(s[i]);
+				else
+					debug.Write('.');
+			}
+			debug.nl();
+			p += 32;
+		}
+
+		debug("clearing by page:")();
+		p = (uint8_t*)(0x0);
+		while(p < e)
+		{
+			debug((uint64_t)p, 16, 16)(":");
+			memset(p, 0, 0x1000);
+			debug("ok")();
+			p += 0x1000;
+		}
+	}
+
 	// initialize terminals
 	for(size_t i = 0; i < kNumTerminals; ++i)
 	{
@@ -669,39 +706,42 @@ void KernelMain(SystemInformation *info)
 	if(result) 	debug("alloc stack3 at 0x")(stack3, 16)(); else debug("alloc stack3 failed")();
 	if(!result) return;
 
-	initTasks();
-	debug("sizeof Task is ")(sizeof(Task))();
-	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * 4096 / 8);
-	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * 4096 / 8);
-	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
+//	initTasks();
+//	debug("sizeof Task is ")(sizeof(Task))();
+//	Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * 4096 / 8);
+//	Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * 4096 / 8);
+//	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
 
-	// start multitasking
-	if(task1 && task2 && task3)
-	{
-		debug("start multitasking")();
-		active_terminal->WriteLn("Press F1..F12 to switch terminals");
+//	// start multitasking
+//	if(task1 && task2 && task3)
+//	{
+//		debug("start multitasking")();
+//		active_terminal->WriteLn("Press F1..F12 to switch terminals");
 
-		debug("task1 pid ")(task1->pid)();
-		task1->regs.print();
-		debug("interrupt stack:")();
-		debug("RIP=")(*(uint64_t*)(task1->regs.rsp), 16)();
-		debug("CS=")(*(uint64_t*)(task1->regs.rsp + 8), 16)();
-		debug("RFLAGS=")(*(uint64_t*)(task1->regs.rsp + 16), 16)();
-		debug("RSP=")(*(uint64_t*)(task1->regs.rsp + 24), 16)();
-		debug("SS=")(*(uint64_t*)(task1->regs.rsp + 32), 16)();
+//		debug("task1 pid ")(task1->pid)();
+//		task1->regs.print();
+//		debug("interrupt stack:")();
+//		debug("RIP=")(*(uint64_t*)(task1->regs.rsp), 16)();
+//		debug("CS=")(*(uint64_t*)(task1->regs.rsp + 8), 16)();
+//		debug("RFLAGS=")(*(uint64_t*)(task1->regs.rsp + 16), 16)();
+//		debug("RSP=")(*(uint64_t*)(task1->regs.rsp + 24), 16)();
+//		debug("SS=")(*(uint64_t*)(task1->regs.rsp + 32), 16)();
 
-		startMultiTask(task1);
-	}
-	else
-	{
-		debug("Task creation failed")();
-		active_terminal->WriteLn("Task creation failed");
-	}
+//		startMultiTask(task1);
+//	}
+//	else
+//	{
+//		debug("Task creation failed")();
+//		active_terminal->WriteLn("Task creation failed");
+//	}
 
 	// we should not reach this point
 	active_terminal->WriteLn("[kernel64] panic! multitasking ended; halting.");
 
 stop:
+	// "sti" would cause reset. something wrong with interrupts
+	// TODO: set safe stack and enable interrupts, see what you catch
+	asm volatile("cli");
 	asm volatile("hlt");
 	goto stop;
 }
