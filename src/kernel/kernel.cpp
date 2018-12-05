@@ -523,8 +523,15 @@ void onException1E(uint64_t rip, uint64_t rsp, uint64_t error)
 	goto stop;
 }
 
+//extern "C" void load_gdt();
+
 void KernelMain(SystemInformation *info)
 {
+//	load_gdt();
+//dd:
+//	asm volatile("hlt");
+//	goto dd;
+
 	bool result;
 	debug((uint64_t)(&debug), 16);
 	debug("[kernel64] hello!\n");
@@ -553,8 +560,8 @@ void KernelMain(SystemInformation *info)
 	debug("kvm activated")();
 
 	// debug multitask reset if zero first 128KB bug:
+	if(1)
 	{
-		//memset(0, 0, 0x20000);
 		uint8_t* p = (uint8_t*)(0x0);
 		uint8_t* e = (uint8_t*)(0x20000);
 		while(p < e)
@@ -579,7 +586,11 @@ void KernelMain(SystemInformation *info)
 		}
 
 		debug("clearing by page:")();
-		p = (uint8_t*)(0x0);
+		p = (uint8_t*)(0x400);
+		debug((uint64_t)p, 16, 16)(":");
+		memset(p, 0, 0x1000 - 0x400);
+		debug("ok")();
+		p = (uint8_t*)(0x1000);
 		while(p < e)
 		{
 			debug((uint64_t)p, 16, 16)(":");
@@ -741,7 +752,7 @@ void KernelMain(SystemInformation *info)
 stop:
 	// "sti" would cause reset. something wrong with interrupts
 	// TODO: set safe stack and enable interrupts, see what you catch
-	asm volatile("cli");
+	asm volatile("sti");
 	asm volatile("hlt");
 	goto stop;
 }

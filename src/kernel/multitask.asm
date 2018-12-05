@@ -7,7 +7,7 @@ panic:
 	jmp panic
 
 regs equ 3 * 8
-current_task equ 0
+current_task equ 0x400
 
 ; set active task to RDI
 ; switch to this task

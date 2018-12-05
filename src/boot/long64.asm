@@ -130,12 +130,25 @@ SwitchToLongMode:
     or ebx,0x80000001                 ; - by enabling paging and protection simultaneously.
     mov cr0, ebx                    
  
-    lgdt [GDT.Pointer]                ; Load GDT.Pointer defined below.
+	; move GDT to address 0
+GDTT equ 0x0
+	mov edi, GDTT
+	mov esi, GDT
+	cld
+	mov ecx, 3 * 8 + 8
+	rep movsb
+	mov eax, GDTT
+	mov dword [GDTT + 3 * 8 + 4], eax
+
+	; load GDT
+	lgdt [GDTT + 3 * 8 + 2]
+;    lgdt [GDT.Pointer]                ; Load GDT.Pointer defined below.
  
     jmp CODE_SEG:LongMode             ; Load CS with 64 bit segment and flush the instruction cache
  
  
     ; Global Descriptor Table
+ALIGN 8
 GDT:
 .Null:
     dq 0x0000000000000000             ; Null Descriptor - should be present.

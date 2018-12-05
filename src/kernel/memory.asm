@@ -8,6 +8,55 @@ section .text
 ; float return: XMM1:XMM0
 ; preserve: RBX, RBP, R12-R15
 
+global load_gdt
+%define CODE_SEG     0x0008
+%define DATA_SEG     0x0010
+load_gdt:
+	cli
+	lgdt [GDT.Pointer]                ; Load GDT.Pointer defined below.
+;	mov rbp, rsp
+;	push QWORD DATA_SEG
+;	push rbp
+;	pushfq
+;	pushfq
+;	pop rax
+;	and rax, 1111111111111111111111111111111111111111111111101011111011111111b
+;	push rax
+;	popfq
+	push QWORD CODE_SEG
+	push QWORD Flush
+	retq
+
+ALIGN 8
+GDT:
+.Null:
+dq 0x0000000000000000             ; Null Descriptor - should be present.
+.Code:
+dq 0x00209A0000000000             ; 64-bit code descriptor (exec/read).
+dq 0x0000920000000000             ; 64-bit data descriptor (read/write).
+ALIGN 4
+dw 0                              ; Padding to make the "address of the GDT" field aligned on a 4-byte boundary
+.Pointer:
+dw $ - GDT - 1                    ; 16-bit Size (Limit) of GDT.
+dd GDT                            ; 32-bit Base Address of GDT. (CPU will zero extend to 64-bit)
+
+Flush:
+	mov ax, DATA_SEG
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	mov ss, ax
+
+	; Display "64 bit"
+	mov rdi, 0xB8000 + 160
+	mov rax, 0x1F621F201F341F36
+	mov [rdi],rax
+
+	mov eax, 0x1F741F69
+	mov [rdi + 8], eax
+	ret
+
 ;
 ; void memset(void* ptr, uint8_t value, uint64_t num)
 ;

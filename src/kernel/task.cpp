@@ -2,8 +2,8 @@
 #include "memory.h"
 #include "debug.h"
 
-Task** current_task = (Task**)(0x0);
-Task* taskList = (Task*)(0x8);
+Task** current_task = (Task**)(0x400);
+Task* taskList = (Task*)(0x408);
 uint64_t nextpid = 1;
 const size_t k_num_tasks = 32;
 
