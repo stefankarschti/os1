@@ -142,8 +142,6 @@ GDTT equ 0x0
 
 	; load GDT
 	lgdt [GDTT + 3 * 8 + 2]
-;    lgdt [GDT.Pointer]                ; Load GDT.Pointer defined below.
- 
     jmp CODE_SEG:LongMode             ; Load CS with 64 bit segment and flush the instruction cache
  
  
@@ -151,19 +149,19 @@ GDTT equ 0x0
 ALIGN 8
 GDT:
 .Null:
-    dq 0x0000000000000000             ; Null Descriptor - should be present.
+	dq 0x0000000000000000             ; Null Descriptor - should be present.
  
 .Code:
-    dq 0x00209A0000000000             ; 64-bit code descriptor (exec/read).
-    dq 0x0000920000000000             ; 64-bit data descriptor (read/write).
+	dq 0x00209A0000000000             ; 64-bit code descriptor (exec/read).
+	dq 0x0000920000000000             ; 64-bit data descriptor (read/write).
  
 ALIGN 4
-    dw 0                              ; Padding to make the "address of the GDT" field aligned on a 4-byte boundary
+	dw 0                              ; Padding to make the "address of the GDT" field aligned on a 4-byte boundary
  
 .Pointer:
-    dw $ - GDT - 1                    ; 16-bit Size (Limit) of GDT.
-    dd GDT                            ; 32-bit Base Address of GDT. (CPU will zero extend to 64-bit)
- 
+	dw $ - GDT - 1                    ; 16-bit Size (Limit) of GDT.
+	dd GDT                            ; 32-bit Base Address of GDT. (CPU will zero extend to 64-bit)
+
  
 [BITS 64]      
 LongMode:

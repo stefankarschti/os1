@@ -102,8 +102,8 @@ bool Interrupts::Initialize()
 	outb(0x21, 0x0);
 	outb(0xA1, 0x0);
 
-//	SetIDT(32, (uint64_t)task_switch_irq);
-	SetIDT(32, (uint64_t)irq0);
+	SetIDT(32, (uint64_t)task_switch_irq);
+//	SetIDT(32, (uint64_t)irq0);
 	SetIDT(33, (uint64_t)irq1);
 	SetIDT(34, (uint64_t)irq2);
 	SetIDT(35, (uint64_t)irq3);

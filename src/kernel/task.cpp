@@ -10,7 +10,7 @@ const size_t k_num_tasks = 32;
 void initTasks()
 {
 	debug("max tasks ")(k_num_tasks)();
-//	memset((void*)(0x0), 0, 0x20000);
+	memset((void*)(&taskList[0]), 0, k_num_tasks * sizeof(Task));
 	for(int i = 0; i < k_num_tasks; ++i)
 	{
 		taskList[i].pid = 0;
