@@ -41,7 +41,8 @@ A000h	4000h	memory_pages	16k
 
 Kernel VM stage
 start	length	description
-0h		20000h	kernel data				128k
+0h      20h     GDT                     32 bytes
+20h		20000h	kernel data				128k-32bytes
 20000h	40000h	page frames (64G RAM)	256k
 60000h	20000h	kernel page table		128k
 70000h	1FC00h	free					127k
