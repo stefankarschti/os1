@@ -28,6 +28,33 @@ const size_t kNumTerminals = 12;
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
+void DebugMemory(uint64_t begin, uint64_t end)
+{
+	uint8_t* p = (uint8_t*)begin;
+	uint8_t* e = (uint8_t*)end;
+	// debug memory zone
+	while(p < e)
+	{
+		debug((uint64_t)p, 16, 16)(":");
+		for(int i = 0; i < 32; ++i)
+		{
+			if(0 == i % 8) debug(" ");
+			debug(p[i], 16, 2);
+		}
+		debug(" ");
+		char *s = (char*)p;
+		for(int i = 0; i < 32; ++i)
+		{
+			if(s[i] >= 32 && s[i] < 0x7F)
+				debug.Write(s[i]);
+			else
+				debug.Write('.');
+		}
+		debug.nl();
+		p += 32;
+	}
+}
+
 uint16_t SetTimer(uint16_t frequency)
 {
     uint32_t divisor = 1193180 / frequency;
@@ -362,14 +389,22 @@ void onException0D(uint64_t rip, uint64_t rsp, uint64_t error)
     asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
     asm volatile( "mov %%r15, %0" : "=r"(r15) );
 
-    const char *name = "#GP-General-Protection Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
+	const char *name = "#GP-General-Protection Exception";
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
     Registers *regs = (Registers*)(0x10000);
-    regs->print();
+	regs->print();
+	debug("stack:")();
+	uint64_t* p_rsp = (uint64_t*)rsp;
+	for(int i = 0; i < 5; ++i)
+	{
+		debug("[")(i)("] = 0x")(p_rsp[i], 16)();
+	}
+	debug("stack memory:")();
+	DebugMemory(rsp, ((rsp / 4096) + 1) * 4096 );
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(name);
+	}
 stop:
     asm("cli");
     asm("hlt");
@@ -521,33 +556,6 @@ stop:
     asm("cli");
     asm("hlt");
     goto stop;
-}
-
-void DebugMemory(uint64_t begin, uint64_t end)
-{
-    uint8_t* p = (uint8_t*)begin;
-    uint8_t* e = (uint8_t*)end;
-    // debug memory zone
-    while(p < e)
-    {
-        debug((uint64_t)p, 16, 16)(":");
-        for(int i = 0; i < 32; ++i)
-        {
-            if(0 == i % 8) debug(" ");
-            debug(p[i], 16, 2);
-        }
-        debug(" ");
-        char *s = (char*)p;
-        for(int i = 0; i < 32; ++i)
-        {
-            if(s[i] >= 32 && s[i] < 0x7F)
-                debug.Write(s[i]);
-            else
-                debug.Write('.');
-        }
-        debug.nl();
-        p += 32;
-    }
 }
 
 void KernelMain(SystemInformation *info)
@@ -709,10 +717,10 @@ void KernelMain(SystemInformation *info)
     debug("sizeof Task is ")(sizeof(Task))();
     Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * 4096 / 8);
     Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * 4096 / 8);
-    Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
+//    Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
 
     // start multitasking
-    if(task1 && task2 && task3)
+	if(task1 && task2 /*&& task3*/)
     {
         debug("start multitasking")();
         active_terminal->WriteLn("Press F1..F12 to switch terminals");
@@ -745,36 +753,16 @@ stop:
     goto stop;
 }
 
+
+static uint64_t char_index = 0;
+
 void process1()
 {
-    Terminal *my_terminal = &terminal[0];
-    while(true)
-    {
-        my_terminal->Write('1');
-    }
-    //	Terminal *my_terminal = &terminal[0];
-    //	my_terminal->Write("process1 starting\n");
-    //	while(true)
-    //	{
-    //		extern Task *taskList;
-    //		Task* task = &taskList[0];
-    //		my_terminal->Write("task 0x");
-    //		my_terminal->WriteIntLn((uint64_t)task, 16);
-    //		my_terminal->Write("pid=");
-    //		my_terminal->WriteIntLn(task->pid);
-    //		my_terminal->Write("cr3=");
-    //		my_terminal->WriteIntLn(task->regs.cr3, 16);
-    //		my_terminal->Write("rsp=");
-    //		my_terminal->WriteIntLn(task->regs.rsp, 16);
-
-    //		char line[256];
-    //		line[0] = 0;
-    //		my_terminal->Write("terminal1:");
-    //		my_terminal->ReadLn(line);
-    //		my_terminal->Write("Command: ");
-    //		my_terminal->WriteLn(line);
-    //	}
-    //	my_terminal->Write("\nprocess1 ending\n");
+	Terminal *my_terminal = &terminal[0];
+	while (true)
+	{
+		my_terminal->Write('1');
+	}
 stop:
     asm volatile("hlt");
     goto stop;
@@ -782,34 +770,11 @@ stop:
 
 void process2()
 {
-    Terminal *my_terminal = &terminal[1];
-    while(true)
-    {
-        my_terminal->Write('2');
-    }
-    //	Terminal *my_terminal = &terminal[1];
-    //	my_terminal->Write("process2 starting\n");
-    //	while(true)
-    //	{
-    //		extern Task *taskList;
-    //		Task* task = &taskList[1];
-    //		my_terminal->Write("task 0x");
-    //		my_terminal->WriteIntLn((uint64_t)task, 16);
-    //		my_terminal->Write("pid=");
-    //		my_terminal->WriteIntLn(task->pid);
-    //		my_terminal->Write("cr3=");
-    //		my_terminal->WriteIntLn(task->regs.cr3, 16);
-    //		my_terminal->Write("rsp=");
-    //		my_terminal->WriteIntLn(task->regs.rsp, 16);
-
-    //		char line[256];
-    //		line[0] = 0;
-    //		my_terminal->Write("terminal2:");
-    //		my_terminal->ReadLn(line);
-    //		my_terminal->Write("Command: ");
-    //		my_terminal->WriteLn(line);
-    //	}
-    //	my_terminal->Write("\nprocess2 ending\n");
+	Terminal *my_terminal = &terminal[1];
+	while (true)
+	{
+		my_terminal->Write('2');
+	}
 stop:
     asm volatile("hlt");
     goto stop;

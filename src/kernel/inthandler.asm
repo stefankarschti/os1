@@ -188,7 +188,7 @@ int_0Ch:
 ;int int_0Dh();	// #GP
 global int_0Dh
 int_0Dh:
-	call saveregs
+;	call saveregs
 	mov rdi, 13			; number
 	mov rsi, [rsp + 8]	; RIP
 	mov rdx, [rsp + 32]	; RSP

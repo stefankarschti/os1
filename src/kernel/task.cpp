@@ -16,6 +16,7 @@ void initTasks()
 	{
 		taskList[i].pid = 0;
 	}
+	*current_task = 0;
 }
 
 Task* nextfreetss()

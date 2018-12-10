@@ -21,7 +21,6 @@ void irq0_handler(void) {
  
 // IRQ1: Keyboard 
 void irq1_handler(void) {
-	outb(0x20, 0x20); //EOI
 	if(irq_hook[1]) irq_hook[1](irq_data[1]);
 }
  

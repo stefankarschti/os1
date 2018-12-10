@@ -20,6 +20,7 @@ extern restoreregs
 
 global irq0
 irq0:
+	cli
 	call saveregs
 	call irq0_handler
 	call restoreregs
@@ -27,13 +28,19 @@ irq0:
  
 global irq1
 irq1:
+	cli
 	call saveregs
 	call irq1_handler
 	call restoreregs
+	push rax
+	mov al, 0x20
+	out 0x20, al
+	pop rax
 	iretq
 
 global irq2
 irq2:
+	cli
 	call saveregs
 	call irq2_handler
 	call restoreregs
@@ -41,6 +48,7 @@ irq2:
  
 global irq3
 irq3:
+	cli
 	call saveregs
 	call irq3_handler
 	call restoreregs
@@ -48,6 +56,7 @@ irq3:
  
 global irq4
 irq4:
+	cli
 	call saveregs
 	call irq4_handler
 	call restoreregs
@@ -55,6 +64,7 @@ irq4:
  
 global irq5
 irq5:
+	cli
 	call saveregs
 	call irq5_handler
 	call restoreregs
@@ -62,6 +72,7 @@ irq5:
  
 global irq6
 irq6:
+	cli
 	call saveregs
 	call irq6_handler
 	call restoreregs
@@ -69,6 +80,7 @@ irq6:
  
 global irq7
 irq7:
+	cli
 	call saveregs
 	call irq7_handler
 	call restoreregs
@@ -76,6 +88,7 @@ irq7:
  
 global irq8
 irq8:
+	cli
 	call saveregs
 	call irq8_handler
 	call restoreregs
@@ -83,6 +96,7 @@ irq8:
  
 global irq9
 irq9:
+	cli
 	call saveregs
 	call irq9_handler
 	call restoreregs
@@ -90,6 +104,7 @@ irq9:
  
 global irq10
 irq10:
+	cli
 	call saveregs
 	call irq10_handler
 	call restoreregs
@@ -97,6 +112,7 @@ irq10:
  
 global irq11
 irq11:
+	cli
 	call saveregs
 	call irq11_handler
 	call restoreregs
@@ -104,6 +120,7 @@ irq11:
  
 global irq12
 irq12:
+	cli
 	call saveregs
 	call irq12_handler
 	call restoreregs
@@ -111,6 +128,7 @@ irq12:
  
 global irq13
 irq13:
+	cli
 	call saveregs
 	call irq13_handler
 	call restoreregs
@@ -118,6 +136,7 @@ irq13:
  
 global irq14
 irq14:
+	cli
 	call saveregs
 	call irq14_handler
 	call restoreregs
@@ -125,6 +144,7 @@ irq14:
  
 global irq15
 irq15:
+	cli
 	call saveregs
 	call irq15_handler
 	call restoreregs

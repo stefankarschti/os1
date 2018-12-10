@@ -60,23 +60,21 @@ global task_switch_irq
 task_switch_irq:
 	cli
 	mov r15, [current_task]
+	test r15, r15
+	jnz .l1
 
-	cmp r15, [r15 + regs + 15 * 8]
-	je .do
-	mov ax, 'E'
-	call panic ; error stop - corrupted r15
-.do:
-
-	; decrement timer
-	dec qword [r15 + 2 * 8]
-	jz .switch
 	push rax
 	mov al, 0x20
 	out 0x20, al
 	pop rax
 	iretq
 
-.switch:
+.l1:
+	cmp r15, [r15 + regs + 15 * 8]
+	je .do
+	mov ax, 'E'
+	call panic ; error stop - corrupted r15
+.do:
 	; save registers
 	mov [r15 + regs + 0 * 8], rax
 	mov [r15 + regs + 1 * 8], rbx
@@ -98,10 +96,6 @@ task_switch_irq:
 	mov [r15 + regs + 16 * 8], rax
 	mov rax, cr3
 	mov [r15 + regs + 17 * 8], rax
-
-	; reload timer
-	mov rax, 10 ;[r15 + 3 * 8]
-	mov [r15 + 2 * 8], rax
 
 	; task switch
 	mov r15, [r15]
@@ -129,6 +123,7 @@ task_switch_irq:
 	mov r13, [r15 + regs + 13 * 8]
 	mov r14, [r15 + regs + 14 * 8]
 	mov r15, [r15 + regs + 15 * 8]
+
 	push rax
 	mov al, 0x20
 	out 0x20, al
