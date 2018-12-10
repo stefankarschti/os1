@@ -58,6 +58,7 @@ restoreregs:
 ;int int_00h();	// #DE
 global int_00h
 int_00h:
+	cli
 	call saveregs
 	mov rdi, 0			; number
 	mov rsi, [rsp]		; RIP
@@ -68,6 +69,7 @@ int_00h:
 ;int int_01h();	// #DB
 global int_01h
 int_01h:
+	cli
 	call saveregs
 	mov rdi, 1			; number
 	mov rsi, [rsp]		; RIP
@@ -78,6 +80,7 @@ int_01h:
 ;int int_02h();	// NMI
 global int_02h
 int_02h:
+	cli
 	call saveregs
 	mov rdi, 2			; number
 	mov rsi, [rsp]		; RIP
@@ -88,6 +91,7 @@ int_02h:
 ;int int_03h();	// #BP
 global int_03h
 int_03h:
+	cli
 	call saveregs
 	mov rdi, 3			; number
 	mov rsi, [rsp]		; RIP
@@ -98,6 +102,7 @@ int_03h:
 ;int int_04h();	// #OF
 global int_04h
 int_04h:
+	cli
 	call saveregs
 	mov rdi, 4			; number
 	mov rsi, [rsp]		; RIP
@@ -108,6 +113,7 @@ int_04h:
 ;int int_05h();	// #BR
 global int_05h
 int_05h:
+	cli
 	call saveregs
 	mov rdi, 5			; number
 	mov rsi, [rsp]		; RIP
@@ -118,6 +124,7 @@ int_05h:
 ;int int_06h();	// #UD
 global int_06h
 int_06h:
+	cli
 	call saveregs
 	mov rdi, 6			; number
 	mov rsi, [rsp]		; RIP
@@ -128,6 +135,7 @@ int_06h:
 ;int int_07h();	// #NM
 global int_07h
 int_07h:
+	cli
 	call saveregs
 	mov rdi, 7			; number
 	mov rsi, [rsp]		; RIP
@@ -138,6 +146,7 @@ int_07h:
 ;int int_08h();	// #DF
 global int_08h
 int_08h:
+	cli
 	call saveregs
 	mov rdi, 8			; number
 	mov rsi, [rsp + 8]	; RIP
@@ -148,6 +157,7 @@ int_08h:
 ;int int_09h();	// coprocessor
 global int_09h
 int_09h:
+	cli
 	call saveregs
 	mov rdi, 9			; number
 	mov rsi, [rsp]		; RIP
@@ -158,6 +168,7 @@ int_09h:
 ;int int_0Ah();	// #TS
 global int_0Ah
 int_0Ah:
+	cli
 	call saveregs
 	mov rdi, 10			; number
 	mov rsi, [rsp + 8]	; RIP
@@ -168,6 +179,7 @@ int_0Ah:
 ;int int_0Bh();	// #NP
 global int_0Bh
 int_0Bh:
+	cli
 	call saveregs
 	mov rdi, 11			; number
 	mov rsi, [rsp + 8]	; RIP
@@ -178,6 +190,7 @@ int_0Bh:
 ;int int_0Ch();	// #SS
 global int_0Ch
 int_0Ch:
+	cli
 	call saveregs
 	mov rdi, 12			; number
 	mov rsi, [rsp + 8]	; RIP
@@ -188,7 +201,8 @@ int_0Ch:
 ;int int_0Dh();	// #GP
 global int_0Dh
 int_0Dh:
-;	call saveregs
+	cli
+	call saveregs
 	mov rdi, 13			; number
 	mov rsi, [rsp + 8]	; RIP
 	mov rdx, [rsp + 32]	; RSP
@@ -198,6 +212,7 @@ int_0Dh:
 ;int int_0Eh();	// #PF page fault
 global int_0Eh
 int_0Eh:
+	cli
 	call saveregs
 	mov rdi, 14			; number
 	mov rsi, [rsp + 8]	; RIP
@@ -209,6 +224,7 @@ int_0Eh:
 ;int int_10h();	// #MF
 global int_10h
 int_10h:
+	cli
 	call saveregs
 	mov rdi, 16			; number
 	mov rsi, [rsp]		; RIP
@@ -219,6 +235,7 @@ int_10h:
 ;int int_11h();	// #AC
 global int_11h
 int_11h:
+	cli
 	call saveregs
 	mov rdi, 17			; number
 	mov rsi, [rsp + 8]	; RIP
@@ -229,6 +246,7 @@ int_11h:
 ;int int_12h();	// #MC
 global int_12h
 int_12h:
+	cli
 	call saveregs
 	mov rdi, 18			; number
 	mov rsi, [rsp]		; RIP
@@ -239,6 +257,7 @@ int_12h:
 ;int int_13h();	// #XF
 global int_13h
 int_13h:
+	cli
 	call saveregs
 	mov rdi, 19			; number
 	mov rsi, [rsp]		; RIP
@@ -250,6 +269,7 @@ int_13h:
 ;int int_1Dh();	// #VC
 global int_1Dh
 int_1Dh:
+	cli
 	call saveregs
 	mov rdi, 29			; number
 	mov rsi, [rsp]		; RIP
@@ -260,6 +280,7 @@ int_1Dh:
 ;int int_1Eh();	// #SX
 global int_1Eh
 int_1Eh:
+	cli
 	call saveregs
 	mov rdi, 30			; number
 	mov rsi, [rsp]		; RIP
