@@ -13,6 +13,8 @@
 #include "keyboard.h"
 #include "debug.h"
 
+#include "cpu.h"
+
 // system
 Interrupts interrupts;
 PageFrameContainer page_frames;
@@ -563,6 +565,14 @@ void KernelMain(SystemInformation *info)
     bool result;
     debug("[kernel64] hello!\n");
 
+	debug("sizeof cpu = ")(sizeof(cpu))();
+	cpu_init();
+	debug("cpu init worked!")();
+//	assert(false);
+	dd:
+	asm volatile("hlt");
+	goto dd;
+
     // deep copy system information
     SystemInformation sysinfo = *info;
     MemoryBlock memory_blocks[sysinfo.num_memory_blocks];
@@ -717,10 +727,10 @@ void KernelMain(SystemInformation *info)
     debug("sizeof Task is ")(sizeof(Task))();
     Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * 4096 / 8);
     Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * 4096 / 8);
-//    Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
+	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
 
     // start multitasking
-	if(task1 && task2 /*&& task3*/)
+	if(task1 && task2 && task3)
     {
         debug("start multitasking")();
         active_terminal->WriteLn("Press F1..F12 to switch terminals");
