@@ -13,6 +13,7 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 	bool result = false;
 	memory_size_ = 0;
 	memory_end_address_ = 0;
+	debug("num_memory_blocks = ")(info.num_memory_blocks)();
 	for(size_t i = 0; i < info.num_memory_blocks; i++)
 	{
 		MemoryBlock &b = info.memory_blocks[i];
@@ -53,6 +54,11 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 			debug("bitmap limit exceeded: ")(bitmap_size_)();
 			result = false;
 		}
+	}
+	else
+	{
+		debug("!(memory_size_ > 0 && memory_end_address_ > 0)")();
+		result = false;
 	}
 
 	// paint pages in bitmap according to availability

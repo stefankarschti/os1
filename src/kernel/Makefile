@@ -8,7 +8,7 @@ LDSCRIPT=linker2.ld
 
 all: kernel64.elf
 
-kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o inthandler.o multitask.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o cpu.o
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o inthandler.o multitask.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o cpu.o mp.o lapic.o ioapic.o pic.o string.o
 	$(LD) -T $(LDSCRIPT) \
 	$(BUILD_DIR)kernel.o \
 	$(BUILD_DIR)memory.o \
@@ -25,6 +25,11 @@ kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o inthandler.o
 	$(BUILD_DIR)virtualmemory.o \
 	$(BUILD_DIR)debug.o \
 	$(BUILD_DIR)cpu.o \
+	$(BUILD_DIR)mp.o \
+	$(BUILD_DIR)lapic.o \
+	$(BUILD_DIR)ioapic.o \
+	$(BUILD_DIR)pic.o \
+	$(BUILD_DIR)string.o \
 	-o $(BUILD_DIR)$@ -n
 
 memory.o: memory.asm
@@ -70,6 +75,21 @@ debug.o: debug.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 cpu.o: cpu.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+mp.o: mp.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+lapic.o: lapic.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+ioapic.o: ioapic.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+pic.o: pic.cpp
+	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
+
+string.o: string.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
 clean:

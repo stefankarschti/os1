@@ -226,15 +226,23 @@ loader_main64:
 	cld
 	rep movsq				; move program in place
 	
+	; clear .bss
+	mov rcx, [p_memsz]
+	sub rcx, [p_filesz]
+	shr rcx, 3
+	cld
+	xor rax, rax
+	rep stosq
+
     ; init program stack
-	mov rbp, [p_memsz]
-	add rbp, 0xFFFF
-	shr rbp, 16
-	inc rbp
-	shl rbp, 16				; aligned to the end of the next 64k block
-	add rbp, 0x40000		; add 256k stack
-	add rbp, [p_vaddr]
-	mov rsp, rbp			; give at least 64k stack
+	mov rbp, [p_vaddr]
+	add rbp, [p_memsz]
+	add rbp, 0x1000
+	shr rbp, 12
+	shl rbp, 12
+	mov rsi, rbp			; base of stack: param to kernel main
+	add rbp, 0x1000
+	mov rsp, rbp			; give at least 4k stack
 
 	; jump
 	mov rax, [e_entry]

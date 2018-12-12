@@ -14,6 +14,10 @@
 #include "debug.h"
 
 #include "cpu.h"
+#include "mp.h"
+#include "ioapic.h"
+#include "lapic.h"
+#include "pic.h"
 
 // system
 Interrupts interrupts;
@@ -560,24 +564,31 @@ stop:
     goto stop;
 }
 
-void KernelMain(SystemInformation *info)
+void KernelMain(SystemInformation *info, cpu* cpu_boot)
 {
-    bool result;
+	bool result;
     debug("[kernel64] hello!\n");
 
-	debug("sizeof cpu = ")(sizeof(cpu))();
-	cpu_init();
-	debug("cpu init worked!")();
-//	assert(false);
-	dd:
-	asm volatile("hlt");
-	goto dd;
+	// deep copy system information
+	SystemInformation sysinfo = *info;
+	MemoryBlock memory_blocks[sysinfo.num_memory_blocks];
+	memcpy(memory_blocks, info->memory_blocks, sizeof(MemoryBlock) * sysinfo.num_memory_blocks);
+	sysinfo.memory_blocks = memory_blocks;
 
-    // deep copy system information
-    SystemInformation sysinfo = *info;
-    MemoryBlock memory_blocks[sysinfo.num_memory_blocks];
-    memcpy(memory_blocks, info->memory_blocks, sizeof(MemoryBlock) * sysinfo.num_memory_blocks);
-    sysinfo.memory_blocks = memory_blocks;
+	// init cpu
+	{
+		uint64_t cookie = 0xfeedfacebae;
+		debug("sizeof cpu = ")(sizeof(cpu))();
+		g_cpu_boot = cpu_boot;
+		debug("cpu_boot = 0x")((uint64_t)cpu_boot, 16)();
+		debug("&cpu_boot_template = 0x")((uint64_t)&cpu_boot_template, 16)();
+		// copy template
+		memcpy(g_cpu_boot, &cpu_boot_template, ((uint8_t*)&cpu_boot_template.kstacklo - (uint8_t*)&cpu_boot_template));
+		assert(g_cpu_boot->magic == CPU_MAGIC);
+		cpu_init();
+		debug("cpu init worked!")();
+		assert(cookie == 0xfeedfacebae);
+	}
 
     // initialize page frames
     debug("initializing page frame allocator")();
@@ -596,11 +607,16 @@ void KernelMain(SystemInformation *info)
     kvm.Activate();
     debug("kvm activated")();
 
+	mp_init();
+	debug("muliprocessor: ")(ismp)();
+	debug("ncpu: ")(ncpu)();
+	die();
+
     // zero out kernel data zone
-    if(1)
+	if(0)
     {
         // GDT is at 0x0, 0x20 bytes
-        uint8_t* start = (uint8_t*)(0x20);
+		uint8_t* start = (uint8_t*)(0x20);
         uint8_t* end = (uint8_t*)(0x20000);
         memsetq(start, 0, (end - start));
     }
@@ -705,7 +721,17 @@ void KernelMain(SystemInformation *info)
     keyboard.Initialize();
     keyboard.SetActiveTerminal(active_terminal);
 
+	// init multi processor
+//	mp_init();		// Find info about processors in system
+//	pic_init();		// setup the legacy PIC (mainly to disable it)
+//	ioapic_init();		// prepare to handle external device interrupts
+//	lapic_init();		// setup this CPU's local APIC
+//	cpu_bootothers();	// Get other processors started
+
+	die();
+
     // multitasking
+	/*
     asm volatile("cli");
     active_terminal->WriteLn("[kernel64] initializing multitasking");
     debug("[kernel64] initializing multitasking")();
@@ -751,14 +777,12 @@ void KernelMain(SystemInformation *info)
         debug("Task creation failed")();
         active_terminal->WriteLn("Task creation failed");
     }
-
+	*/
     // we should not reach this point
     active_terminal->WriteLn("[kernel64] panic! multitasking ended; halting.");
 
 stop:
-    // "sti" would cause reset. something wrong with interrupts
-    // TODO: set safe stack and enable interrupts, see what you catch
-    asm volatile("sti");
+	asm volatile("cli");
     asm volatile("hlt");
     goto stop;
 }
