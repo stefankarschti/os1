@@ -11,7 +11,7 @@ struc memory_block_struct
 	.unused:	resd 1
 endstruc
 
-section .bss start=0x400
+section .bss start=0x500
 system_info resb system_info_struct_size
 
 e_entry		resq	1
@@ -69,16 +69,59 @@ loader_main16:
 	jc no_long_mode
 
 	; load kernel64.elf
+	; start sector = 9
+	; sector count = 256 (128k)
+	; destination = kernel_image
+
+	; 9(64) -> kernel_image + 0
 	mov ax, kernel_image >> 4
 	mov	es, ax
 	mov di, 0				            ; ES:DI = Address to load kernel into
 	xor ebx, ebx
 	mov eax, 9							; EBX:EAX = start LBA address
 	mov dl, [boot_device]               ; DL    = Drive number to load from
-	mov cx, 128		                	; CX    = Number of sectors to load
+	mov cx, 64		                	; CX    = Number of sectors to load
 	call disk_read_lba              	; Call disk load function
 	jc .disk_error
+
+	; 73(64) -> kernel_image + 0x8000
+	mov ax, kernel_image >> 4
+	mov	es, ax
+	mov di, 0x8000			            ; ES:DI = Address to load kernel into
+	xor ebx, ebx
+	mov eax, 73							; EBX:EAX = start LBA address
+	mov dl, [boot_device]               ; DL    = Drive number to load from
+	mov cx, 64		                	; CX    = Number of sectors to load
+	call disk_read_lba              	; Call disk load function
+	jc .disk_error
+
+	; 137(64) -> kernel_image + 0x10000
+	mov ax, kernel_image >> 4
+	add ax, 0x1000
+	mov	es, ax
+	mov di, 0			            ; ES:DI = Address to load kernel into
+	xor ebx, ebx
+	mov eax, 137							; EBX:EAX = start LBA address
+	mov dl, [boot_device]               ; DL    = Drive number to load from
+	mov cx, 64		                	; CX    = Number of sectors to load
+	call disk_read_lba              	; Call disk load function
+	jc .disk_error
+
+	; 201(64) -> kernel_image + 0x18000
+	mov ax, kernel_image >> 4
+	add ax, 0x1000
+	mov	es, ax
+	mov di, 0x8000			            ; ES:DI = Address to load kernel into
+	xor ebx, ebx
+	mov eax, 201						; EBX:EAX = start LBA address
+	mov dl, [boot_device]               ; DL    = Drive number to load from
+	mov cx, 64		                	; CX    = Number of sectors to load
+	call disk_read_lba              	; Call disk load function
+	jc .disk_error
+
 	; success
+	mov eax, kernel_image >> 4
+	mov es, ax
 	mov eax, [es:0]
 	cmp eax, 0x464C457F
 	jne .elf_error

@@ -1,7 +1,7 @@
 Boot Stage 1
 start	length	description
 0h		400h	int vector		1k
-400h	C00h	stack			3k
+500h	B00h	stack			2k
 1000h	1000h	kernel16		4k
 *
 7c00	200h	boot sector		512b
@@ -11,17 +11,16 @@ start	length	description
 Kernel Load Stage
 start	length	description
 0h		400h	int vector		1k
-400h	200h	bss				512b
-600h	400h	stack			1k
+500h	200h	bss				512b
+800h	800h	stack			2k
 1000h	1000h	kernel_main16	4k		kernel16.bin
 2000h	8000h	free			64k
 A000h	4000h	memory_pages 	16k
 *				free
-10000h	10000h	kernel_image	64k		kernel64.elf
-20000h	7FC00h	free			519k
+10000h	20000h	kernel_image	128k		kernel64.elf
+30000h	6FC00h	free			455k
 9FC00h	60400h	unusable		385k 
-100000h	10000h	kernel64		64k
-110000h	50000h	kernel stack	320k
+100000h	20000h	kernel64		128k
 160000h	*		free
 200000h
 
@@ -34,8 +33,7 @@ A000h	4000h	memory_pages	16k
 1B000h	1000h	terminal12		4k
 1C000h	83C00h	page frames		527k
 9FC00h	60400h	unusable		385k 
-100000h	10000h	kernel64		64k
-110000h	50000h	kernel stack	320k
+100000h	10000h	kernel64		128k
 160000h	*		free 
 200000h
 
@@ -47,9 +45,8 @@ start	length	description
 60000h	20000h	kernel page table		128k
 70000h	1FC00h	free					127k
 9FC00h	60400h	unusable				385k 
-100000h	10000h	kernel64				64k
-110000h	50000h	kernel stack			320k
-160000h	*		free 
+100000h	10000h	kernel64				128k
+	160000h	*		free 
 200000h
 
 

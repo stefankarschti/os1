@@ -607,7 +607,12 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     kvm.Activate();
     debug("kvm activated")();
 
+//	DebugMemory(0x0, 0x400);
+//	DebugMemory(639 * 0x400, 639 * 0x400 + 0x400);
+//	DebugMemory(0xF0000, 0xF0000 + 0x10000);
+
 	mp_init();
+	debug("sizeof(struct mp) = ")(sizeof(struct mp))();
 	debug("muliprocessor: ")(ismp)();
 	debug("ncpu: ")(ncpu)();
 	die();
@@ -620,7 +625,6 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
         uint8_t* end = (uint8_t*)(0x20000);
         memsetq(start, 0, (end - start));
     }
-//    DebugMemory(0, 0x20000);
 
     // initialize terminals
     for(size_t i = 0; i < kNumTerminals; ++i)
