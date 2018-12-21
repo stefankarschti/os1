@@ -613,7 +613,7 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
 
 	mp_init();
 	debug("sizeof(struct mp) = ")(sizeof(struct mp))();
-	debug("muliprocessor: ")(ismp)();
+	debug("muliprocessor: ")(ismp ? "yes" : "no")();
 	debug("ncpu: ")(ncpu)();
 	die();
 
