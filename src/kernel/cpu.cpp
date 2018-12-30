@@ -98,7 +98,15 @@ void init()
 	// a new cpu starting
 	// TODO: initialize properly
 	if (!cpu_onboot()) {
-		debug("A new CPU is alive at 0x")((uint64_t)cpu_cur(), 16)();
+		debug("CPU ")(cpu_cur()->id)(" is alive at 0x")((uint64_t)cpu_cur(), 16)();
+
+		uint64_t cookie = 0xfeedfacebae;
+		assert(cpu_cur()->magic == CPU_MAGIC);
+		cpu_init();
+		debug("cpu init worked!")();
+		assert(cookie == 0xfeedfacebae);
+
+		// set booted flag
 		xchg(&cpu_cur()->booted, 1);
 	}
 
@@ -120,16 +128,7 @@ cpu_bootothers(uint64_t cr3)
 	extern uint8_t cpustart_begin[];
 	extern uint8_t cpustart_end[];
 	uint8_t *code = (uint8_t*)0x1000;
-	debug("cpustart_begin = 0x")((uint64_t)cpustart_begin, 16)();
-	debug("cpustart_end = 0x")((uint64_t)cpustart_end, 16)();
-	DebugMemory(0x1000, 0x1000 + 256);
-	debug();
-	memset(code, 0, 256);
-	DebugMemory(0x1000, 0x1000 + 256);
-	debug();
 	memcpy(code, cpustart_begin, (cpustart_end - cpustart_begin));
-	DebugMemory(0x1000, 0x1000 + 256);
-	debug();
 
 	// Boot CPUs
 	cpu *c;

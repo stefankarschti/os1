@@ -119,8 +119,6 @@ lapic_startcpu(uint8_t apicid, uint32_t addr)
 	int i;
 	uint16_t *wrv;
 
-	debug("lapic_startcpu.1")();
-
 	// "The BSP must initialize CMOS shutdown code to 0AH
 	// and the warm reset vector (DWORD based at 40:67) to point at
 	// the AP startup code prior to the [universal startup algorithm]."
@@ -129,7 +127,6 @@ lapic_startcpu(uint8_t apicid, uint32_t addr)
 	wrv = (uint16_t*)(0x40<<4 | 0x67);  // Warm reset vector
 	wrv[0] = 0;
 	wrv[1] = addr >> 4;
-	debug("lapic_startcpu.2")();
 
 	// "Universal startup algorithm."
 	// Send INIT (level-triggered) interrupt to reset other CPU.
@@ -138,7 +135,6 @@ lapic_startcpu(uint8_t apicid, uint32_t addr)
 	microdelay(10000);
 	lapicw(ICRLO, INIT | LEVEL);
 	microdelay(10000);    // should be 10ms, but too slow in Bochs!
-	debug("lapic_startcpu.3")();
 
 	// Send startup IPI (twice!) to enter bootstrap code.
 	// Regular hardware is supposed to only accept a STARTUP
@@ -150,6 +146,5 @@ lapic_startcpu(uint8_t apicid, uint32_t addr)
 		lapicw(ICRLO, STARTUP | (addr>>12));
 		microdelay(200);
 	}
-	debug("lapic_startcpu.4")();
 }
 

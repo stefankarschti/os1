@@ -66,21 +66,16 @@ ioapic_init(void)
 	if(!ismp)
 		return;
 
-	debug("ioapic_init.1 ioapic = 0x")((uint64_t)ioapic, 16)();
-
 	if (ioapic == NULL)
 		ioapic = (struct ioapic*)(IOAPIC);	// assume default address
 
-	debug("ioapic_init.2")();
 	maxintr = (ioapic_read(REG_VER) >> 16) & 0xFF;
 	id = ioapic_read(REG_ID) >> 24;
-	debug("ioapic_init.3")();
 	if (id == 0) {
 		// I/O APIC ID not initialized yet - have to do it ourselves.
 		ioapic_write(REG_ID, ioapicid << 24);
 		id = ioapicid;
 	}
-	debug("ioapic_init.3")();
 	if (id != ioapicid)
 		debug("ioapicinit: id ")(id)(" != ioapicid ")(ioapicid)();
 
@@ -90,7 +85,6 @@ ioapic_init(void)
 		ioapic_write(REG_TABLE+2*i, INT_DISABLED | (T_IRQ0 + i));
 		ioapic_write(REG_TABLE+2*i+1, 0);
 	}
-	debug("ioapic_init.5")();
 }
 
 void
