@@ -105,33 +105,55 @@ void init()
 }
 
 void
-cpu_bootothers(void)
+cpu_bootothers(uint64_t cr3)
 {
+	debug("booting other CPUs cr3 = 0x")(cr3, 16)();
+	debug("current CPU = ")(cpu_cur()->id)();
 	if (!cpu_onboot()) {
 		// Just inform the boot cpu we've booted.
 		xchg(&cpu_cur()->booted, 1);
 		return;
 	}
 
-//	// Write bootstrap code to unused memory at 0x1000.
-//	uint8_t *code = (uint8_t*)0x1000;
-//	memmove(code, _binary_obj_boot_bootother_start,
-//		(uint32_t)_binary_obj_boot_bootother_size);
+	// Write bootstrap code to unused memory at 0x1000.
+	extern uint8_t cpustart_begin[];
+	extern uint8_t cpustart_end[];
+	uint8_t *code = (uint8_t*)0x1000;
+	debug("cpustart_begin = 0x")((uint64_t)cpustart_begin, 16)();
+	debug("cpustart_end = 0x")((uint64_t)cpustart_end, 16)();
+	DebugMemory(0x1000, 0x1000 + 256);
+	debug();
+	memset(code, 0, 256);
+	DebugMemory(0x1000, 0x1000 + 256);
+	debug();
+	memcpy(code, cpustart_begin, (cpustart_end - cpustart_begin));
+	DebugMemory(0x1000, 0x1000 + 256);
+	debug();
 
+	// Boot CPUs
 	cpu *c;
-	uint8_t* code = (uint8_t*)0x10;
 	for(c = g_cpu_boot; c; c = c->next)
 	{
 		if(c == cpu_cur())  // We've started already.
 			continue;
 
 		// Fill in %rsp, %rip and start code on cpu.
-		*(void**)(code-8) = c->kstackhi;
-		*(void**)(code-16) = (void*)init;
+		*((uint64_t*)0x20) = (uint64_t)c;
+		*((uint64_t*)0x28) = (uint64_t)init;
+		*((uint64_t*)0x30) = cr3;
+		memset((void*)0x38, 0, 6); // IDT.Length = 0, IDT.Base = 0
+
+		debug("Starting CPU ")(c->id)();
+		DebugMemory(0x0, 0x0 + 256);
+		debug();
+
 		lapic_startcpu(c->id, (uint64_t)code);
 
 		// Wait for cpu to get through bootstrap.
+		debug("waiting")();
+		die();
 		while(c->booted == 0)
 			;
+		debug("done waiting")();
 	}
 }

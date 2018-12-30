@@ -6,9 +6,12 @@ CFLAGS=-I$(INCLUDE) -std=gnu99 -ffreestanding -O1 -Wall -Wextra -fno-asynchronou
 CPPFLAGS=-I$(INCLUDE) -std=c++14 -ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables
 LDSCRIPT=linker2.ld
 
-all: kernel64.elf
+all: kernel64.elf cpustart.bin
 
-kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o inthandler.o multitask.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o cpu.o mp.o lapic.o ioapic.o pic.o string.o
+cpustart.bin: cpustart.asm
+	$(ASM) -fbin cpustart.asm -o $(BUILD_DIR)cpustart.bin
+
+kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o inthandler.o multitask.o ihandler.o stdlib.o task.o keyboard.o pageframe.o virtualmemory.o debug.o cpu.o mp.o lapic.o ioapic.o pic.o string.o cpustart.o
 	$(LD) -T $(LDSCRIPT) \
 	$(BUILD_DIR)kernel.o \
 	$(BUILD_DIR)memory.o \
@@ -30,6 +33,7 @@ kernel64.elf: kernel.o memory.o terminal.o interrupt.o irqhandler.o inthandler.o
 	$(BUILD_DIR)ioapic.o \
 	$(BUILD_DIR)pic.o \
 	$(BUILD_DIR)string.o \
+	$(BUILD_DIR)cpustart.o \
 	-o $(BUILD_DIR)$@ -n
 
 memory.o: memory.asm
@@ -92,6 +96,9 @@ pic.o: pic.cpp
 string.o: string.cpp
 	$(CPP) -c $^ -o $(BUILD_DIR)$@ $(CPPFLAGS)
 
+cpustart.o: cpustart.asm
+	$(ASM) -felf64 $^ -o $(BUILD_DIR)$@
+
 clean:
-	rm -f $(BUILD_DIR)kernel64.elf $(BUILD_DIR)*.o
+	rm -f $(BUILD_DIR)kernel64.elf $(BUILD_DIR)*.o $(BUILD_DIR)cpustart.bin
 	

@@ -34,33 +34,6 @@ const size_t kNumTerminals = 12;
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
-void DebugMemory(uint64_t begin, uint64_t end)
-{
-	uint8_t* p = (uint8_t*)begin;
-	uint8_t* e = (uint8_t*)end;
-	// debug memory zone
-	while(p < e)
-	{
-		debug((uint64_t)p, 16, 16)(":");
-		for(int i = 0; i < 32; ++i)
-		{
-			if(0 == i % 8) debug(" ");
-			debug(p[i], 16, 2);
-		}
-		debug(" ");
-		char *s = (char*)p;
-		for(int i = 0; i < 32; ++i)
-		{
-			if(s[i] >= 32 && s[i] < 0x7F)
-				debug.Write(s[i]);
-			else
-				debug.Write('.');
-		}
-		debug.nl();
-		p += 32;
-	}
-}
-
 uint16_t SetTimer(uint16_t frequency)
 {
     uint32_t divisor = 1193180 / frequency;
@@ -592,39 +565,55 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
 
     // initialize page frames
     debug("initializing page frame allocator")();
-    result = page_frames.Initialize(sysinfo, 0x20000, 0x40000 / 8);
+	result = page_frames.Initialize(sysinfo, 0x20000, 0x40000 / 8);
     debug(result ? "Success" : "Failure")();
     if(!result) return;
 
-    // create kernel page tables
+	// get processors
+	mp_init();
+	debug("sizeof(struct mp) = ")(sizeof(struct mp))();
+	debug("muliprocessor: ")(ismp ? "yes" : "no")();
+	debug("ncpu: ")(ncpu)();
+
+	// create kernel page tables
     VirtualMemory kvm(page_frames);
     debug("create kernel identity page tables")();
-    result = kvm.Allocate(0x0, 16 * 256, true);
-    debug(result ? "Success" : "Failure")();
-    if(!result) return;
+	// map first 1 MB RAM
+	result = kvm.Allocate(0x0, 256, true);
+	// map detected blocks
+	for(int i = 0; i < sysinfo.num_memory_blocks; ++i)
+	{
+		auto &mb = memory_blocks[i];
+		if(mb.start >= 0x100000 && mb.length > 0)
+		{
+			uint64_t start = (mb.start / 4096) * 4096;
+			uint64_t npages = ((mb.length - 1) / 4096) + 1;
+			debug("identity mapping: 0x")(start, 16)(" ")(npages)(" pages. length = 0x")(npages * 4096, 16)();
+			result = kvm.Allocate(start, npages, true);
+			debug(result ? "Success" : "Failure")();
+			if(!result) return;
+		}
+	}
+	// map LAPIC memory
+	kvm.Allocate((uint64_t)lapic, 1, true);
+	// map IOAPIC memory
+	kvm.Allocate((uint64_t)ioapic, 1, true);
 
     // switch to kernel page frames
     kvm.Activate();
     debug("kvm activated")();
 
-//	DebugMemory(0x0, 0x400);
-//	DebugMemory(639 * 0x400, 639 * 0x400 + 0x400);
-//	DebugMemory(0xF0000, 0xF0000 + 0x10000);
+	// init multi processor
+	pic_init();		// setup the legacy PIC (mainly to disable it)
+	ioapic_init();		// prepare to handle external device interrupts
+	lapic_init();		// setup this CPU's local APIC
 
-	mp_init();
-	debug("sizeof(struct mp) = ")(sizeof(struct mp))();
-	debug("muliprocessor: ")(ismp ? "yes" : "no")();
-	debug("ncpu: ")(ncpu)();
+	// boot the other cpus
+	cpu_bootothers(kvm.Root());
+
+	// stop --------------------
+	debug("done");
 	die();
-
-    // zero out kernel data zone
-	if(0)
-    {
-        // GDT is at 0x0, 0x20 bytes
-		uint8_t* start = (uint8_t*)(0x20);
-        uint8_t* end = (uint8_t*)(0x20000);
-        memsetq(start, 0, (end - start));
-    }
 
     // initialize terminals
     for(size_t i = 0; i < kNumTerminals; ++i)
@@ -641,15 +630,18 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     }
 
     // activate terminal 0
+	debug("activate terminal 0")();
     active_terminal = &terminal[0];
     active_terminal->Copy((uint16_t*)0xB8000);
     active_terminal->Link();
     active_terminal->MoveCursor(sysinfo.cursory, sysinfo.cursorx);
 
     // greetings
-    active_terminal->WriteLn("[kernel64] hello");
+	debug("greetings on terminal 0")();
+	active_terminal->WriteLn("[kernel64] hello");
 
     // print page frame debug info
+	if(0)
     {
         char temp[32];
         uint64_t num;
@@ -684,13 +676,13 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     }
 
     // set up interrupts
-    active_terminal->WriteLn("[kernel64] setting up interrupts");
+	debug("[kernel64] setting up interrupts")();
     result = interrupts.Initialize();
     if(result)
-        active_terminal->WriteLn("Interrupts initialization successful");
+		debug("Interrupts initialization successful")();
     else
-        active_terminal->WriteLn("Interrupts initialization failed");
-    active_terminal->WriteLn("Set up exception handlers");
+		debug("Interrupts initialization failed")();
+	debug("Set up exception handlers")();
 
     // set exception handlers
     interrupts.SetExceptionHandler( 0, onException00);
@@ -721,20 +713,11 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     //	*p = a + 1;
 
     // set up keyboard
-    active_terminal->WriteLn("[kernel64] starting keyboard");
+	debug("[kernel64] starting keyboard")();
     keyboard.Initialize();
     keyboard.SetActiveTerminal(active_terminal);
 
-	// init multi processor
-//	mp_init();		// Find info about processors in system
-//	pic_init();		// setup the legacy PIC (mainly to disable it)
-//	ioapic_init();		// prepare to handle external device interrupts
-//	lapic_init();		// setup this CPU's local APIC
-//	cpu_bootothers();	// Get other processors started
-
-	die();
-
-    // multitasking
+	// multitasking
 	/*
     asm volatile("cli");
     active_terminal->WriteLn("[kernel64] initializing multitasking");

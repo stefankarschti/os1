@@ -117,6 +117,7 @@ mp_init(void)
 
 	ismp = 1;
 	lapic = (uint32_t *) conf->lapicaddr;
+	debug("LAPIC at 0x")((uint64_t)lapic, 16)();
 	for (p = (uint8_t *) (conf + 1), e = (uint8_t *) conf + conf->length;
 			p < e;) {
 		switch (*p) {

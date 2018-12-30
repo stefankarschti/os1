@@ -83,6 +83,6 @@ void cpu_init(void);
 cpu *cpu_alloc(void);
 
 // Get any additional processors booted up and running.
-void cpu_bootothers(void);
+void cpu_bootothers(uint64_t cr3);
 
 #endif // _cpu_h_

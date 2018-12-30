@@ -31,5 +31,6 @@ private:
 	int Busy();
 };
 
+void DebugMemory(uint64_t begin, uint64_t end);
 extern Debug debug;
 #endif // DEBUG_H

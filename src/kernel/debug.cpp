@@ -95,3 +95,30 @@ Debug &Debug::nl()
 	Write('\n');
 	return *this;
 }
+
+void DebugMemory(uint64_t begin, uint64_t end)
+{
+	uint8_t* p = (uint8_t*)begin;
+	uint8_t* e = (uint8_t*)end;
+	// debug memory zone
+	while(p < e)
+	{
+		debug((uint64_t)p, 16, 16)(":");
+		for(int i = 0; i < 32; ++i)
+		{
+			if(0 == i % 8) debug(" ");
+			debug(p[i], 16, 2);
+		}
+		debug(" ");
+		char *s = (char*)p;
+		for(int i = 0; i < 32; ++i)
+		{
+			if(s[i] >= 32 && s[i] < 0x7F)
+				debug.Write(s[i]);
+			else
+				debug.Write('.');
+		}
+		debug.nl();
+		p += 32;
+	}
+}
