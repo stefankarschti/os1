@@ -96,6 +96,7 @@ cpu_alloc(void)
 void init()
 {
 	// a new cpu starting
+	// TODO: initialize properly
 	if (!cpu_onboot()) {
 		debug("A new CPU is alive at 0x")((uint64_t)cpu_cur(), 16)();
 		xchg(&cpu_cur()->booted, 1);

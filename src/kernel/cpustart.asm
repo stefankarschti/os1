@@ -1,6 +1,6 @@
 ; trampoline code
 ; start a new CPU
-; LOAD at 0x
+; LOAD at 0x1000
 ; memory format:
 ; at 0x20: uint64_t CPU_PAGE => RSP = CPU_PAGE + 0x1000
 ; at 0x28: uint64_t RIP
@@ -19,7 +19,6 @@ P_CR3			equ 0x30
 P_IDT			equ 0x38
 
 [bits 16]
-;[org 0x1000]
 
 global cpustart_begin
 cpustart_begin:
@@ -66,13 +65,6 @@ LongMode:
 	mov fs, ax
 	mov gs, ax
 	mov ss, ax
-
-	; debug AP
-	mov rdi, 0xB8000
-	mov ax, 0x1F00 + 'A'
-	stosw
-	mov ax, 0x1F00 + 'P'
-	stosw
 
 	mov rsi, [P_CPU_PAGE]
 	mov rbp, rsi
