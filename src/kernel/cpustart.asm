@@ -41,7 +41,7 @@ cpustart_begin:
 	mov eax, 10100000b                ; Set the PAE and PGE bit.
 	mov cr4, eax
 
-	mov edx, [P_CR3]             ; Point CR3 at the PML4.
+	mov edx, [P_CR3]					; Point CR3 at the PML4.
 	mov cr3, edx
 
 	mov ecx, 0xC0000080               ; Read from the EFER MSR.
@@ -67,13 +67,24 @@ LongMode:
 	mov gs, ax
 	mov ss, ax
 
+	; debug AP
+	mov rdi, 0xB8000
+	mov ax, 0x1F00 + 'A'
+	stosw
+	mov ax, 0x1F00 + 'P'
+	stosw
+
 	mov rsi, [P_CPU_PAGE]
 	mov rbp, rsi
 	add rbp, 0x1000
 	mov rsp, rbp
 
 	mov rax, [P_RIP]
-	jmp [rax]
+	call rax
+
+.die:
+	hlt
+	jmp .die
 
 global cpustart_end
 cpustart_end:

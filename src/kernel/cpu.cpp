@@ -151,7 +151,6 @@ cpu_bootothers(uint64_t cr3)
 
 		// Wait for cpu to get through bootstrap.
 		debug("waiting")();
-		die();
 		while(c->booted == 0)
 			;
 		debug("done waiting")();
