@@ -2,6 +2,7 @@
 #include "pageframe.h"
 #include "string.h"
 #include "x86.h"
+#include "ioapic.h"
 #include "lapic.h"
 
 cpu cpu_boot_template =
@@ -105,6 +106,12 @@ void init()
 		cpu_init();
 		debug("cpu init worked!")();
 		assert(cookie == 0xfeedfacebae);
+
+		// IOAPIC init
+		ioapic_init();
+
+		// LAPIC init
+		lapic_init();
 
 		// set booted flag
 		xchg(&cpu_cur()->booted, 1);
