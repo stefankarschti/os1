@@ -67,5 +67,3 @@ boot_device 		db 0x00                     ; Get byte to store boot drive number
 ; Tail
 times 510-($-$$) db 0x00                ; Fill bootloader to 512-bytes
 dw 0xAA55                               ; Magic word signature
-
-

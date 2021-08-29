@@ -293,7 +293,7 @@ loader_main64:
 	call rax		; call KernelMain
 .l3:		
 	hlt
-	jmp $ ; stop here
+        jmp .l3 ; stop here
 
 ; Data
 str_loader_hello	db "[loader64] hello", 10, 0
