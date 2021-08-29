@@ -2,9 +2,9 @@
 default: all ;
 
 ASM=nasm
-CC=~/opt/cross/bin/x86_64-elf-gcc
-CPP=~/opt/cross/bin/x86_64-elf-g++
-LD=~/opt/cross/bin/x86_64-elf-ld
+CC=x86_64-elf-gcc
+CPP=x86_64-elf-g++
+LD=x86_64-elf-ld
 BUILD_DIR=$(PWD)/build/
 export
 
