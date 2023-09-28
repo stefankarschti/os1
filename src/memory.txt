@@ -1,6 +1,6 @@
 Boot Stage 1
 start	length	description
-0h		400h	int vector		1k
+0h	400h	int vector		1k
 500h	B00h	stack			2k
 1000h	1000h	kernel16		4k
 *
