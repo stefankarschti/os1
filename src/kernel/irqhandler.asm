@@ -1,6 +1,7 @@
 extern irq_handler
 extern saveregs
 extern restoreregs
+extern lapic_eoi
 
 global irq0
 global irq1
@@ -101,12 +102,13 @@ push qword 15
 jmp irq_common
 
 irq_common:
-	mov rdi, [rsp]
-	call irq_handler
-	pop rdi
-	mov al, 0x20
-	cmp rdi, 8
-	jl .l1
+		mov rdi, [rsp]
+		call irq_handler
+		pop rdi
+		call lapic_eoi
+		mov al, 0x20
+		cmp rdi, 8
+		jl .l1
 	out 0xA0, al
 .l1
 	out 0x20, al

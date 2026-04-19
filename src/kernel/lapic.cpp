@@ -36,7 +36,7 @@ lapic_init()
 	// The timer repeatedly counts down at bus frequency
 	// from lapic[TICR] and then issues an interrupt.  
 	lapicw(TDCR, X1);
-	lapicw(TIMER, PERIODIC | T_LTIMER);
+	lapicw(TIMER, MASKED | PERIODIC | T_LTIMER);
 
 	// If we cared more about precise timekeeping,
 	// we would calibrate TICR with another time source such as the PIT.
@@ -101,7 +101,7 @@ microdelay(int us)
 	outb(0x40, (us >> 8) & 0xFF);
 
 	uint8_t b = 0;
-	while( 0 == b & 0x80)
+	while(0 == (b & 0x80))
 	{
 		outb(0x43, 0xE2);
 		b = inb(0x40);
@@ -147,4 +147,3 @@ lapic_startcpu(uint8_t apicid, uint32_t addr)
 		microdelay(200);
 	}
 }
-

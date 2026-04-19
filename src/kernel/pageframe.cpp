@@ -24,10 +24,10 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 		{
 			// add to usable memory size
 			memory_size_ += b.length;
-		}
-		if(memory_end_address_ < b.start + b.length)
-		{
-			memory_end_address_ = b.start + b.length;
+			if(memory_end_address_ < b.start + b.length)
+			{
+				memory_end_address_ = b.start + b.length;
+			}
 		}
 	}
 

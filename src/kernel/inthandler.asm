@@ -1,58 +1,59 @@
 
 extern exception_handler
 
-; save registers at address 0x10000
+%define CPU_CURRENT_TASK 8
+%define CPU_INTERRUPT_REGS 16
+
+; save registers in the current CPU page
 global saveregs
 saveregs:
-.base equ 0x10000
-	mov [.base + 0 * 8], rax
-	mov [.base + 1 * 8], rbx
-	mov [.base + 2 * 8], rcx
-	mov [.base + 3 * 8], rdx
-	mov [.base + 4 * 8], rsi
-	mov [.base + 5 * 8], rdi
-	mov [.base + 6 * 8], rbp
-	mov [.base + 7 * 8], rsp
-	mov [.base + 8 * 8], r8
-	mov [.base + 9 * 8], r9
-	mov [.base + 10 * 8], r10
-	mov [.base + 11 * 8], r11
-	mov [.base + 12 * 8], r12
-	mov [.base + 13 * 8], r13
-	mov [.base + 14 * 8], r14
-	mov [.base + 15 * 8], r15
+	mov [gs:CPU_INTERRUPT_REGS + 0 * 8], rax
+	mov [gs:CPU_INTERRUPT_REGS + 1 * 8], rbx
+	mov [gs:CPU_INTERRUPT_REGS + 2 * 8], rcx
+	mov [gs:CPU_INTERRUPT_REGS + 3 * 8], rdx
+	mov [gs:CPU_INTERRUPT_REGS + 4 * 8], rsi
+	mov [gs:CPU_INTERRUPT_REGS + 5 * 8], rdi
+	mov [gs:CPU_INTERRUPT_REGS + 6 * 8], rbp
+	mov [gs:CPU_INTERRUPT_REGS + 7 * 8], rsp
+	mov [gs:CPU_INTERRUPT_REGS + 8 * 8], r8
+	mov [gs:CPU_INTERRUPT_REGS + 9 * 8], r9
+	mov [gs:CPU_INTERRUPT_REGS + 10 * 8], r10
+	mov [gs:CPU_INTERRUPT_REGS + 11 * 8], r11
+	mov [gs:CPU_INTERRUPT_REGS + 12 * 8], r12
+	mov [gs:CPU_INTERRUPT_REGS + 13 * 8], r13
+	mov [gs:CPU_INTERRUPT_REGS + 14 * 8], r14
+	mov [gs:CPU_INTERRUPT_REGS + 15 * 8], r15
 	pushf
 	pop rax
-	mov [.base + 16 * 8], rax
+	mov [gs:CPU_INTERRUPT_REGS + 16 * 8], rax
 	mov rax, cr3
-	mov [.base + 17 * 8], rax
-	mov rax, [.base + 0 * 8]
+	mov [gs:CPU_INTERRUPT_REGS + 17 * 8], rax
+	mov rax, [gs:CPU_INTERRUPT_REGS + 0 * 8]
 	ret
 
-; restore registers from address 0x10000
+; restore registers from the current CPU page
 global restoreregs
 restoreregs:
-.base equ 0x10000
-	mov rax, [.base + 0 * 8]
-	mov rbx, [.base + 1 * 8]
-	mov rcx, [.base + 2 * 8]
-	mov rdx, [.base + 3 * 8]
-	mov rsi, [.base + 4 * 8]
-	mov rdi, [.base + 5 * 8]
-	mov rbp, [.base + 6 * 8]
-	mov rsp, [.base + 7 * 8]
-	mov r8, [.base + 8 * 8]
-	mov r9, [.base + 9 * 8]
-	mov r10, [.base + 10 * 8]
-	mov r11, [.base + 11 * 8]
-	mov r12, [.base + 12 * 8]
-	mov r13, [.base + 13 * 8]
-	mov r14, [.base + 14 * 8]
-	mov r15, [.base + 15 * 8]
-	mov rax, [.base + 16 * 8]
+	mov rax, [gs:CPU_INTERRUPT_REGS + 0 * 8]
+	mov rbx, [gs:CPU_INTERRUPT_REGS + 1 * 8]
+	mov rcx, [gs:CPU_INTERRUPT_REGS + 2 * 8]
+	mov rdx, [gs:CPU_INTERRUPT_REGS + 3 * 8]
+	mov rsi, [gs:CPU_INTERRUPT_REGS + 4 * 8]
+	mov rdi, [gs:CPU_INTERRUPT_REGS + 5 * 8]
+	mov rbp, [gs:CPU_INTERRUPT_REGS + 6 * 8]
+	mov rsp, [gs:CPU_INTERRUPT_REGS + 7 * 8]
+	mov r8, [gs:CPU_INTERRUPT_REGS + 8 * 8]
+	mov r9, [gs:CPU_INTERRUPT_REGS + 9 * 8]
+	mov r10, [gs:CPU_INTERRUPT_REGS + 10 * 8]
+	mov r11, [gs:CPU_INTERRUPT_REGS + 11 * 8]
+	mov r12, [gs:CPU_INTERRUPT_REGS + 12 * 8]
+	mov r13, [gs:CPU_INTERRUPT_REGS + 13 * 8]
+	mov r14, [gs:CPU_INTERRUPT_REGS + 14 * 8]
+	mov r15, [gs:CPU_INTERRUPT_REGS + 15 * 8]
+	mov rax, [gs:CPU_INTERRUPT_REGS + 16 * 8]
 	push rax
 	popf
-	mov rax, [.base + 0 * 8]
+	mov rax, [gs:CPU_INTERRUPT_REGS + 0 * 8]
 	ret
 
 ;int int_00h();	// #DE

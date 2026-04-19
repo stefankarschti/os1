@@ -12,6 +12,6 @@
 
 void ioapic_init(void);
 
-void ioapic_enable(int irq);
+void ioapic_enable(int intin, int irq = -1);
 
 #endif // _ioapic_h_

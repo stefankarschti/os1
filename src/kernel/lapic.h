@@ -54,6 +54,9 @@
 // Initialized in mp.c
 extern volatile uint32_t *lapic;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Initialize current CPU's local APIC
 void lapic_init(void);
@@ -67,5 +70,8 @@ void lapic_errintr(void);
 // Send a message to start an Application Processor (AP) running at addr.
 void lapic_startcpu(uint8_t apicid, uint32_t addr);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif // _lapic_h_

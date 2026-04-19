@@ -88,15 +88,16 @@ ioapic_init(void)
 }
 
 void
-ioapic_enable(int irq)
+ioapic_enable(int intin, int irq)
 {
 	if (!ismp)
 		return;
+	if(irq < 0)
+		irq = intin;
 
 	// Mark interrupt edge-triggered, active high,
 	// enabled, and routed to any CPU.
-	ioapic_write(REG_TABLE+2*irq,
+	ioapic_write(REG_TABLE+2*intin,
 			INT_LOGICAL | INT_LOWEST | (T_IRQ0 + irq));
-	ioapic_write(REG_TABLE+2*irq+1, 0xff << 24);
+	ioapic_write(REG_TABLE+2*intin+1, 0xff << 24);
 }
-

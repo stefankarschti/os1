@@ -1,8 +1,8 @@
 #include "task.h"
+#include "cpu.h"
 #include "memory.h"
 #include "debug.h"
 
-Task** current_task = (Task**)(0x400);
 Task* taskList = (Task*)(0x408);
 uint64_t nextpid = 1;
 const size_t k_num_tasks = 32;
@@ -16,7 +16,7 @@ void initTasks()
 	{
 		taskList[i].pid = 0;
 	}
-	*current_task = 0;
+	cpu_cur()->current_task = nullptr;
 }
 
 Task* nextfreetss()

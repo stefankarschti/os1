@@ -5,11 +5,12 @@
 #include "stddef.h"
 
 #include "assert.h"
+#include "task.h"
 
 // Null segment
 #define SEGDESC_NULL	0x0
 // Code segment
-#define SEGDESC64_CODE(dpl) (0x00209A0000000000ull & ((dpl & 3ull) << (32 + 13)))
+#define SEGDESC64_CODE(dpl) (0x00209A0000000000ull | ((dpl & 3ull) << (32 + 13)))
 // Data segment
 #define SEGDESC64_DATA 0x0000920000000000ull
 
@@ -30,6 +31,9 @@ struct pseudodesc
 // Exactly one page (4096 bytes) in size.
 struct cpu
 {
+	cpu			*self;
+	Task		*current_task;
+	Registers	interrupt_regs;
 	uint64_t	gdt[CPU_GDT_NDESC];
 	cpu			*next;
 	uint8_t		id;
@@ -62,7 +66,14 @@ read_rsp(void)
 
 static inline cpu *
 cpu_cur() {
-	cpu *c = (cpu*)(read_rsp() & ~0xFFF);
+	cpu *c = nullptr;
+	asm volatile("mov %%gs:0, %0" : "=r"(c));
+	if(c && (((uint64_t)c & 0xFFF) == 0))
+	{
+		assert(c->magic == CPU_MAGIC);
+		return c;
+	}
+	c = (cpu*)(read_rsp() & ~0xFFF);
 	assert(c->magic == CPU_MAGIC);
 	return c;
 }

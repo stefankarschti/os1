@@ -351,6 +351,14 @@ rdtsc(void)
         return tsc;
 }
 
+static inline void
+wrmsr(uint32_t msr, uint64_t value)
+{
+	uint32_t lo = value & 0xffffffffu;
+	uint32_t hi = value >> 32;
+	asm volatile("wrmsr" : : "c" (msr), "a" (lo), "d" (hi));
+}
+
 // Enable external device interrupts.
 static inline void
 sti(void)

@@ -34,6 +34,11 @@ const size_t kNumTerminals = 12;
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
+static inline Registers *CurrentInterruptRegs()
+{
+	return &cpu_cur()->interrupt_regs;
+}
+
 uint16_t SetTimer(uint16_t frequency)
 {
     uint32_t divisor = 1193180 / frequency;
@@ -101,7 +106,7 @@ void onException00(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -122,7 +127,7 @@ void onException01(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -143,7 +148,7 @@ void onException02(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -164,7 +169,7 @@ void onException03(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -185,7 +190,7 @@ void onException04(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -206,7 +211,7 @@ void onException05(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -227,7 +232,7 @@ void onException06(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -248,7 +253,7 @@ void onException07(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -269,7 +274,7 @@ void onException08(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -290,7 +295,7 @@ void onException09(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -311,7 +316,7 @@ void onException0A(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -332,7 +337,7 @@ void onException0B(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -353,7 +358,7 @@ void onException0C(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -370,7 +375,7 @@ void onException0D(uint64_t rip, uint64_t rsp, uint64_t error)
 
 	const char *name = "#GP-General-Protection Exception";
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
 	regs->print();
 	debug("stack:")();
 	uint64_t* p_rsp = (uint64_t*)rsp;
@@ -403,7 +408,7 @@ void onException0E(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->Write("#PF-Page-Fault Exception");
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -424,7 +429,7 @@ void onException10(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -445,7 +450,7 @@ void onException11(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -466,7 +471,7 @@ void onException12(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -487,7 +492,7 @@ void onException13(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -508,7 +513,7 @@ void onException1D(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -529,7 +534,7 @@ void onException1E(uint64_t rip, uint64_t rsp, uint64_t error)
         active_terminal->WriteLn(name);
     }
     debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = (Registers*)(0x10000);
+    Registers *regs = CurrentInterruptRegs();
     regs->print();
 stop:
     asm("cli");
@@ -584,11 +589,11 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
 	for(int i = 0; i < sysinfo.num_memory_blocks; ++i)
 	{
 		auto &mb = memory_blocks[i];
-		if(mb.start >= 0x100000 && mb.length > 0)
-		{
-			uint64_t start = (mb.start / 4096) * 4096;
-			uint64_t npages = ((mb.length - 1) / 4096) + 1;
-			debug("identity mapping: 0x")(start, 16)(" ")(npages)(" pages. length = 0x")(npages * 4096, 16)();
+			if(mb.type == 1 && mb.start >= 0x100000 && mb.length > 0)
+			{
+				uint64_t start = (mb.start / 4096) * 4096;
+				uint64_t npages = ((mb.length - 1) / 4096) + 1;
+				debug("identity mapping: 0x")(start, 16)(" ")(npages)(" pages. length = 0x")(npages * 4096, 16)();
 			result = kvm.Allocate(start, npages, true);
 			debug(result ? "Success" : "Failure")();
 			if(!result) return;
@@ -608,15 +613,11 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
 	ioapic_init();		// prepare to handle external device interrupts
 	lapic_init();		// setup this CPU's local APIC
 
-	// boot the other cpus
-	cpu_bootothers(kvm.Root());
+		// boot the other cpus
+		cpu_bootothers(kvm.Root());
 
-	// stop --------------------
-	debug("done");
-	die();
-
-    // initialize terminals
-    for(size_t i = 0; i < kNumTerminals; ++i)
+	    // initialize terminals
+	    for(size_t i = 0; i < kNumTerminals; ++i)
     {
         uint64_t p;
         if(page_frames.Allocate(p))
@@ -712,13 +713,17 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     //	uint64_t a = *p;
     //	*p = a + 1;
 
-    // set up keyboard
+	// set up keyboard
 	debug("[kernel64] starting keyboard")();
     keyboard.Initialize();
     keyboard.SetActiveTerminal(active_terminal);
+	if(ismp)
+	{
+		ioapic_enable(2, IRQ_TIMER);
+		ioapic_enable(IRQ_KBD);
+	}
 
-	// multitasking
-	/*
+    // multitasking
     asm volatile("cli");
     active_terminal->WriteLn("[kernel64] initializing multitasking");
     debug("[kernel64] initializing multitasking")();
@@ -764,7 +769,6 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
         debug("Task creation failed")();
         active_terminal->WriteLn("Task creation failed");
     }
-	*/
     // we should not reach this point
     active_terminal->WriteLn("[kernel64] panic! multitasking ended; halting.");
 

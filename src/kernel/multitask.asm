@@ -7,7 +7,9 @@ panic:
 	jmp panic
 
 regs equ 3 * 8
-current_task equ 0x400
+CPU_CURRENT_TASK equ 8
+
+extern lapic_eoi
 
 ; set active task to RDI
 ; switch to this task
@@ -16,7 +18,7 @@ global startMultiTask
 startMultiTask:
 	cli
 	mov r15, rdi
-	mov [current_task], r15
+	mov [gs:CPU_CURRENT_TASK], r15
 
 	cmp r15, [r15 + regs + 15 * 8]
 	je .do
@@ -35,9 +37,6 @@ startMultiTask:
 	; restore registers
 	mov rax, [r15 + regs + 17 * 8]
 	mov cr3, rax
-	mov rax, [r15 + regs + 16 * 8]
-	push rax
-	popf
 	mov rax, [r15 + regs + 0 * 8]
 	mov rbx, [r15 + regs + 1 * 8]
 	mov rcx, [r15 + regs + 2 * 8]
@@ -59,11 +58,12 @@ startMultiTask:
 global task_switch_irq
 task_switch_irq:
 	cli
-	mov r15, [current_task]
+	mov r15, [gs:CPU_CURRENT_TASK]
 	test r15, r15
 	jnz .l1
 
 	push rax
+	call lapic_eoi
 	mov al, 0x20
 	out 0x20, al
 	pop rax
@@ -99,14 +99,14 @@ task_switch_irq:
 
 	; task switch
 	mov r15, [r15]
-	mov [current_task], r15
+	mov [gs:CPU_CURRENT_TASK], r15
+	call lapic_eoi
+	mov al, 0x20
+	out 0x20, al
 
 	; restore registers
 	mov rax, [r15 + regs + 17 * 8]
 	mov cr3, rax
-	mov rax, [r15 + regs + 16 * 8]
-	push rax
-	popf
 	mov rax, [r15 + regs + 0 * 8]
 	mov rbx, [r15 + regs + 1 * 8]
 	mov rcx, [r15 + regs + 2 * 8]
@@ -123,9 +123,4 @@ task_switch_irq:
 	mov r13, [r15 + regs + 13 * 8]
 	mov r14, [r15 + regs + 14 * 8]
 	mov r15, [r15 + regs + 15 * 8]
-
-	push rax
-	mov al, 0x20
-	out 0x20, al
-	pop rax
 	iretq

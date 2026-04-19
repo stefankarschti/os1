@@ -7,6 +7,9 @@
 
 cpu cpu_boot_template =
 {
+	self: nullptr,
+	current_task: nullptr,
+	interrupt_regs: {},
 	gdt:
 	{
 		// 0x0 - unused (always faults: for trapping NULL far pointers)
@@ -29,6 +32,7 @@ cpu* g_cpu_boot;
 void cpu_init()
 {
 	cpu *c = cpu_cur();
+	c->self = c;
 
 	// Load the GDT
 	struct {
@@ -45,6 +49,7 @@ void cpu_init()
 	asm volatile("movw %%ax,%%ds" :: "a" (CPU_GDT_KDATA));
 	asm volatile("movw %%ax,%%ss" :: "a" (CPU_GDT_KDATA));
 	asm volatile("jmp l1\n l1:\n");
+	wrmsr(0xC0000101, (uint64_t)c);
 
 	// We don't need an LDT.
 	asm volatile("lldt %%ax" :: "a" (0));
@@ -86,6 +91,7 @@ cpu_alloc(void)
 	memcpy(c, &cpu_boot_template, ((uint8_t*)&cpu_boot_template.kstacklo - (uint8_t*)&cpu_boot_template));
 
 	// Magic verification tag for stack overflow/cpu corruption checking
+	c->self = c;
 	c->magic = CPU_MAGIC;
 
 	// Chain the new CPU onto the tail of the list.
