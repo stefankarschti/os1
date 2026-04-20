@@ -1,4 +1,4 @@
 *.raw
 *.log
 dump.asm
-build/*
+/build
