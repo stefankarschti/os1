@@ -1,0 +1,48 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "os1 x86_64-elf",
+      "description": "Configure os1 with the freestanding x86_64-elf cross-toolchain.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/x86_64-elf.cmake"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "displayName": "Build os1 image",
+      "configurePreset": "default",
+      "targets": [
+        "os1_image"
+      ]
+    },
+    {
+      "name": "run",
+      "displayName": "Run os1 in QEMU",
+      "configurePreset": "default",
+      "targets": [
+        "run"
+      ]
+    },
+    {
+      "name": "disasm",
+      "displayName": "Generate disassembly",
+      "configurePreset": "default",
+      "targets": [
+        "disasm"
+      ]
+    }
+  ]
+}

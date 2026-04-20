@@ -39,6 +39,15 @@ cmake --build build
 
 The default build produces the raw disk image at `build/artifacts/os1.raw`.
 
+In VS Code with the CMake Tools extension, this repo now ships a `default` configure preset and matching build presets. Open the folder, let CMake Tools use presets, then:
+
+- configure with the `default` preset
+- build with the `default` preset
+- run QEMU by selecting the `run` build preset or building the `run` target
+- generate disassembly with the `disasm` build preset or target
+
+If CMake Tools was previously configured with a different generator in the same `build/` directory, use `CMake: Delete Cache and Reconfigure` once so it can switch cleanly to the preset-driven Ninja build.
+
 ## Run and Disassemble
 
 Run the image in QEMU:

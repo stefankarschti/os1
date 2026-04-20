@@ -1,6 +1,36 @@
 cmake_minimum_required(VERSION 3.20)
 
+set(OS1_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/toolchains/x86_64-elf.cmake")
+
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+  set(OS1_CROSS_COMPILER_REQUESTED FALSE)
+
+  foreach(OS1_COMPILER_VAR CMAKE_C_COMPILER CMAKE_CXX_COMPILER)
+    if(DEFINED ${OS1_COMPILER_VAR} AND "${${OS1_COMPILER_VAR}}" MATCHES "(^|/)x86_64-elf-g(cc|\\+\\+)$")
+      set(OS1_CROSS_COMPILER_REQUESTED TRUE)
+    endif()
+  endforeach()
+
+  if(OS1_CROSS_COMPILER_REQUESTED)
+    include("${OS1_TOOLCHAIN_FILE}")
+  endif()
+endif()
+
 project(os1 LANGUAGES C CXX)
+
+if(NOT CMAKE_C_COMPILER MATCHES "(^|/)x86_64-elf-gcc$")
+  message(FATAL_ERROR "os1 requires the x86_64-elf cross toolchain. Configure with -DCMAKE_TOOLCHAIN_FILE=${OS1_TOOLCHAIN_FILE} or use the provided CMake preset.")
+endif()
+
+if(NOT CMAKE_CXX_COMPILER MATCHES "(^|/)x86_64-elf-g\\+\\+$")
+  message(FATAL_ERROR "os1 requires x86_64-elf-g++. Configure with -DCMAKE_TOOLCHAIN_FILE=${OS1_TOOLCHAIN_FILE} or use the provided CMake preset.")
+endif()
+
+foreach(OS1_LANG C CXX)
+  foreach(OS1_CONFIG DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+    set(CMAKE_${OS1_LANG}_FLAGS_${OS1_CONFIG} "" CACHE STRING "Disabled for os1 cross-builds" FORCE)
+  endforeach()
+endforeach()
 
 set(OS1_ARTIFACT_DIR "${CMAKE_BINARY_DIR}/artifacts")
 set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
