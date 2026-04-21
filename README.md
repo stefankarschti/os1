@@ -78,3 +78,7 @@ The existing helper scripts remain available as wrappers around the CMake workfl
 - `./run.sh`
 - `./start.sh`
 - `./dasm.sh`
+
+## Documentation
+
+- [Architecture](doc/ARCHITECTURE.md)
