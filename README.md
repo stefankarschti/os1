@@ -82,3 +82,4 @@ The existing helper scripts remain available as wrappers around the CMake workfl
 ## Documentation
 
 - [Architecture](doc/ARCHITECTURE.md)
+- [Review 2026-04-21](doc/2026-04-21-review.md)
