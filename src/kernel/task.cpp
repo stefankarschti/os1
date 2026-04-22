@@ -1,158 +1,447 @@
 #include "task.h"
+
 #include "cpu.h"
-#include "memory.h"
 #include "debug.h"
+#include "memory.h"
 #include "memory_layout.h"
+#include "virtualmemory.h"
 
 namespace
 {
-constexpr size_t kNumTasks = 32;
-constexpr size_t kTaskTablePageCount = (kNumTasks * sizeof(Task) + kPageSize - 1) / kPageSize;
+constexpr size_t kProcessTablePageCount =
+	(kMaxProcesses * sizeof(Process) + kPageSize - 1) / kPageSize;
+constexpr size_t kThreadTablePageCount =
+	(kMaxThreads * sizeof(Thread) + kPageSize - 1) / kPageSize;
+
+uint64_t g_next_pid = 1;
+uint64_t g_next_tid = 1;
+Process *g_kernel_process = nullptr;
+Thread *g_idle_thread = nullptr;
+
+Process *nextFreeProcess()
+{
+	for(size_t i = 0; i < kMaxProcesses; ++i)
+	{
+		if(ProcessState::Free == processTable[i].state)
+		{
+			return processTable + i;
+		}
+	}
+	return nullptr;
 }
 
-Task* taskList = nullptr;
-uint64_t nextpid = 1;
+Thread *nextFreeThread()
+{
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		if(ThreadState::Free == threadTable[i].state)
+		{
+			return threadTable + i;
+		}
+	}
+	return nullptr;
+}
+
+void relinkRunnableThreads()
+{
+	Thread *first = nullptr;
+	Thread *last = nullptr;
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		threadTable[i].next = nullptr;
+		if((ThreadState::Ready == threadTable[i].state)
+			|| (ThreadState::Running == threadTable[i].state))
+		{
+			if(nullptr == first)
+			{
+				first = threadTable + i;
+			}
+			if(last)
+			{
+				last->next = threadTable + i;
+			}
+			last = threadTable + i;
+		}
+	}
+	if(last)
+	{
+		last->next = first;
+	}
+}
+
+void clearThread(Thread *thread)
+{
+	if(thread)
+	{
+		memset(thread, 0, sizeof(Thread));
+		thread->state = ThreadState::Free;
+	}
+}
+
+void clearProcess(Process *process)
+{
+	if(process)
+	{
+		memset(process, 0, sizeof(Process));
+		process->state = ProcessState::Free;
+	}
+}
+
+bool processHasThreads(Process *process)
+{
+	if(nullptr == process)
+	{
+		return false;
+	}
+
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		if((threadTable[i].process == process)
+			&& (ThreadState::Free != threadTable[i].state))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void fillProcessName(Process *process, const char *name)
+{
+	if(nullptr == process)
+	{
+		return;
+	}
+	if(nullptr == name)
+	{
+		process->name[0] = 0;
+		return;
+	}
+	size_t index = 0;
+	while((index + 1) < sizeof(process->name) && name[index])
+	{
+		process->name[index] = name[index];
+		++index;
+	}
+	process->name[index] = 0;
+}
+}
+
+Process *processTable = nullptr;
+Thread *threadTable = nullptr;
 
 bool initTasks(PageFrameContainer &frames)
 {
-	nextpid = 1;
-	uint64_t task_table_address = 0;
-	if(nullptr == taskList)
+	g_next_pid = 1;
+	g_next_tid = 1;
+
+	if(nullptr == processTable)
 	{
-		// Task metadata used to live in a hard-coded low-memory slot. Allocating it
-		// from page frames makes ownership explicit and keeps early boot scratch
-		// memory separate from long-lived scheduler state.
-		if(!frames.Allocate(task_table_address, kTaskTablePageCount))
+		uint64_t process_table_address = 0;
+		if(!frames.Allocate(process_table_address, kProcessTablePageCount))
 		{
-			debug("task table allocation failed")();
+			debug("process table allocation failed")();
 			return false;
 		}
-		taskList = (Task*)task_table_address;
-		debug("task table allocated at 0x")(task_table_address, 16)(" pages ")(kTaskTablePageCount)();
+		processTable = (Process*)process_table_address;
+		debug("process table allocated at 0x")(process_table_address, 16)();
 	}
-	memset(taskList, 0, kTaskTablePageCount * kPageSize);
-	debug("max tasks ")(kNumTasks)();
-	cpu_cur()->current_task = nullptr;
+
+	if(nullptr == threadTable)
+	{
+		uint64_t thread_table_address = 0;
+		if(!frames.Allocate(thread_table_address, kThreadTablePageCount))
+		{
+			debug("thread table allocation failed")();
+			return false;
+		}
+		threadTable = (Thread*)thread_table_address;
+		debug("thread table allocated at 0x")(thread_table_address, 16)();
+	}
+
+	memset(processTable, 0, kProcessTablePageCount * kPageSize);
+	memset(threadTable, 0, kThreadTablePageCount * kPageSize);
+	for(size_t i = 0; i < kMaxProcesses; ++i)
+	{
+		processTable[i].state = ProcessState::Free;
+	}
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		threadTable[i].state = ThreadState::Free;
+	}
+
+	g_kernel_process = nullptr;
+	g_idle_thread = nullptr;
+	setCurrentThread(nullptr);
 	return true;
 }
 
-Task* nextfreetss()
+Process *createKernelProcess(uint64_t kernel_cr3)
 {
-	size_t maxTasks = kNumTasks;
-	for(size_t i = 0; i < maxTasks; ++i)
-    {
-        if(0 == taskList[i].pid)
-        {
-			debug("allocate task ")(i)(" 0x")((uint64_t)(taskList + i), 16)();
-            return taskList + i;
-        }
-    }
-    return nullptr;
-}
-
-void linkTasks()
-{
-	Task* first = nullptr;
-    Task* last = nullptr;
-	size_t maxTasks = kNumTasks;
-	for(size_t i = 0; i < maxTasks; ++i)
-    {
-        if(taskList[i].pid)
-        {
-            Task* p = taskList + i;
-            if(!first)
-            {
-                first = p;
-            }
-            if(last)
-            {
-                last->nexttask = p;
-            }
-            last = p;
-        }
-    }
-    if(last)
-    {
-        last->nexttask = first;
-    }
-
-	debug("task linkage:")();
-	for(size_t i = 0; i < maxTasks; ++i)
-	{
-		if(taskList[i].pid)
-		{
-			debug("0x")((uint64_t)(taskList + i), 16)(" -> ")("0x")((uint64_t)(taskList[i].nexttask), 16)();
-		}
-	}
-	debug("done")();
-}
-
-Task* newTask(void *code, uint64_t *stack, size_t stack_len, uint64_t cr3)
-{
-	Task *task = nextfreetss();
-    if(nullptr == task)
+	Process *process = nextFreeProcess();
+	if(nullptr == process)
 	{
 		return nullptr;
 	}
 
-	task->pid = nextpid++;
-	task->timer = 10;
-//	task->quanta = 10;	// reload value
-	task->regs.rax = 0;
-	task->regs.rbx = 0;
-	task->regs.rcx = 0;
-	task->regs.rdx = 0;
-	task->regs.rsi = 0;
-	task->regs.rdi = 0;
-	task->regs.rbp = 0;
-	task->regs.rsp = (uint64_t) (&stack[stack_len - 5]);
-	task->regs.r08 = 0;
-	task->regs.r09 = 0;
-	task->regs.r10 = 0;
-	task->regs.r11 = 0;
-	task->regs.r12 = 0;
-	task->regs.r13 = 0;
-	task->regs.r14 = 0;
-	task->regs.r15 = (uint64_t) task;
-	// Milestone 1 still runs only kernel tasks, so they intentionally share the
-	// kernel page tables. Passing CR3 explicitly removes the hidden boot-time
-	// assumption and makes later user-address spaces a local change.
-	task->regs.cr3 = cr3;
-	task->regs.rfl = 0x2202;
-
-	stack[stack_len - 1] = DATA_SEG;						// SS
-	stack[stack_len - 2] = (uint64_t)(stack + stack_len);	// RSP
-	stack[stack_len - 3] = 0x2202;							// FLAGS
-	stack[stack_len - 4] = CODE_SEG;						// CS
-	stack[stack_len - 5] = (uint64_t)code;					// RIP
-
-	debug("new task 0x")((uint64_t)(task), 16)(" pid ")(task->pid)(" cr3 0x")(task->regs.cr3, 16)(" code 0x")((uint64_t)code, 16)
-			(" stack 0x")((uint64_t)stack, 16)(" stack len ")(stack_len)(" rsp 0x")(task->regs.rsp, 16)();
-//    asm volatile("cli");
-    linkTasks();
-//    asm volatile("sti");
-    return task;
+	process->pid = g_next_pid++;
+	process->state = ProcessState::Ready;
+	process->address_space.cr3 = kernel_cr3;
+	process->exit_status = 0;
+	fillProcessName(process, "kernel");
+	g_kernel_process = process;
+	return process;
 }
 
-
-void Registers::print()
+Process *createUserProcess(const char *name, uint64_t cr3)
 {
-	debug("RAX=")(rax, 16, 16)();
-	debug("RBX=")(rbx, 16, 16)();
-	debug("RCX=")(rcx, 16, 16)();
-	debug("RDX=")(rdx, 16, 16)();
-	debug("RSI=")(rsi, 16, 16)();
-	debug("RDI=")(rdi, 16, 16)();
-	debug("RBP=")(rbp, 16, 16)();
-	debug("RSP=")(rsp, 16, 16)();
-	debug("R08=")(r08, 16, 16)();
-	debug("R09=")(r09, 16, 16)();
-	debug("R10=")(r10, 16, 16)();
-	debug("R11=")(r11, 16, 16)();
-	debug("R12=")(r12, 16, 16)();
-	debug("R13=")(r13, 16, 16)();
-	debug("R14=")(r14, 16, 16)();
-	debug("R15=")(r15, 16, 16)();
-	debug("RFL=")(rfl, 16, 16)();
-	debug("CR3=")(cr3, 16, 16)();
+	Process *process = nextFreeProcess();
+	if(nullptr == process)
+	{
+		return nullptr;
+	}
+
+	process->pid = g_next_pid++;
+	process->state = ProcessState::Ready;
+	process->address_space.cr3 = cr3;
+	process->exit_status = 0;
+	fillProcessName(process, name);
+	return process;
+}
+
+Thread *createKernelThread(Process *process, void (*entry)(void), PageFrameContainer &frames)
+{
+	Thread *thread = nextFreeThread();
+	if((nullptr == thread) || (nullptr == process) || (nullptr == entry))
+	{
+		return nullptr;
+	}
+
+	uint64_t stack_base = 0;
+	if(!frames.Allocate(stack_base, kKernelThreadStackPages))
+	{
+		return nullptr;
+	}
+	memset((void*)stack_base, 0, kKernelThreadStackPages * kPageSize);
+
+	thread->tid = g_next_tid++;
+	thread->process = process;
+	thread->state = ThreadState::Ready;
+	thread->user_mode = false;
+	thread->address_space_cr3 = process->address_space.cr3;
+	thread->kernel_stack_base = stack_base;
+	thread->kernel_stack_top = stack_base + kKernelThreadStackPages * kPageSize;
+	thread->exit_status = 0;
+	thread->frame = {};
+	// Kernel threads enter a normal C++ function through `iretq`, not a `call`,
+	// so reserve one dummy return slot to preserve the usual SysV stack shape at
+	// function entry.
+	*((uint64_t*)(thread->kernel_stack_top - sizeof(uint64_t))) = 0;
+	thread->frame.rip = (uint64_t)entry;
+	thread->frame.cs = kKernelCodeSegment;
+	thread->frame.rflags = 0x202;
+	thread->frame.rsp = thread->kernel_stack_top - sizeof(uint64_t);
+	thread->frame.ss = kKernelDataSegment;
+
+	if(nullptr == g_idle_thread)
+	{
+		g_idle_thread = thread;
+	}
+
+	relinkRunnableThreads();
+	return thread;
+}
+
+Thread *createUserThread(Process *process, uint64_t user_rip, uint64_t user_rsp, PageFrameContainer &frames)
+{
+	Thread *thread = nextFreeThread();
+	if(nullptr == thread)
+	{
+		return nullptr;
+	}
+
+	uint64_t stack_base = 0;
+	if(!frames.Allocate(stack_base, kKernelThreadStackPages))
+	{
+		return nullptr;
+	}
+	memset((void*)stack_base, 0, kKernelThreadStackPages * kPageSize);
+
+	thread->tid = g_next_tid++;
+	thread->process = process;
+	thread->state = ThreadState::Ready;
+	thread->user_mode = true;
+	thread->address_space_cr3 = process->address_space.cr3;
+	thread->kernel_stack_base = stack_base;
+	thread->kernel_stack_top = stack_base + kKernelThreadStackPages * kPageSize;
+	thread->exit_status = 0;
+	thread->frame = {};
+	thread->frame.rip = user_rip;
+	thread->frame.cs = kUserCodeSegment;
+	thread->frame.rflags = 0x202;
+	thread->frame.rsp = user_rsp;
+	thread->frame.ss = kUserDataSegment;
+
+	relinkRunnableThreads();
+	return thread;
+}
+
+Thread *currentThread(void)
+{
+	return cpu_cur()->current_thread;
+}
+
+Thread *idleThread(void)
+{
+	return g_idle_thread;
+}
+
+Thread *nextRunnableThread(Thread *after)
+{
+	relinkRunnableThreads();
+	auto is_runnable = [](const Thread *thread) -> bool
+	{
+		return (nullptr != thread)
+			&& ((ThreadState::Ready == thread->state)
+				|| (ThreadState::Running == thread->state));
+	};
+
+	size_t start_index = 0;
+	if((nullptr != after) && (after >= threadTable) && (after < (threadTable + kMaxThreads)))
+	{
+		start_index = (size_t)(after - threadTable + 1) % kMaxThreads;
+	}
+
+	Thread *idle_candidate = nullptr;
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		Thread *candidate = threadTable + ((start_index + i) % kMaxThreads);
+		if(!is_runnable(candidate))
+		{
+			continue;
+		}
+		if(candidate == g_idle_thread)
+		{
+			if(nullptr == idle_candidate)
+			{
+				idle_candidate = candidate;
+			}
+			continue;
+		}
+		return candidate;
+	}
+
+	return idle_candidate;
+}
+
+void setCurrentThread(Thread *thread)
+{
+	cpu_cur()->current_thread = thread;
+	if(thread)
+	{
+		thread->state = ThreadState::Running;
+		if(thread->process)
+		{
+			thread->process->state = ProcessState::Running;
+		}
+		cpu_set_kernel_stack(thread->kernel_stack_top);
+	}
+}
+
+void markThreadReady(Thread *thread)
+{
+	if((nullptr != thread)
+		&& (ThreadState::Dying != thread->state)
+		&& (ThreadState::Free != thread->state))
+	{
+		thread->state = ThreadState::Ready;
+		if(thread->process && (ProcessState::Dying != thread->process->state))
+		{
+			thread->process->state = ProcessState::Ready;
+		}
+	}
+}
+
+void markCurrentThreadDying(int exit_status)
+{
+	Thread *thread = currentThread();
+	if(nullptr == thread)
+	{
+		return;
+	}
+
+	thread->exit_status = exit_status;
+	thread->state = ThreadState::Dying;
+	if(thread->process)
+	{
+		thread->process->exit_status = exit_status;
+		thread->process->state = ProcessState::Dying;
+	}
+	relinkRunnableThreads();
+}
+
+void reapDeadThreads(PageFrameContainer &frames)
+{
+	Thread *active = currentThread();
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		Thread *thread = threadTable + i;
+		if((thread == active) || (ThreadState::Dying != thread->state))
+		{
+			continue;
+		}
+
+		// Thread teardown is deferred until some *other* thread enters the
+		// kernel. That keeps us from freeing the current kernel stack out from
+		// under the CPU while it is still executing on it.
+		for(size_t page = 0; page < kKernelThreadStackPages; ++page)
+		{
+			frames.Free(thread->kernel_stack_base + page * kPageSize);
+		}
+
+		Process *owner = thread->process;
+		clearThread(thread);
+
+		if(owner && !processHasThreads(owner))
+		{
+			if((owner != g_kernel_process) && (owner->address_space.cr3 != 0))
+			{
+				VirtualMemory vm(frames, owner->address_space.cr3);
+				vm.DestroyUserSlot(kUserPml4Index);
+				uint64_t *pml4 = (uint64_t*)owner->address_space.cr3;
+				pml4[0] = 0;
+				frames.Free(owner->address_space.cr3);
+			}
+			clearProcess(owner);
+		}
+	}
+
+	relinkRunnableThreads();
+}
+
+size_t runnableThreadCount(void)
+{
+	size_t count = 0;
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		if((ThreadState::Ready == threadTable[i].state)
+			|| (ThreadState::Running == threadTable[i].state))
+		{
+			++count;
+		}
+	}
+	return count;
+}
+
+Thread *firstRunnableUserThread(void)
+{
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		if(threadTable[i].user_mode
+			&& ((ThreadState::Ready == threadTable[i].state)
+				|| (ThreadState::Running == threadTable[i].state)))
+		{
+			return threadTable + i;
+		}
+	}
+	return nullptr;
 }

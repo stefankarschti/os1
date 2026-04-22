@@ -8,12 +8,12 @@
 #include "interrupt.h"
 #include "memory.h"
 #include "memory_layout.h"
-#include "../libc/stdlib.h"
 #include "task.h"
 #include "pageframe.h"
 #include "virtualmemory.h"
 #include "keyboard.h"
 #include "debug.h"
+#include "syscall_abi.h"
 
 #include "cpu.h"
 #include "mp.h"
@@ -21,832 +21,880 @@
 #include "lapic.h"
 #include "pic.h"
 
-// system
 Interrupts interrupts;
 PageFrameContainer page_frames;
 Keyboard keyboard(interrupts);
 
-// multitasking
-void process1();
-void process2();
-void process3();
-
-// terminals
 const size_t kNumTerminals = 12;
 Terminal terminal[kNumTerminals];
 Terminal *active_terminal = nullptr;
 
-static inline Registers *CurrentInterruptRegs()
+namespace
 {
-	return &cpu_cur()->interrupt_regs;
+const BootInfo *g_boot_info = nullptr;
+uint64_t g_kernel_root_cr3 = 0;
+
+constexpr uint32_t kElfMagic = 0x464C457F;
+constexpr uint16_t kElfTypeExec = 2;
+constexpr uint16_t kElfMachineX86_64 = 62;
+constexpr uint32_t kProgramTypeLoad = 1;
+constexpr uint32_t kProgramFlagExecute = 0x1;
+constexpr uint32_t kProgramFlagWrite = 0x2;
+
+struct CpioNewcHeader
+{
+	char magic[6];
+	char inode[8];
+	char mode[8];
+	char uid[8];
+	char gid[8];
+	char nlink[8];
+	char mtime[8];
+	char filesize[8];
+	char devmajor[8];
+	char devminor[8];
+	char rdevmajor[8];
+	char rdevminor[8];
+	char namesize[8];
+	char check[8];
+} __attribute__((packed));
+
+struct Elf64Header
+{
+	uint32_t magic;
+	uint8_t ident[12];
+	uint16_t type;
+	uint16_t machine;
+	uint32_t version;
+	uint64_t entry;
+	uint64_t phoff;
+	uint64_t shoff;
+	uint32_t flags;
+	uint16_t ehsize;
+	uint16_t phentsize;
+	uint16_t phnum;
+	uint16_t shentsize;
+	uint16_t shnum;
+	uint16_t shstrndx;
+} __attribute__((packed));
+
+struct Elf64ProgramHeader
+{
+	uint32_t type;
+	uint32_t flags;
+	uint64_t offset;
+	uint64_t vaddr;
+	uint64_t paddr;
+	uint64_t filesz;
+	uint64_t memsz;
+	uint64_t align;
+} __attribute__((packed));
+
+[[nodiscard]] uint64_t AlignDown(uint64_t value, uint64_t alignment)
+{
+	return value & ~(alignment - 1);
+}
+
+[[nodiscard]] uint64_t AlignUp(uint64_t value, uint64_t alignment)
+{
+	return (value + alignment - 1) & ~(alignment - 1);
+}
+
+[[nodiscard]] uint64_t ReadCr2()
+{
+	uint64_t value = 0;
+	asm volatile("mov %%cr2, %0" : "=r"(value));
+	return value;
+}
+
+[[nodiscard]] uint64_t ReadCr3()
+{
+	uint64_t value = 0;
+	asm volatile("mov %%cr3, %0" : "=r"(value));
+	return value;
+}
+
+[[noreturn]] void HaltForever()
+{
+	for(;;)
+	{
+		asm volatile("cli");
+		asm volatile("hlt");
+	}
+}
+
+void WriteConsoleBytes(const char *data, size_t length)
+{
+	if(nullptr == data)
+	{
+		return;
+	}
+	for(size_t i = 0; i < length; ++i)
+	{
+		debug.Write(data[i]);
+		if(active_terminal)
+		{
+			active_terminal->Write(data[i]);
+		}
+	}
+}
+
+void WriteConsoleLine(const char *text)
+{
+	if(nullptr == text)
+	{
+		return;
+	}
+	debug.WriteLn(text);
+	if(active_terminal)
+	{
+		active_terminal->WriteLn(text);
+	}
+}
+
+void DumpTrapFrame(const TrapFrame &frame)
+{
+	debug("vector=")(frame.vector)(" error=0x")(frame.error_code, 16)
+		(" rip=0x")(frame.rip, 16)
+		(" cs=0x")(frame.cs, 16)
+		(" rsp=0x")(frame.rsp, 16)
+		(" ss=0x")(frame.ss, 16)
+		(" rflags=0x")(frame.rflags, 16)();
+	debug("rax=0x")(frame.rax, 16)(" rbx=0x")(frame.rbx, 16)
+		(" rcx=0x")(frame.rcx, 16)(" rdx=0x")(frame.rdx, 16)();
+	debug("rsi=0x")(frame.rsi, 16)(" rdi=0x")(frame.rdi, 16)
+		(" rbp=0x")(frame.rbp, 16)();
+	debug("r8=0x")(frame.r8, 16)(" r9=0x")(frame.r9, 16)
+		(" r10=0x")(frame.r10, 16)(" r11=0x")(frame.r11, 16)();
+	debug("r12=0x")(frame.r12, 16)(" r13=0x")(frame.r13, 16)
+		(" r14=0x")(frame.r14, 16)(" r15=0x")(frame.r15, 16)();
+}
+
+void AcknowledgeLegacyIrq(int irq)
+{
+	lapic_eoi();
+	outb(0x20, 0x20);
+	if(irq >= 8)
+	{
+		outb(0xA0, 0x20);
+	}
 }
 
 uint16_t SetTimer(uint16_t frequency)
 {
-    uint32_t divisor = 1193180 / frequency;
-    if(divisor > 65536)
-    {
-        divisor = 65536; // max out to 18 Hz
-    }
-    outb(0x43, 0x34);
-    outb(0x40, divisor & 0xFF);
-    outb(0x40, (divisor >> 8) & 0xFF);
-    // return actual frequency
-    return 1193180 / divisor;
-}
-
-/**
- * @brief KernelKeyboardHook
- * @param scancode
- * @details this function is called from keyboard IRQ before any other keyboard handler
- * @ref keyboard.cpp
- * @result bool Whether the key should be further processed. Return false to silently ignore the key
- */
-bool KernelKeyboardHook(uint16_t scancode)
-{
-    // switch terminal hotkey
-    uint16_t hotkey[kNumTerminals] =  {0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x57, 0x58};
-    int index = -1;
-    for(unsigned i = 0; i < kNumTerminals; i++)
-    {
-        if(scancode == hotkey[i])
-        {
-            index = i;
-            break;
-        }
-    }
-    if(index >= 0)
-    {
-        if(active_terminal != &terminal[index])
-        {
-            if(active_terminal)
-                active_terminal->Unlink();
-            active_terminal = &terminal[index];
-            active_terminal->Link();
-            keyboard.SetActiveTerminal(active_terminal);
-        }
-    }
-
-    // debug print scan code
-    //	uint16_t *screen = (uint16_t*)0xB8000;
-    //	const char *digit = "0123456789ABCDEF";
-    //	screen[160] = digit[(scancode >> 4) & 0xf] + (7<<8);
-    //	screen[161] = digit[scancode & 0xf] + (7<<8);
-    return true;
-}
-
-void onException00(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#DE-Divide-by-Zero-Error Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException01(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#DB-Debug Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException02(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "NMI-Non-Maskable-Interrupt Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException03(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#BP-Breakpoint Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException04(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#OF-Overflow Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException05(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#BR-Bound-Range Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException06(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#UD-Invalid-Opcode Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException07(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#NM-Device-Not-Available Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException08(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#DF-Double-Fault Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException09(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "Coprocessor-Segment-Overrun Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException0A(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#TS-Invalid-TSS Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException0B(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#NP-Segment-Not-Present Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException0C(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#SS-Stack Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
-}
-
-void onException0D(uint64_t rip, uint64_t rsp, uint64_t error)
-{
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-	const char *name = "#GP-General-Protection Exception";
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-	regs->print();
-	debug("stack:")();
-	uint64_t* p_rsp = (uint64_t*)rsp;
-	for(int i = 0; i < 5; ++i)
+	uint32_t divisor = 1193180 / frequency;
+	if(divisor > 65536)
 	{
-		debug("[")(i)("] = 0x")(p_rsp[i], 16)();
+		divisor = 65536;
 	}
-	debug("stack memory:")();
-	DebugMemory(rsp, ((rsp / 4096) + 1) * 4096 );
+	outb(0x43, 0x34);
+	outb(0x40, divisor & 0xFF);
+	outb(0x40, (divisor >> 8) & 0xFF);
+	return 1193180 / divisor;
+}
+
+void KernelIdleThread()
+{
+	static bool announced = false;
+	if(!announced)
+	{
+		announced = true;
+		WriteConsoleLine("idle thread online");
+	}
+	for(;;)
+	{
+		// M2 has no wakeup-driven kernel work once the initrd self-tests finish,
+		// so the BSP can park in the same terminal idle state as the APs until a
+		// later milestone adds a richer always-on idle loop.
+		asm volatile("cli");
+		asm volatile("hlt");
+	}
+}
+
+[[nodiscard]] Thread *ScheduleNext(bool keep_current)
+{
+	reapDeadThreads(page_frames);
+	Thread *current = currentThread();
+	if(keep_current && current)
+	{
+		markThreadReady(current);
+	}
+
+	Thread *next = nextRunnableThread(current);
+	if(nullptr == next)
+	{
+		next = idleThread();
+	}
+	if(next)
+	{
+		debug("schedule -> tid ")(next->tid)
+			(" pid ")(next->process ? next->process->pid : 0)
+			(" mode ")(next->user_mode ? "user" : "kernel")
+			(" cs 0x")(next->frame.cs, 16)
+			(" rip 0x")(next->frame.rip, 16)();
+		setCurrentThread(next);
+	}
+	return next;
+}
+
+const char *KernelFaultName(uint64_t vector)
+{
+	switch(vector)
+	{
+	case T_DIVIDE: return "#DE divide error";
+	case T_DEBUG: return "#DB debug";
+	case T_NMI: return "NMI";
+	case T_BRKPT: return "#BP breakpoint";
+	case T_OFLOW: return "#OF overflow";
+	case T_BOUND: return "#BR bound range";
+	case T_ILLOP: return "#UD invalid opcode";
+	case T_DEVICE: return "#NM device not available";
+	case T_DBLFLT: return "#DF double fault";
+	case T_TSS: return "#TS invalid TSS";
+	case T_SEGNP: return "#NP segment not present";
+	case T_STACK: return "#SS stack fault";
+	case T_GPFLT: return "#GP general protection";
+	case T_PGFLT: return "#PF page fault";
+	case T_FPERR: return "#MF floating point";
+	case T_ALIGN: return "#AC alignment";
+	case T_MCHK: return "#MC machine check";
+	case T_SIMD: return "#XF SIMD";
+	case T_SECEV: return "#SX security";
+	default: return "unknown trap";
+	}
+}
+
+void OnKernelException(TrapFrame *frame)
+{
+	const char *name = KernelFaultName(frame->vector);
 	if(active_terminal)
 	{
 		active_terminal->WriteLn(name);
 	}
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+	debug(name)(" cr2=0x")(ReadCr2(), 16)(" cr3=0x")(ReadCr3(), 16)();
+	DumpTrapFrame(*frame);
+	HaltForever();
 }
 
-void onException0E(uint64_t rip, uint64_t rsp, uint64_t error)
+const char *NormalizeArchivePath(const char *path)
 {
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#PF-Page-Fault Exception";
-    if(active_terminal)
-    {
-        active_terminal->Write("#PF-Page-Fault Exception");
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+	if(nullptr == path)
+	{
+		return nullptr;
+	}
+	while('.' == path[0] && '/' == path[1])
+	{
+		path += 2;
+	}
+	while('/' == *path)
+	{
+		++path;
+	}
+	return path;
 }
 
-void onException10(uint64_t rip, uint64_t rsp, uint64_t error)
+bool PathsEqual(const char *archive_name, const char *wanted)
 {
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#MF-x87 Floating-Point Exception-Pending";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+	const char *normalized_archive = NormalizeArchivePath(archive_name);
+	const char *normalized_wanted = NormalizeArchivePath(wanted);
+	if((nullptr == normalized_archive) || (nullptr == normalized_wanted))
+	{
+		return false;
+	}
+	size_t index = 0;
+	for(;; ++index)
+	{
+		if(normalized_archive[index] != normalized_wanted[index])
+		{
+			return false;
+		}
+		if(0 == normalized_archive[index])
+		{
+			return true;
+		}
+	}
 }
 
-void onException11(uint64_t rip, uint64_t rsp, uint64_t error)
+uint32_t ParseHex(const char *text, size_t digits)
 {
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#AC-Alignment-Check Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+	uint32_t value = 0;
+	for(size_t i = 0; i < digits; ++i)
+	{
+		value <<= 4;
+		if((text[i] >= '0') && (text[i] <= '9'))
+		{
+			value |= (uint32_t)(text[i] - '0');
+		}
+		else if((text[i] >= 'a') && (text[i] <= 'f'))
+		{
+			value |= (uint32_t)(text[i] - 'a' + 10);
+		}
+		else if((text[i] >= 'A') && (text[i] <= 'F'))
+		{
+			value |= (uint32_t)(text[i] - 'A' + 10);
+		}
+	}
+	return value;
 }
 
-void onException12(uint64_t rip, uint64_t rsp, uint64_t error)
+bool FindInitrdFile(const char *path, const uint8_t *&data, uint64_t &size)
 {
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
+	data = nullptr;
+	size = 0;
+	if((nullptr == g_boot_info) || (0 == g_boot_info->module_count))
+	{
+		return false;
+	}
 
-    const char *name = "#MC-Machine-Check Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+	const BootModuleInfo &module = g_boot_info->modules[0];
+	const uint8_t *cursor = (const uint8_t*)module.physical_start;
+	const uint8_t *end = cursor + module.length;
+	while((cursor + sizeof(CpioNewcHeader)) <= end)
+	{
+		const CpioNewcHeader *header = (const CpioNewcHeader*)cursor;
+		bool magic_ok = true;
+		for(size_t i = 0; i < 6; ++i)
+		{
+			if(header->magic[i] != "070701"[i])
+			{
+				magic_ok = false;
+				break;
+			}
+		}
+		if(!magic_ok)
+		{
+			return false;
+		}
+
+		const uint32_t name_size = ParseHex(header->namesize, 8);
+		const uint32_t file_size = ParseHex(header->filesize, 8);
+		const char *name = (const char*)(cursor + sizeof(CpioNewcHeader));
+		const uint8_t *file_data = (const uint8_t*)AlignUp(
+			(uint64_t)(cursor + sizeof(CpioNewcHeader) + name_size), 4);
+		if((const uint8_t*)name > end || (file_data + file_size) > end)
+		{
+			return false;
+		}
+
+		if(PathsEqual(name, "TRAILER!!!"))
+		{
+			return false;
+		}
+
+		if(PathsEqual(name, path))
+		{
+			data = file_data;
+			size = file_size;
+			return true;
+		}
+
+		cursor = (const uint8_t*)AlignUp((uint64_t)(file_data + file_size), 4);
+	}
+	return false;
 }
 
-void onException13(uint64_t rip, uint64_t rsp, uint64_t error)
+bool CopyIntoAddressSpace(VirtualMemory &vm, uint64_t virtual_address, const uint8_t *source, uint64_t length)
 {
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
+	uint64_t copied = 0;
+	while(copied < length)
+	{
+		uint64_t physical = 0;
+		uint64_t flags = 0;
+		if(!vm.Translate(virtual_address + copied, physical, flags))
+		{
+			return false;
+		}
 
-    const char *name = "#XF-SIMD Floating-Point Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+		const uint64_t page_offset = (virtual_address + copied) & (kPageSize - 1);
+		const uint64_t chunk = ((length - copied) < (kPageSize - page_offset))
+			? (length - copied)
+			: (kPageSize - page_offset);
+		memcpy((void*)physical, source + copied, chunk);
+		copied += chunk;
+	}
+	return true;
 }
 
-void onException1D(uint64_t rip, uint64_t rsp, uint64_t error)
+bool DestroyUserAddressSpace(uint64_t cr3)
 {
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
-
-    const char *name = "#VC -- VMM Communication Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+	if(0 == cr3)
+	{
+		return false;
+	}
+	VirtualMemory vm(page_frames, cr3);
+	vm.DestroyUserSlot(kUserPml4Index);
+	uint64_t *pml4 = (uint64_t*)cr3;
+	pml4[0] = 0;
+	return page_frames.Free(cr3);
 }
 
-void onException1E(uint64_t rip, uint64_t rsp, uint64_t error)
+bool LoadUserElf(const uint8_t *image, uint64_t image_size, uint64_t &cr3, uint64_t &entry, uint64_t &user_rsp)
 {
-    uint64_t cr2, cr3, r15;
-    asm volatile( "mov %%cr2, %0" : "=r"(cr2) );
-    asm volatile( "mov %%cr3, %0" : "=r"(cr3) );
-    asm volatile( "mov %%r15, %0" : "=r"(r15) );
+	if((nullptr == image) || (image_size < sizeof(Elf64Header)))
+	{
+		return false;
+	}
 
-    const char *name = "#SX-Security Exception";
-    if(active_terminal)
-    {
-        active_terminal->WriteLn(name);
-    }
-    debug(name)(" RIP=")(rip, 16)(" RSP=")(rsp, 16)(" error=")(error, 16)(" cr2=")(cr2, 16)(" cr3=")(cr3, 16)(" r15=")(r15, 16)();
-    Registers *regs = CurrentInterruptRegs();
-    regs->print();
-stop:
-    asm("cli");
-    asm("hlt");
-    goto stop;
+	const Elf64Header *header = (const Elf64Header*)image;
+	if((header->magic != kElfMagic)
+		|| (header->type != kElfTypeExec)
+		|| (header->machine != kElfMachineX86_64)
+		|| (header->phoff >= image_size)
+		|| (header->phentsize != sizeof(Elf64ProgramHeader)))
+	{
+		return false;
+	}
+
+	VirtualMemory vm(page_frames);
+	if(!vm.CloneKernelPml4Entry(0, g_kernel_root_cr3))
+	{
+		return false;
+	}
+
+	const uint64_t stack_guard_base = kUserStackTop - (kUserStackPages + 1) * kPageSize;
+	for(uint16_t i = 0; i < header->phnum; ++i)
+	{
+		const uint64_t ph_offset = header->phoff + i * sizeof(Elf64ProgramHeader);
+		if((ph_offset + sizeof(Elf64ProgramHeader)) > image_size)
+		{
+			DestroyUserAddressSpace(vm.Root());
+			return false;
+		}
+
+		const Elf64ProgramHeader *program = (const Elf64ProgramHeader*)(image + ph_offset);
+		if(kProgramTypeLoad != program->type)
+		{
+			continue;
+		}
+		if((program->memsz < program->filesz)
+			|| ((program->offset + program->filesz) > image_size))
+		{
+			DestroyUserAddressSpace(vm.Root());
+			return false;
+		}
+
+		const uint64_t segment_start = AlignDown(program->vaddr, kPageSize);
+		const uint64_t segment_end = AlignUp(program->vaddr + program->memsz, kPageSize);
+		if((segment_start < kUserSpaceBase)
+			|| (segment_end > stack_guard_base)
+			|| ((segment_start >> 39) & 0x1FFull) != kUserPml4Index)
+		{
+			DestroyUserAddressSpace(vm.Root());
+			return false;
+		}
+
+		PageFlags page_flags = PageFlags::Present | PageFlags::User;
+		if(program->flags & kProgramFlagWrite)
+		{
+			page_flags |= PageFlags::Write;
+		}
+		if(0 == (program->flags & kProgramFlagExecute))
+		{
+			page_flags |= PageFlags::NoExecute;
+		}
+
+		if(!vm.AllocateAndMap(segment_start, (segment_end - segment_start) / kPageSize, page_flags))
+		{
+			DestroyUserAddressSpace(vm.Root());
+			return false;
+		}
+
+		if(!CopyIntoAddressSpace(vm, program->vaddr, image + program->offset, program->filesz))
+		{
+			DestroyUserAddressSpace(vm.Root());
+			return false;
+		}
+	}
+
+	const uint64_t user_stack_base = kUserStackTop - kUserStackPages * kPageSize;
+	if(!vm.AllocateAndMap(user_stack_base, kUserStackPages,
+		PageFlags::Present | PageFlags::Write | PageFlags::User | PageFlags::NoExecute))
+	{
+		DestroyUserAddressSpace(vm.Root());
+		return false;
+	}
+
+	uint64_t stack_physical = 0;
+	uint64_t stack_flags = 0;
+	if(!vm.Translate(kUserStackTop - 8, stack_physical, stack_flags))
+	{
+		debug("user stack translation missing at 0x")(kUserStackTop - 8, 16)();
+		DestroyUserAddressSpace(vm.Root());
+		return false;
+	}
+	cr3 = vm.Root();
+	entry = header->entry;
+	// Like kernel threads, first user entry reaches `_start` via `iretq`, so we
+	// reserve one dummy slot to match the SysV function-entry stack shape.
+	user_rsp = AlignDown(kUserStackTop, 16) - sizeof(uint64_t);
+	return true;
+}
+
+Thread *LoadUserProgram(const char *path)
+{
+	const uint8_t *file_data = nullptr;
+	uint64_t file_size = 0;
+	if(!FindInitrdFile(path, file_data, file_size))
+	{
+		debug("initrd missing ")(path)();
+		return nullptr;
+	}
+
+	uint64_t user_cr3 = 0;
+	uint64_t entry = 0;
+	uint64_t user_rsp = 0;
+	if(!LoadUserElf(file_data, file_size, user_cr3, entry, user_rsp))
+	{
+		debug("user ELF load failed for ")(path)();
+		return nullptr;
+	}
+
+	Process *process = createUserProcess(path, user_cr3);
+	if(nullptr == process)
+	{
+		DestroyUserAddressSpace(user_cr3);
+		return nullptr;
+	}
+
+	Thread *thread = createUserThread(process, entry, user_rsp, page_frames);
+	if(nullptr == thread)
+	{
+		DestroyUserAddressSpace(user_cr3);
+		return nullptr;
+	}
+
+	debug("user thread ready pid ")(process->pid)(" tid ")(thread->tid)(" entry 0x")(entry, 16)(" rsp 0x")(user_rsp, 16)();
+	return thread;
+}
+
+bool CopyFromUser(const Thread *thread, uint64_t user_pointer, void *destination, size_t length)
+{
+	if((nullptr == thread) || (nullptr == destination))
+	{
+		return false;
+	}
+
+	VirtualMemory vm(page_frames, thread->address_space_cr3);
+	uint8_t *dest = (uint8_t*)destination;
+	size_t copied = 0;
+	while(copied < length)
+	{
+		uint64_t physical = 0;
+		uint64_t flags = 0;
+		if(!vm.Translate(user_pointer + copied, physical, flags))
+		{
+			return false;
+		}
+		const size_t page_offset = (user_pointer + copied) & (kPageSize - 1);
+		const size_t chunk = ((length - copied) < (kPageSize - page_offset))
+			? (length - copied)
+			: (kPageSize - page_offset);
+		memcpy(dest + copied, (const void*)physical, chunk);
+		copied += chunk;
+	}
+	return true;
+}
+
+long SysWrite(int fd, uint64_t user_buffer, size_t length)
+{
+	if((fd != 1) && (fd != 2))
+	{
+		return -1;
+	}
+
+	Thread *thread = currentThread();
+	if(nullptr == thread)
+	{
+		return -1;
+	}
+
+	char buffer[128];
+	size_t written = 0;
+	while(written < length)
+	{
+		const size_t chunk = ((length - written) < sizeof(buffer))
+			? (length - written)
+			: sizeof(buffer);
+		if(!CopyFromUser(thread, user_buffer + written, buffer, chunk))
+		{
+			return -1;
+		}
+		WriteConsoleBytes(buffer, chunk);
+		written += chunk;
+	}
+	return (long)written;
+}
+
+Thread *HandleSyscall(TrapFrame *frame)
+{
+	Thread *thread = currentThread();
+	if(nullptr == thread)
+	{
+		return nullptr;
+	}
+
+	switch(frame->rax)
+	{
+	case SYS_write:
+		frame->rax = (uint64_t)SysWrite((int)frame->rdi, frame->rsi, (size_t)frame->rdx);
+		return thread;
+	case SYS_exit:
+		markCurrentThreadDying((int)frame->rdi);
+		return ScheduleNext(false);
+	case SYS_yield:
+		return ScheduleNext(true);
+	case SYS_getpid:
+		frame->rax = thread->process ? thread->process->pid : 0;
+		return thread;
+	default:
+		frame->rax = (uint64_t)-1;
+		return thread;
+	}
+}
+
+Thread *HandleIrq(TrapFrame *frame)
+{
+	const int irq = (int)(frame->vector - T_IRQ0);
+	if(IRQ_KBD == irq)
+	{
+		DispatchIRQHook(irq);
+	}
+
+	AcknowledgeLegacyIrq(irq);
+
+	if(nullptr == currentThread())
+	{
+		return nullptr;
+	}
+
+	if(IRQ_TIMER == irq)
+	{
+		return ScheduleNext(true);
+	}
+
+	reapDeadThreads(page_frames);
+	return currentThread();
+}
+
+Thread *HandleException(TrapFrame *frame)
+{
+	if(TrapFrameIsUser(*frame))
+	{
+		const uint64_t pid = currentThread() && currentThread()->process
+			? currentThread()->process->pid
+			: 0;
+		debug("user trap vector ")(frame->vector)(" pid ")(pid)
+			(" cr2 0x")(ReadCr2(), 16)
+			(" error 0x")(frame->error_code, 16)
+			(" cr3 0x")(ReadCr3(), 16)();
+		if(frame->vector == T_PGFLT)
+		{
+			debug("user page fault killed pid ")(pid)();
+		}
+		else
+		{
+			debug("user exception killed pid ")(pid)();
+		}
+		markCurrentThreadDying((int)frame->vector);
+		return ScheduleNext(false);
+	}
+
+	DispatchExceptionHandler((int)frame->vector, frame);
+	OnKernelException(frame);
+	return nullptr;
+}
+}
+
+bool KernelKeyboardHook(uint16_t scancode)
+{
+	uint16_t hotkey[kNumTerminals] = {0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x57, 0x58};
+	int index = -1;
+	for(unsigned i = 0; i < kNumTerminals; i++)
+	{
+		if(scancode == hotkey[i])
+		{
+			index = i;
+			break;
+		}
+	}
+	if(index >= 0)
+	{
+		if(active_terminal != &terminal[index])
+		{
+			if(active_terminal)
+			{
+				active_terminal->Unlink();
+			}
+			active_terminal = &terminal[index];
+			active_terminal->Link();
+			keyboard.SetActiveTerminal(active_terminal);
+		}
+	}
+	return true;
+}
+
+extern "C" Thread *trap_dispatch(TrapFrame *frame)
+{
+	if((nullptr == frame) || (frame->vector > 255))
+	{
+		return nullptr;
+	}
+
+	if((frame->vector >= T_IRQ0) && (frame->vector < (T_IRQ0 + 16)))
+	{
+		return HandleIrq(frame);
+	}
+	if(frame->vector == T_SYSCALL)
+	{
+		return HandleSyscall(frame);
+	}
+	return HandleException(frame);
 }
 
 extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 {
-	bool result;
-    debug("[kernel64] hello!\n");
+	bool result = false;
+	debug("[kernel64] hello!\n");
 
-	// Copy the bootloader-owned structure before allocator or SMP setup starts
-	// mutating low memory. Later boot paths can change their staging strategy
-	// without changing what the kernel consumes after this point.
-	const BootInfo *boot_info = OwnBootInfo(info);
-	if(nullptr == boot_info)
+	g_boot_info = OwnBootInfo(info);
+	if(nullptr == g_boot_info)
 	{
 		debug("invalid boot info")();
 		return;
 	}
-	const std::span<const BootMemoryRegion> memory_regions = BootMemoryRegions(*boot_info);
 
-	// init cpu
+	const std::span<const BootMemoryRegion> memory_regions = BootMemoryRegions(*g_boot_info);
+
 	{
-		uint64_t cookie = 0xfeedfacebae;
-		debug("sizeof cpu = ")(sizeof(cpu))();
 		g_cpu_boot = cpu_boot;
-		debug("cpu_boot = 0x")((uint64_t)cpu_boot, 16)();
-		debug("&cpu_boot_template = 0x")((uint64_t)&cpu_boot_template, 16)();
-		// copy template
 		memcpy(g_cpu_boot, &cpu_boot_template, ((uint8_t*)&cpu_boot_template.kstacklo - (uint8_t*)&cpu_boot_template));
-		assert(g_cpu_boot->magic == CPU_MAGIC);
 		cpu_init();
-		debug("cpu init worked!")();
-		assert(cookie == 0xfeedfacebae);
 	}
 
-    // initialize page frames
-    debug("initializing page frame allocator")();
+	debug("initializing page frame allocator")();
 	result = page_frames.Initialize(memory_regions, kPageFrameBitmapBaseAddress, kPageFrameBitmapQwordLimit);
-    debug(result ? "Success" : "Failure")();
-    if(!result) return;
+	debug(result ? "Success" : "Failure")();
+	if(!result)
+	{
+		return;
+	}
 
-	// get processors
+	if(g_boot_info->module_count > 0)
+	{
+		for(uint32_t i = 0; i < g_boot_info->module_count; ++i)
+		{
+			page_frames.ReserveRange(g_boot_info->modules[i].physical_start, g_boot_info->modules[i].length);
+		}
+		debug("initrd module discovered")();
+	}
+
 	mp_init();
-	debug("sizeof(struct mp) = ")(sizeof(struct mp))();
 	debug("muliprocessor: ")(ismp ? "yes" : "no")();
 	debug("ncpu: ")(ncpu)();
 
-	// create kernel page tables
-    VirtualMemory kvm(page_frames);
-    debug("create kernel identity page tables")();
-	// map first 1 MB RAM
+	VirtualMemory kvm(page_frames);
+	debug("create kernel identity page tables")();
 	result = kvm.Allocate(0x0, kKernelReservedPhysicalStart / kPageSize, true);
-	if(!result) return;
-	// map detected blocks
+	if(!result)
+	{
+		return;
+	}
 	for(size_t i = 0; i < memory_regions.size(); ++i)
 	{
-		const auto &region = memory_regions[i];
-		if(BootMemoryRegionIsUsable(region) && region.physical_start >= kKernelReservedPhysicalStart && region.length > 0)
+		const BootMemoryRegion &region = memory_regions[i];
+		if(BootMemoryRegionIsUsable(region)
+			&& (region.physical_start >= kKernelReservedPhysicalStart)
+			&& (region.length > 0))
 		{
-			uint64_t start = (region.physical_start / kPageSize) * kPageSize;
-			uint64_t npages = ((region.length - 1) / kPageSize) + 1;
-			debug("identity mapping: 0x")(start, 16)(" ")(npages)(" pages. length = 0x")(npages * kPageSize, 16)();
-			result = kvm.Allocate(start, npages, true);
-			debug(result ? "Success" : "Failure")();
-			if(!result) return;
+			const uint64_t start = AlignDown(region.physical_start, kPageSize);
+			const uint64_t end = AlignUp(region.physical_start + region.length, kPageSize);
+			if(!kvm.Allocate(start, (end - start) / kPageSize, true))
+			{
+				return;
+			}
 		}
 	}
-	// map LAPIC memory
 	kvm.Allocate((uint64_t)lapic, 1, true);
-	// map IOAPIC memory
 	kvm.Allocate((uint64_t)ioapic, 1, true);
+	kvm.Activate();
+	g_kernel_root_cr3 = kvm.Root();
 
-    // switch to kernel page frames
-    kvm.Activate();
-    debug("kvm activated")();
+	pic_init();
+	ioapic_init();
+	lapic_init();
+	cpu_bootothers(g_kernel_root_cr3);
 
-	// init multi processor
-	pic_init();		// setup the legacy PIC (mainly to disable it)
-	ioapic_init();		// prepare to handle external device interrupts
-	lapic_init();		// setup this CPU's local APIC
-
-	// boot the other cpus
-	cpu_bootothers(kvm.Root());
-
-	// initialize terminals
 	for(size_t i = 0; i < kNumTerminals; ++i)
-    {
-        uint64_t p;
-        if(page_frames.Allocate(p))
-        {
-            debug("allocate terminal ")(i + 1)(" at 0x")(p, 16)();
-            terminal[i].SetBuffer((uint16_t*)p);
-            terminal[i].Clear();
-            terminal[i].Write("Terminal ");
-            terminal[i].WriteIntLn(i + 1);
-        }
-    }
+	{
+		uint64_t page = 0;
+		if(page_frames.Allocate(page))
+		{
+			terminal[i].SetBuffer((uint16_t*)page);
+			terminal[i].Clear();
+			terminal[i].Write("Terminal ");
+			terminal[i].WriteIntLn(i + 1);
+		}
+	}
 
-    // activate terminal 0
-	debug("activate terminal 0")();
-    active_terminal = &terminal[0];
-    active_terminal->Copy((uint16_t*)0xB8000);
-    active_terminal->Link();
-    active_terminal->MoveCursor(boot_info->text_console.cursor_y, boot_info->text_console.cursor_x);
-
-    // greetings
-	debug("greetings on terminal 0")();
+	active_terminal = &terminal[0];
+	active_terminal->Copy((uint16_t*)0xB8000);
+	active_terminal->Link();
+	active_terminal->MoveCursor(g_boot_info->text_console.cursor_y, g_boot_info->text_console.cursor_x);
 	active_terminal->WriteLn("[kernel64] hello");
 
-    // print page frame debug info
-	if(0)
-    {
-        char temp[32];
-        uint64_t num;
+	result = interrupts.Initialize();
+	debug(result ? "Interrupts initialization successful" : "Interrupts initialization failed")();
+	if(!result)
+	{
+		return;
+	}
 
-        // memory size
-        num = page_frames.MemorySize() >> 20; // MB
-        utoa(num, temp, 10);
-        active_terminal->Write("Memory size ");
-        active_terminal->Write(temp);
-        active_terminal->WriteLn("MB");
+	const uint8_t kernel_fault_vectors[] = {
+		T_DIVIDE, T_DEBUG, T_NMI, T_BRKPT, T_OFLOW, T_BOUND, T_ILLOP, T_DEVICE,
+		T_DBLFLT, T_TSS, T_SEGNP, T_STACK, T_GPFLT, T_PGFLT, T_FPERR, T_ALIGN,
+		T_MCHK, T_SIMD, 29, T_SECEV
+	};
+	for(size_t i = 0; i < sizeof(kernel_fault_vectors); ++i)
+	{
+		interrupts.SetExceptionHandler(kernel_fault_vectors[i], OnKernelException);
+	}
 
-        num = page_frames.MemoryEnd();
-        utoa(num, temp, 16, 16);
-        active_terminal->Write("Memory end 0x");
-        active_terminal->WriteLn(temp);
-
-        num = page_frames.PageCount();
-        utoa(num, temp, 10);
-        active_terminal->Write(temp);
-        active_terminal->WriteLn(" total pages");
-
-        num = page_frames.FreePageCount();
-        utoa(num, temp, 10);
-        active_terminal->Write(temp);
-        active_terminal->WriteLn(" free pages");
-
-        uint64_t num2 = (page_frames.PageCount() + 7) / 8;
-        utoa(num2, temp, 10);
-        active_terminal->Write("Bitmap size is ");
-        active_terminal->Write(temp);
-        active_terminal->WriteLn(" bytes");
-    }
-
-    // set up interrupts
-	debug("[kernel64] setting up interrupts")();
-    result = interrupts.Initialize();
-    if(result)
-		debug("Interrupts initialization successful")();
-    else
-		debug("Interrupts initialization failed")();
-	debug("Set up exception handlers")();
-
-    // set exception handlers
-    interrupts.SetExceptionHandler( 0, onException00);
-    interrupts.SetExceptionHandler( 1, onException01);
-    interrupts.SetExceptionHandler( 2, onException02);
-    interrupts.SetExceptionHandler( 3, onException03);
-    interrupts.SetExceptionHandler( 4, onException04);
-    interrupts.SetExceptionHandler( 5, onException05);
-    interrupts.SetExceptionHandler( 6, onException06);
-    interrupts.SetExceptionHandler( 7, onException07);
-    interrupts.SetExceptionHandler( 8, onException08);
-    interrupts.SetExceptionHandler( 9, onException09);
-    interrupts.SetExceptionHandler(10, onException0A);
-    interrupts.SetExceptionHandler(11, onException0B);
-    interrupts.SetExceptionHandler(12, onException0C);
-    interrupts.SetExceptionHandler(13, onException0D);
-    interrupts.SetExceptionHandler(14, onException0E);
-    interrupts.SetExceptionHandler(16, onException10);
-    interrupts.SetExceptionHandler(17, onException11);
-    interrupts.SetExceptionHandler(18, onException12);
-    interrupts.SetExceptionHandler(19, onException13);
-    interrupts.SetExceptionHandler(29, onException1D);
-    interrupts.SetExceptionHandler(30, onException1E);
-
-    //	active_terminal->WriteLn("Trigger #PF");
-    //	uint64_t *p = (uint64_t*)0x0000DDFD200008;
-    //	uint64_t a = *p;
-    //	*p = a + 1;
-
-	// set up keyboard
-	debug("[kernel64] starting keyboard")();
-    keyboard.Initialize();
-    keyboard.SetActiveTerminal(active_terminal);
+	keyboard.Initialize();
+	keyboard.SetActiveTerminal(active_terminal);
 	if(ismp)
 	{
 		ioapic_enable(2, IRQ_TIMER);
 		ioapic_enable(IRQ_KBD);
 	}
 
-    // multitasking
-    asm volatile("cli");
-    active_terminal->WriteLn("[kernel64] initializing multitasking");
-    debug("[kernel64] initializing multitasking")();
-    uint64_t stack1;
-    uint64_t stack2;
-    uint64_t stack3;
-    const uint64_t k_stack_num_pages = 1;
-    result = page_frames.Allocate(stack1, k_stack_num_pages);
-    if(result) 	debug("alloc stack1 at 0x")(stack1, 16)(); else debug("alloc stack1 failed")();
-    if(!result) return;
-    result = page_frames.Allocate(stack2, k_stack_num_pages);
-    if(result) 	debug("alloc stack2 at 0x")(stack2, 16)(); else debug("alloc stack2 failed")();
-    if(!result) return;
-    result = page_frames.Allocate(stack3, k_stack_num_pages);
-    if(result) 	debug("alloc stack3 at 0x")(stack3, 16)(); else debug("alloc stack3 failed")();
-    if(!result) return;
-
-    result = initTasks(page_frames);
-    if(!result) return;
-    debug("sizeof Task is ")(sizeof(Task))();
-    Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * kPageSize / 8, kvm.Root());
-    Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * kPageSize / 8, kvm.Root());
-	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * kPageSize / 8, kvm.Root());
-
-    // start multitasking
-	if(task1 && task2 && task3)
-    {
-        debug("start multitasking")();
-        active_terminal->WriteLn("Press F1..F12 to switch terminals");
-
-        debug("task1 pid ")(task1->pid)();
-        task1->regs.print();
-        debug("interrupt stack:")();
-        debug("RIP=")(*(uint64_t*)(task1->regs.rsp), 16)();
-        debug("CS=")(*(uint64_t*)(task1->regs.rsp + 8), 16)();
-        debug("RFLAGS=")(*(uint64_t*)(task1->regs.rsp + 16), 16)();
-        debug("RSP=")(*(uint64_t*)(task1->regs.rsp + 24), 16)();
-        debug("SS=")(*(uint64_t*)(task1->regs.rsp + 32), 16)();
-
-        startMultiTask(task1);
-    }
-    else
-    {
-        debug("Task creation failed")();
-        active_terminal->WriteLn("Task creation failed");
-    }
-    // we should not reach this point
-    active_terminal->WriteLn("[kernel64] panic! multitasking ended; halting.");
-
-stop:
-	asm volatile("cli");
-    asm volatile("hlt");
-    goto stop;
-}
-
-void process1()
-{
-	Terminal *my_terminal = &terminal[0];
-	while (true)
+	if(!initTasks(page_frames))
 	{
-		my_terminal->Write('1');
+		return;
 	}
-stop:
-    asm volatile("hlt");
-    goto stop;
-}
 
-void process2()
-{
-	Terminal *my_terminal = &terminal[1];
-	while (true)
+	Process *kernel_process = createKernelProcess(g_kernel_root_cr3);
+	if(nullptr == kernel_process)
 	{
-		my_terminal->Write('2');
+		return;
 	}
-stop:
-    asm volatile("hlt");
-    goto stop;
-}
+	if(nullptr == createKernelThread(kernel_process, KernelIdleThread, page_frames))
+	{
+		return;
+	}
 
-void process3()
-{
-    debug("process3 starting")();
-    Terminal *my_terminal = &terminal[2];
-    my_terminal->WriteLn("process3 starting");
-    //	while(true)
-    //	{
-    //		extern Task *taskList;
-    //		Task* task = &taskList[2];
-    //		debug("task3")();
-    //		task->regs.print();
-    //	}
-    while(true)
-    {
-        extern Task *taskList;
-        Task* task = &taskList[2];
-        debug("task3")();
-        task->regs.print();
-        my_terminal->Write("task 0x");
-        my_terminal->WriteIntLn((uint64_t)task, 16);
-        my_terminal->Write("pid=");
-        my_terminal->WriteIntLn(task->pid);
-        my_terminal->Write("cr3=");
-        my_terminal->WriteIntLn(task->regs.cr3, 16);
-        my_terminal->Write("rsp=");
-        my_terminal->WriteIntLn(task->regs.rsp, 16);
+	Thread *init_thread = LoadUserProgram("/bin/init");
+	LoadUserProgram("/bin/yield");
+	LoadUserProgram("/bin/fault");
+	if(nullptr == init_thread)
+	{
+		WriteConsoleLine("failed to load /bin/init");
+		return;
+	}
 
-        char line[256];
-        line[0] = 0;
-        my_terminal->Write("terminal3:");
-        my_terminal->ReadLn(line);
-        my_terminal->Write("Command: ");
-        my_terminal->WriteLn(line);
-    }
-    my_terminal->Write("\nprocess3 ending\n");
-stop:
-    asm volatile("hlt");
-    goto stop;
+	debug("start multitasking")();
+	WriteConsoleLine("starting first user process");
+	SetTimer(1000);
+	setCurrentThread(init_thread);
+	startMultiTask(init_thread);
+	HaltForever();
 }

@@ -123,7 +123,9 @@ SwitchToLongMode:
     mov ecx, 0xC0000080               ; Read from the EFER MSR. 
     rdmsr    
  
-    or eax, 0x00000100                ; Set the LME bit.
+    ; Enable long mode and the NX bit so later kernel mappings can safely mark
+    ; user stacks and data pages non-executable without triggering RSVD faults.
+    or eax, 0x00000900                ; Set the LME and NXE bits.
     wrmsr
  
     mov ebx, cr0                      ; Activate long mode -

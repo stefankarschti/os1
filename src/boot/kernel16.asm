@@ -1,4 +1,5 @@
 %include "../kernel/memory_layout.inc"
+%include "image_layout.inc"
 
 struc boot_text_console_info_struct
 	.columns:		resw 1
@@ -64,14 +65,87 @@ p_memsz		resq	1
 section .bss.boot_memory_map start=BOOT_MEMORY_REGION_BUFFER_ADDRESS
 boot_memory_map resb boot_memory_region_struct_size * BOOT_MEMORY_REGION_CAPACITY
 
+section .bss.boot_modules start=BOOT_MODULE_INFO_BUFFER_ADDRESS
+boot_modules resb boot_module_info_struct_size
+
 memory_pages	equ		EARLY_LONG_MODE_PAGE_TABLES_ADDRESS
 kernel_image	equ 	KERNEL_IMAGE_LOAD_ADDRESS
+initrd_image equ INITRD_LOAD_ADDRESS
 
 section .text
 [org LOADER16_LOAD_ADDRESS]
 [bits 16]
 	dw	0x7733
 loader_main16:
+	cli
+	xor ax, ax
+	mov ds, ax
+	mov es, ax
+	mov ss, ax
+	mov sp, LOADER16_LOAD_ADDRESS
+	mov [boot_device], dl
+
+	; Stage 0 only fetched the first sector of kernel16.bin. Finish loading the
+	; rest of this BIOS loader from a location outside the 0x7c00 boot page.
+	mov ah, 0x08
+	mov dl, [boot_device]
+	int 0x13
+	jc loader_bootstrap_stop
+	and cx, 0x003F
+	mov [loader_sectors_per_track], cx
+	xor ax, ax
+	mov al, dh
+	inc ax
+	mov [loader_head_count], ax
+
+	mov word [loader_current_lba], LOADER16_IMAGE_START_LBA + 1
+	mov bx, LOADER16_LOAD_ADDRESS + 512
+	mov si, LOADER16_IMAGE_SECTOR_COUNT - 1
+.bootstrap_load_next:
+	or si, si
+	jz .bootstrap_loaded
+
+	mov ax, [loader_current_lba]
+	xor dx, dx
+	div word [loader_sectors_per_track]
+	mov di, dx
+	inc di
+
+	xor dx, dx
+	div word [loader_head_count]
+
+	mov ch, al
+	mov cx, di
+	mov al, ah
+	and al, 0x03
+	shl al, 6
+	or cl, al
+	mov dh, dl
+
+	mov ax, 0x0201
+	mov dl, [boot_device]
+	int 0x13
+	jc loader_bootstrap_stop
+
+	add bx, 512
+	inc word [loader_current_lba]
+	dec si
+	jmp .bootstrap_load_next
+
+.bootstrap_loaded:
+	mov dl, [boot_device]
+	jmp loader_full_main16
+
+loader_bootstrap_stop:
+	hlt
+	jmp loader_bootstrap_stop
+
+boot_device				db 0x00
+loader_sectors_per_track	dw 0
+loader_head_count			dw 0
+loader_current_lba			dw 0
+
+loader_full_main16:
 	mov [boot_device], dl
 	mov si, str_loader16_hello
 	call print16
@@ -102,55 +176,21 @@ loader_main16:
 	call check_long_mode
 	jc no_long_mode
 
-	; load kernel64.elf
-	; start sector = 9
-	; sector count = 256 (128k)
-	; destination = kernel_image
-
-	; 9(64) -> kernel_image + 0
-	mov ax, kernel_image >> 4
-	mov	es, ax
-	mov di, 0				            ; ES:DI = Address to load kernel into
+	; Load both fixed raw-image payloads through the same chunked LBA helper.
+	mov edi, kernel_image
 	xor ebx, ebx
-	mov eax, 9							; EBX:EAX = start LBA address
-	mov dl, [boot_device]               ; DL    = Drive number to load from
-	mov cx, 64		                	; CX    = Number of sectors to load
-	call disk_read_lba              	; Call disk load function
+	mov eax, KERNEL_IMAGE_START_LBA
+	mov dl, [boot_device]
+	mov cx, KERNEL_IMAGE_SECTOR_COUNT
+	call disk_read_lba_range
 	jc .disk_error
 
-	; 73(64) -> kernel_image + 0x8000
-	mov ax, kernel_image >> 4
-	mov	es, ax
-	mov di, 0x8000			            ; ES:DI = Address to load kernel into
+	mov edi, initrd_image
 	xor ebx, ebx
-	mov eax, 73							; EBX:EAX = start LBA address
-	mov dl, [boot_device]               ; DL    = Drive number to load from
-	mov cx, 64		                	; CX    = Number of sectors to load
-	call disk_read_lba              	; Call disk load function
-	jc .disk_error
-
-	; 137(64) -> kernel_image + 0x10000
-	mov ax, kernel_image >> 4
-	add ax, 0x1000
-	mov	es, ax
-	mov di, 0			            ; ES:DI = Address to load kernel into
-	xor ebx, ebx
-	mov eax, 137							; EBX:EAX = start LBA address
-	mov dl, [boot_device]               ; DL    = Drive number to load from
-	mov cx, 64		                	; CX    = Number of sectors to load
-	call disk_read_lba              	; Call disk load function
-	jc .disk_error
-
-	; 201(64) -> kernel_image + 0x18000
-	mov ax, kernel_image >> 4
-	add ax, 0x1000
-	mov	es, ax
-	mov di, 0x8000			            ; ES:DI = Address to load kernel into
-	xor ebx, ebx
-	mov eax, 201						; EBX:EAX = start LBA address
-	mov dl, [boot_device]               ; DL    = Drive number to load from
-	mov cx, 64		                	; CX    = Number of sectors to load
-	call disk_read_lba              	; Call disk load function
+	mov eax, INITRD_IMAGE_START_LBA
+	mov dl, [boot_device]
+	mov cx, INITRD_IMAGE_SECTOR_COUNT
+	call disk_read_lba_range
 	jc .disk_error
 
 	; success
@@ -238,9 +278,9 @@ str_a20					db "[loader16] A20 ", 0
 str_on					db "on", 0
 str_off					db "off", 0
 str_bootloader_name		db "bios-loader", 0
-boot_device 			db 0x00
+str_initrd_name			db "initrd.cpio", 0
 
-%include "disk16.asm"
+%include "disk16_range.asm"
 %include "biosmemory.asm"
 %include "console16.asm"
 %include "long64.asm"
@@ -316,6 +356,13 @@ loader_main64:
 	mov [boot_info + boot_info_struct.kernel_physical_start], rax
 	add rax, [p_memsz]
 	mov [boot_info + boot_info_struct.kernel_physical_end], rax
+	mov rax, boot_modules
+	mov [boot_info + boot_info_struct.modules], rax
+	mov dword [boot_info + boot_info_struct.module_count], 1
+	mov qword [boot_modules + boot_module_info_struct.physical_start], initrd_image
+	mov qword [boot_modules + boot_module_info_struct.length], INITRD_IMAGE_LENGTH_BYTES
+	mov rax, str_initrd_name
+	mov [boot_modules + boot_module_info_struct.name], rax
 
     ; clear location
 	mov rdi, [p_vaddr]

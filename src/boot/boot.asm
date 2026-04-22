@@ -1,71 +1,83 @@
 [bits 16]
 [org 0x7c00]
 %include "../kernel/memory_layout.inc"
+%include "image_layout.inc"
 
 loader_main16		equ LOADER16_LOAD_ADDRESS
+
 _start:
-	jmp 0 : _main
-loader_num_sectors	dw 8
-_main:
 	cli
-	mov ax, cs
+	xor ax, ax
 	mov ds, ax
 	mov es, ax
 	mov ss, ax
-	mov fs, ax
-	mov gs, ax
-	mov [boot_device], dl					; save boot drive
-	mov ebp, LOADER16_LOAD_ADDRESS			; set up basic stack 
-	mov esp, ebp
-	
-	mov si, str_boot_hello
-	call print16
+	mov sp, loader_main16
+	mov [boot_device], dl
 
-	mov si, str_boot_dev
-	call print16
-	
-	xor ax, ax
-	mov al, [boot_device]
-	call print16_whex
-	mov si, str_crlf
-	call print16
-	
-	mov di, loader_main16	                ; ES:DI = Address to load kernel into
-	xor ebx, ebx
-	mov eax, 1								; EBX:EAX = start LBA address
-	mov dl, [boot_device]                   ; DL    = Drive number to load from
-	mov cx, word [loader_num_sectors]       ; CX    = Number of sectors to load
-	call disk_read_lba		                ; Call disk load function
-	jc .disk_error
-
-	mov ax, [loader_main16]
-	xor ax, 0x7733
-	jz .go
-	mov si, str_sig_err
-	call print16
-	jmp .stop	
-.go:
+	; Stage 0 only needs to pull the contiguous stage-1 image. Using classic
+	; CHS reads here avoids the BIOS EDD path that was overwriting the boot
+	; sector immediately after INT 13h returned.
+	mov ah, 0x08
 	mov dl, [boot_device]
-	jmp loader_main16 + 2						; call kernel16 main
-.disk_error:
-	mov si, str_disk_error
-	call print16
+	int 0x13
+	jc .stop
+	and cx, 0x003F
+	mov [sectors_per_track], cx
+	xor ax, ax
+	mov al, dh
+	inc ax
+	mov [head_count], ax
+
+	mov word [current_lba], LOADER16_IMAGE_START_LBA
+	mov bx, loader_main16
+	mov si, 1
+
+.load_next:
+	or si, si
+	jz .loaded
+
+	mov ax, [current_lba]
+	xor dx, dx
+	div word [sectors_per_track]
+	mov di, dx
+	inc di
+
+	xor dx, dx
+	div word [head_count]
+
+	mov ch, al
+	mov cx, di
+	mov al, ah
+	and al, 0x03
+	shl al, 6
+	or cl, al
+	mov dh, dl
+
+	mov ax, 0x0201
+	mov dl, [boot_device]
+	int 0x13
+	jc .stop
+
+	add bx, 512
+	inc word [current_lba]
+	dec si
+	jmp .load_next
+
+.loaded:
+	cmp word [loader_main16], 0x7733
+	jne .stop
+
+	mov dl, [boot_device]
+	jmp loader_main16 + 2
+
 .stop:
 	hlt
 	jmp .stop
-        
-%include "disk16.asm"
-%include "console16.asm"
 
-; Data
-hexdigit		db "0123456789ABCDEF",0
-str_crlf		db 13,10,0
-str_boot_hello   	db "[boot] hello", 13, 10, 0
-str_boot_dev		db "[boot] booting from device ", 0
-str_sig_err			db "[boot] signature error", 13, 10, 0
-str_disk_error   	db "[boot] disk error", 13, 10, 0
-boot_device 		db 0x00                     ; Get byte to store boot drive number
+boot_device			db 0x00
+sectors_per_track	dw 0
+head_count			dw 0
+current_lba			dw 0
 
-; Tail
-times 510-($-$$) db 0x00                ; Fill bootloader to 512-bytes
-dw 0xAA55                               ; Magic word signature
+times 510-($-$$) db 0x00
+dw 0xAA55

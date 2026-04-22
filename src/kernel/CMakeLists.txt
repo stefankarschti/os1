@@ -19,11 +19,7 @@ set(KERNEL_CXX_SOURCES
   "${PROJECT_SOURCE_DIR}/src/libc/stdlib.cpp"
 )
 
-set(KERNEL_C_SOURCES
-  ihandler.c
-)
-
-add_library(kernel_objects OBJECT ${KERNEL_CXX_SOURCES} ${KERNEL_C_SOURCES})
+add_library(kernel_objects OBJECT ${KERNEL_CXX_SOURCES})
 
 target_include_directories(kernel_objects PRIVATE "${PROJECT_SOURCE_DIR}/src/libc")
 
@@ -79,6 +75,7 @@ add_custom_command(
   COMMAND "${CMAKE_LINKER}" -T "${KERNEL_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL64_ELF}" -n
   DEPENDS
     kernel_objects
+    $<TARGET_OBJECTS:kernel_objects>
     "${KERNEL_LINKER_SCRIPT}"
     ${KERNEL_ASM_OBJECTS}
   COMMAND_EXPAND_LISTS

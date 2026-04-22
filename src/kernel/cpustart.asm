@@ -46,7 +46,9 @@ cpustart_begin:
 	mov ecx, 0xC0000080               ; Read from the EFER MSR.
 	rdmsr
 
-	or eax, 0x00000100                ; Set the LME bit.
+	; Match the BSP boot path: APs also enable NXE before they inherit kernel
+	; page tables that may contain non-executable mappings.
+	or eax, 0x00000900                ; Set the LME and NXE bits.
 	wrmsr
 
 	mov ebx, cr0                      ; Activate long mode -
