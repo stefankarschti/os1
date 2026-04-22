@@ -98,6 +98,9 @@ find_program(OS1_CPIO_EXECUTABLE NAMES cpio REQUIRED)
 find_program(OS1_XORRISO_EXECUTABLE NAMES xorriso REQUIRED)
 find_program(OS1_QEMU_EXECUTABLE NAMES qemu-system-x86_64)
 find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
+find_program(OS1_PYTHON_EXECUTABLE NAMES python3 python REQUIRED)
+
+set(OS1_SMOKE_RUNNER "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke.py")
 
 # OVMF/edk2 firmware discovery is centralized here so the kernel build is the
 # single source of truth. CI workflows and developer scripts must not re-implement
@@ -350,13 +353,14 @@ endif()
 
 include(CTest)
 
-# Both smoke tests are intentionally "run until timeout, then inspect the log"
-# checks. In practice they currently reach their success markers very close to
-# the old 8s limit on some hosts, especially through GUI tooling. Give them a
-# little headroom so BIOS compatibility failures reflect real boot breakage
-# rather than timing jitter.
-set(OS1_UEFI_SMOKE_TIMEOUT_SECONDS 12)
-set(OS1_BIOS_SMOKE_TIMEOUT_SECONDS 12)
+# The smoke runner terminates QEMU as soon as every expected marker has been
+# seen, so these values are safety ceilings for the slowest realistic CI host
+# rather than fixed runtimes. A healthy local run exits in a few seconds. The
+# UEFI ceiling is intentionally larger because OVMF + ISO + Limine do far more
+# I/O than the direct BIOS path, which matters on shared runners without KVM
+# acceleration (GitHub Actions ubuntu-hosted, in particular).
+set(OS1_UEFI_SMOKE_TIMEOUT_SECONDS 120)
+set(OS1_BIOS_SMOKE_TIMEOUT_SECONDS 60)
 
 # Preventive: if CI (or any caller) sets OS1_REQUIRE_UEFI_SMOKE=ON, a missing
 # UEFI smoke becomes a configure-time hard error rather than a silent skip.
@@ -406,6 +410,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       "-DLOG_FILE=${OS1_SMOKE_LOG}"
       "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
       "-DEXPECTED_MARKERS=${OS1_UEFI_SMOKE_MARKERS}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
@@ -443,6 +449,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       "-DLOG_FILE=${OS1_SMOKE_BIOS_LOG}"
       "-DSMOKE_TIMEOUT_SECONDS=${OS1_BIOS_SMOKE_TIMEOUT_SECONDS}"
       "-DEXPECTED_MARKERS=${OS1_BIOS_SMOKE_MARKERS}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )

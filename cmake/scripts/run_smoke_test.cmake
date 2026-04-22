@@ -14,6 +14,14 @@ if(NOT DEFINED EXPECTED_MARKERS)
   set(EXPECTED_MARKERS "")
 endif()
 
+if(NOT DEFINED PYTHON_EXECUTABLE)
+  message(FATAL_ERROR "PYTHON_EXECUTABLE must be set")
+endif()
+
+if(NOT DEFINED SMOKE_RUNNER)
+  message(FATAL_ERROR "SMOKE_RUNNER must be set to the path of run_smoke.py")
+endif()
+
 set(qemu_command
   "${QEMU_EXECUTABLE}"
   -smp
@@ -58,29 +66,37 @@ else()
   message(FATAL_ERROR "Either ISO_IMAGE or RAW_IMAGE must be set")
 endif()
 
+# Build the runner argv. The runner streams QEMU stdout/stderr, matches markers
+# on the fly, terminates QEMU as soon as every marker has appeared, and fails
+# the test with a log dump if the wall-clock timeout is reached first.
+set(runner_command
+  "${PYTHON_EXECUTABLE}"
+  "${SMOKE_RUNNER}"
+  --log
+  "${LOG_FILE}"
+  --timeout
+  "${SMOKE_TIMEOUT_SECONDS}"
+)
+foreach(marker IN LISTS EXPECTED_MARKERS)
+  list(APPEND runner_command --marker "${marker}")
+endforeach()
+list(APPEND runner_command --)
+list(APPEND runner_command ${qemu_command})
+
 execute_process(
-  COMMAND ${qemu_command}
-  RESULT_VARIABLE qemu_result
-  OUTPUT_VARIABLE qemu_stdout
-  ERROR_VARIABLE qemu_stderr
-  TIMEOUT "${SMOKE_TIMEOUT_SECONDS}"
+  COMMAND ${runner_command}
+  RESULT_VARIABLE runner_result
+  OUTPUT_VARIABLE runner_stdout
+  ERROR_VARIABLE runner_stderr
 )
 
-set(qemu_output "${qemu_stdout}${qemu_stderr}")
-file(WRITE "${LOG_FILE}" "${qemu_output}")
+if(runner_stdout)
+  message(STATUS "${runner_stdout}")
+endif()
 
-set(missing_markers "")
-foreach(marker IN LISTS EXPECTED_MARKERS)
-  string(FIND "${qemu_output}" "${marker}" marker_index)
-  if(marker_index EQUAL -1)
-    string(APPEND missing_markers "\n  ${marker}")
-  endif()
-endforeach()
-
-if(missing_markers)
+if(NOT runner_result EQUAL 0)
   message(FATAL_ERROR
-    "Smoke test did not reach the expected boot markers:${missing_markers}\n"
-    "QEMU result: ${qemu_result}\n"
-    "See ${LOG_FILE} for the captured serial log."
+    "Smoke runner failed (exit=${runner_result}). See ${LOG_FILE} for the captured serial log.\n"
+    "${runner_stderr}"
   )
 endif()
