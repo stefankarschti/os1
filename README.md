@@ -1,61 +1,87 @@
 # os1
 
-`os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The near-term focus is a terminal-first, QEMU/virtio-first system with a clean boot handoff and protected userland, growing later toward SMP, networking, remote administration, and an optional framebuffer desktop layer without losing architectural coherence.
+`os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status described in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) and the longer-term direction in [GOALS.md](GOALS.md).
 
-Today `os1` boots through a BIOS loader that publishes a versioned `BootInfo` handoff, brings up a freestanding C++20 kernel with per-CPU `cpu` pages, identity-mapped paging with explicit `User`/`NoExecute` flags, a PIT-driven round-robin scheduler, and a small protected userland (statically linked ELF programs loaded from an initrd `cpio` archive, invoking the kernel through `int $0x80` for `write`/`exit`/`yield`/`getpid`). Milestones 1 (boot contract and kernel stabilization) and 2 (process model and isolation) are implemented; the next milestones target a Limine/UEFI default boot and ACPI/PCIe/virtio platform support.
+Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, exposes `write`/`exit`/`yield`/`getpid` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestones 1, 2, and 3 are implemented; Milestone 4 is the next planned step.
 
 ## Prerequisites
 
-This project expects a freestanding cross-toolchain and NASM:
+Required build tools:
 
 - `x86_64-elf-gcc`
 - `x86_64-elf-g++`
 - `x86_64-elf-ld`
 - `nasm`
+- `cpio`
+- `xorriso`
 
-Optional helper targets also use:
+Optional helper tools:
 
-- `qemu-system-x86_64` for `run`
+- `qemu-system-x86_64` for `run`, `run_bios`, and smoke tests
+- OVMF / edk2 firmware images for the default UEFI path
 - `x86_64-elf-objdump` or `objdump` for `disasm`
 
-On macOS with Homebrew, the core setup is:
+On macOS with Homebrew:
 
 ```sh
-brew install x86_64-elf-gcc nasm qemu
+brew install x86_64-elf-gcc nasm cpio xorriso qemu
 ```
+
+Homebrew `qemu` ships usable OVMF firmware files and the CMake build will auto-detect them. On Linux, install your distro's `ovmf` or `edk2-ovmf` package.
 
 ## Build
 
-If you have an old Make-based `build/` directory, remove it once before switching:
+If you have an old Make-based or pre-CMake-M3 `build/` directory, remove it once before switching:
 
 ```sh
 rm -rf build
 ```
 
-Configure and build with CMake:
+Configure and build:
 
 ```sh
 cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/x86_64-elf.cmake
 cmake --build build
 ```
 
-The default build produces the raw disk image at `build/artifacts/os1.raw`.
+The default build now produces the modern UEFI ISO:
 
-In VS Code with the CMake Tools extension, this repo now ships a `default` configure preset and matching build presets. Open the folder, let CMake Tools use presets, then:
+- `build/artifacts/os1.iso`
+
+Build the explicit legacy BIOS image when needed:
+
+```sh
+cmake --build build --target os1_bios_image
+```
+
+That produces:
+
+- `build/artifacts/os1.raw`
+
+## VS Code CMake Tools
+
+This repo ships CMake presets for the supported workflows. In VS Code with the CMake Tools extension:
 
 - configure with the `default` preset
 - build with the `default` preset
-- run QEMU by selecting the `run` build preset or building the `run` target
-- generate disassembly with the `disasm` build preset or target
+- use the `run` preset or target for the default UEFI path
+- use the `run_bios` preset or target for the legacy BIOS path
+- use the `smoke`, `smoke_bios`, or `smoke_all` presets for tests
 
-If CMake Tools was previously configured with a different generator in the same `build/` directory, use `CMake: Delete Cache and Reconfigure` once so it can switch cleanly to the preset-driven Ninja build.
+If the extension still has stale cache or generator state from an older setup, run `CMake: Delete Cache and Reconfigure` once.
 
-## Run and Disassemble
+## Run
 
-Run the image in QEMU:
+Default modern UEFI path:
 
 ```sh
 cmake --build build --target run
+```
+
+Legacy BIOS compatibility path:
+
+```sh
+cmake --build build --target run_bios
 ```
 
 Generate disassembly outputs:
@@ -64,59 +90,88 @@ Generate disassembly outputs:
 cmake --build build --target disasm
 ```
 
-Artifacts are written under `build/artifacts/`:
+## Smoke Tests
 
-- `boot.bin` — 512-byte MBR boot sector
-- `kernel16.bin` — 32 KiB 16-bit BIOS loader + long-mode transition + 64-bit ELF expansion
-- `kernel64.elf` — freestanding C++20 kernel ELF64 image
-- `cpustart.bin` — AP trampoline blob (disassembly aid; also embedded in the kernel)
-- `initrd.cpio` — `cpio newc` archive containing `/bin/init`, `/bin/yield`, `/bin/fault`
-- `user/*.elf` — statically linked userland ELFs (inputs to the initrd)
-- `os1.raw` — assembled disk image (boot + loader + kernel + initrd)
-- `os1.log` — captured COM1 serial output from the last `run`
-- `dump.asm` / `cpustart.asm` — disassembly outputs
-
-The existing helper scripts remain available as wrappers around the CMake workflow:
-
-- `./run.sh`
-- `./start.sh`
-- `./dasm.sh`
-
-## Smoke Test
-
-A headless QEMU smoke test is wired through CTest. It runs the image, captures the serial stream to `build/artifacts/smoke.log`, and checks for a fixed set of boot markers (kernel greeting, page-frame init, interrupts init, initrd discovery, first user process, `/bin/init` + `/bin/yield` output, clean user page-fault handling, idle thread online):
+Modern UEFI smoke test:
 
 ```sh
 cmake --build build --target smoke
-# or, from an already-configured build:
+```
+
+Legacy BIOS smoke test:
+
+```sh
+cmake --build build --target smoke_bios
+```
+
+Run both:
+
+```sh
+cmake --build build --target smoke_all
+```
+
+Or run the registered CTest suite directly:
+
+```sh
 ctest --test-dir build --output-on-failure
 ```
 
+The smoke tests capture serial logs and assert stable boot markers for both boot paths. CI runs both tests on every push and pull request.
+
 ## Local CI With `act`
 
-This repo includes a checked-in `.actrc`, so the main CI job can be exercised locally with:
+The main CI job is still:
 
 ```sh
 act -j build-and-smoke
 ```
 
-For local `act` runs, `ubuntu-24.04` is mapped to `-self-hosted` on purpose. That avoids `act`'s missing `ubuntu-24.04` container mapping and lets the job reuse the local toolchain you already need for normal development. The `act` path therefore validates these host tools instead of provisioning them:
+This repo includes a checked-in `.actrc`, and local `act` runs intentionally use `ubuntu-24.04=-self-hosted`. That means the job reuses your host toolchain instead of trying to reproduce a GitHub runner image inside Docker.
+
+For local `act`, the host must provide:
 
 - `cmake`
 - `ninja`
 - `nasm`
+- `cpio`
+- `xorriso`
 - `qemu-system-x86_64`
 - `x86_64-elf-gcc`
 - `x86_64-elf-g++`
 - `x86_64-elf-ld`
+- discoverable OVMF firmware files for the default UEFI smoke path
+
+## Artifacts
+
+The build writes outputs under `build/artifacts/`:
+
+- `boot.bin` — 512-byte BIOS MBR boot sector
+- `kernel16.bin` — BIOS stage-1 loader with E820, EDD reads, long-mode entry, and ELF expansion
+- `kernel_bios.elf` — shared low-half kernel core used by the BIOS path and loaded as a module by the Limine path
+- `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state and enters the shared kernel
+- `cpustart.bin` — AP trampoline blob used for debugging / disassembly
+- `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/yield`, and `/bin/fault`
+- `user/*.elf` — statically linked user-space ELF inputs used to build the initrd
+- `os1.iso` — default UEFI-only Limine ISO
+- `os1.raw` — legacy BIOS raw disk image
+- `os1.log` — serial log from the last UEFI `run`
+- `os1-bios.log` — serial log from the last BIOS `run_bios`
+- `smoke.log` / `smoke-bios.log` — captured smoke-test serial logs
+- `dump.asm` / `cpustart.asm` — disassembly outputs
+
+The helper wrapper scripts remain available as thin CMake frontends:
+
+- `./run.sh`
+- `./start.sh`
+- `./dasm.sh`
 
 ## Documentation
 
-- [Goals](GOALS.md)
-- [Architecture](doc/ARCHITECTURE.md) — current boot chain, memory model, SMP, tasking, syscall ABI, testing
-- [Review 2026-04-19](doc/2026-04-19-review.md)
-- [Review 2026-04-21](doc/2026-04-21-review.md)
-- [Milestone 1 Design: Boot Contract And Kernel Stabilization](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) — *implemented*
-- [Milestone 2 Design: Process Model And Isolation](doc/2026-04-22-milestone-2-process-model-and-isolation.md) — *implemented*
-- [Milestone 3 Design: Modern Default Boot Path](doc/2026-04-22-milestone-3-modern-default-boot-path.md) — planned
+- [Goals](GOALS.md) — project direction and design principles
+- [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture
+- [Review 2026-04-19](doc/2026-04-19-review.md) — historical review
+- [Review 2026-04-21](doc/2026-04-21-review.md) — historical review
+- [Milestone 1 Design: Boot Contract And Kernel Stabilization](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) — implemented
+- [Milestone 2 Design: Process Model And Isolation](doc/2026-04-22-milestone-2-process-model-and-isolation.md) — implemented
+- [Milestone 3 Design: Modern Default Boot Path](doc/2026-04-22-milestone-3-modern-default-boot-path.md) — implemented
 - [Milestone 4 Design: Modern Platform Support](doc/2026-04-22-milestone-4-modern-platform-support.md) — planned

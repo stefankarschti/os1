@@ -4,6 +4,7 @@
 #include <span>
 
 #include "bootinfo.h"
+#include "display.h"
 #include "terminal.h"
 #include "interrupt.h"
 #include "memory.h"
@@ -33,6 +34,11 @@ namespace
 {
 const BootInfo *g_boot_info = nullptr;
 uint64_t g_kernel_root_cr3 = 0;
+VgaTextDisplay g_vga_text_display;
+FramebufferTextDisplay g_framebuffer_text_display;
+TextDisplayBackend g_vga_backend{TextDisplayBackendKind::VgaText, &g_vga_text_display};
+TextDisplayBackend g_framebuffer_backend{TextDisplayBackendKind::FramebufferText, &g_framebuffer_text_display};
+TextDisplayBackend *g_text_display = nullptr;
 
 constexpr uint32_t kElfMagic = 0x464C457F;
 constexpr uint16_t kElfTypeExec = 2;
@@ -100,6 +106,11 @@ struct Elf64ProgramHeader
 	return (value + alignment - 1) & ~(alignment - 1);
 }
 
+[[nodiscard]] uint64_t BootFramebufferLengthBytes(const BootFramebufferInfo &framebuffer)
+{
+	return (uint64_t)framebuffer.pitch_bytes * (uint64_t)framebuffer.height;
+}
+
 [[nodiscard]] uint64_t ReadCr2()
 {
 	uint64_t value = 0;
@@ -121,6 +132,68 @@ struct Elf64ProgramHeader
 		asm volatile("cli");
 		asm volatile("hlt");
 	}
+}
+
+void ReserveTrackedPhysicalRange(uint64_t physical_start, uint64_t length)
+{
+	if((0 == length) || (physical_start >= page_frames.MemoryEnd()))
+	{
+		return;
+	}
+
+	const uint64_t clamped_end = ((physical_start + length) < page_frames.MemoryEnd())
+		? (physical_start + length)
+		: page_frames.MemoryEnd();
+	if(clamped_end > physical_start)
+	{
+		page_frames.ReserveRange(physical_start, clamped_end - physical_start);
+	}
+}
+
+bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
+{
+	if((0 == physical_start) || (0 == length))
+	{
+		return true;
+	}
+
+	const uint64_t start = AlignDown(physical_start, kPageSize);
+	const uint64_t end = AlignUp(physical_start + length, kPageSize);
+	return vm.MapPhysical(start,
+			start,
+			(end - start) / kPageSize,
+			PageFlags::Present | PageFlags::Write);
+}
+
+TextDisplayBackend *SelectTextDisplay(const BootInfo &boot_info)
+{
+	if(BootSource::BiosLegacy == boot_info.source)
+	{
+		debug("console backend: vga")();
+		return &g_vga_backend;
+	}
+
+	if(InitializeFramebufferTextDisplay(g_framebuffer_text_display, boot_info.framebuffer))
+	{
+		debug("framebuffer console active")();
+		debug("framebuffer ")(boot_info.framebuffer.width)
+			("x")(boot_info.framebuffer.height)
+			(" pitch ")(boot_info.framebuffer.pitch_bytes)
+			(" bpp ")(boot_info.framebuffer.bits_per_pixel)
+			(" format ")(BootFramebufferPixelFormatName(boot_info.framebuffer.pixel_format))();
+		return &g_framebuffer_backend;
+	}
+
+	if(0 != boot_info.framebuffer.physical_address)
+	{
+		debug("framebuffer console unavailable")();
+	}
+	else
+	{
+		debug("console backend: serial-only")();
+	}
+
+	return nullptr;
 }
 
 void WriteConsoleBytes(const char *data, size_t length)
@@ -721,14 +794,14 @@ bool KernelKeyboardHook(uint16_t scancode)
 	{
 		if(active_terminal != &terminal[index])
 		{
-			if(active_terminal)
-			{
-				active_terminal->Unlink();
-			}
-			active_terminal = &terminal[index];
-			active_terminal->Link();
-			keyboard.SetActiveTerminal(active_terminal);
+		if(active_terminal)
+		{
+			active_terminal->Unlink();
 		}
+		active_terminal = &terminal[index];
+		active_terminal->Link(g_text_display);
+		keyboard.SetActiveTerminal(active_terminal);
+	}
 	}
 	return true;
 }
@@ -762,6 +835,11 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 		debug("invalid boot info")();
 		return;
 	}
+	debug("boot source: ")(BootSourceName(g_boot_info->source))();
+	if(g_boot_info->bootloader_name)
+	{
+		debug("bootloader: ")(g_boot_info->bootloader_name)();
+	}
 
 	const std::span<const BootMemoryRegion> memory_regions = BootMemoryRegions(*g_boot_info);
 
@@ -783,9 +861,14 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 	{
 		for(uint32_t i = 0; i < g_boot_info->module_count; ++i)
 		{
-			page_frames.ReserveRange(g_boot_info->modules[i].physical_start, g_boot_info->modules[i].length);
+			ReserveTrackedPhysicalRange(g_boot_info->modules[i].physical_start, g_boot_info->modules[i].length);
 		}
 		debug("initrd module discovered")();
+	}
+	if(0 != g_boot_info->framebuffer.physical_address)
+	{
+		ReserveTrackedPhysicalRange(g_boot_info->framebuffer.physical_address,
+				BootFramebufferLengthBytes(g_boot_info->framebuffer));
 	}
 
 	mp_init();
@@ -814,6 +897,23 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 			}
 		}
 	}
+	// Boot modules and the framebuffer may live in non-usable ranges on the
+	// modern path, but the current kernel still dereferences them as physical
+	// identity mappings after it switches to its own CR3. Map those explicit
+	// boot-critical ranges before activating the kernel page tables.
+	for(uint32_t i = 0; i < g_boot_info->module_count; ++i)
+	{
+		if(!MapIdentityRange(kvm, g_boot_info->modules[i].physical_start, g_boot_info->modules[i].length))
+		{
+			return;
+		}
+	}
+	if(!MapIdentityRange(kvm,
+			g_boot_info->framebuffer.physical_address,
+			BootFramebufferLengthBytes(g_boot_info->framebuffer)))
+	{
+		return;
+	}
 	kvm.Allocate((uint64_t)lapic, 1, true);
 	kvm.Allocate((uint64_t)ioapic, 1, true);
 	kvm.Activate();
@@ -836,10 +936,25 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 		}
 	}
 
+	g_text_display = SelectTextDisplay(*g_boot_info);
 	active_terminal = &terminal[0];
-	active_terminal->Copy((uint16_t*)0xB8000);
-	active_terminal->Link();
-	active_terminal->MoveCursor(g_boot_info->text_console.cursor_y, g_boot_info->text_console.cursor_x);
+	if(BootSource::BiosLegacy == g_boot_info->source)
+	{
+		active_terminal->Copy((uint16_t*)0xB8000);
+	}
+	else
+	{
+		active_terminal->Clear();
+	}
+	active_terminal->Link(g_text_display);
+	if(BootSource::BiosLegacy == g_boot_info->source)
+	{
+		active_terminal->MoveCursor(g_boot_info->text_console.cursor_y, g_boot_info->text_console.cursor_x);
+	}
+	else
+	{
+		active_terminal->MoveCursor(0, 0);
+	}
 	active_terminal->WriteLn("[kernel64] hello");
 
 	result = interrupts.Initialize();

@@ -1,15 +1,14 @@
-/* Link.ld -- Linker script for the kernel - ensure everything goes in the */
-/*            Correct place.  */
-/*            Original file taken from Bran's Kernel Development */
-/*            tutorials: http://www.osdever.net/bkerndev/index.php. */
-
-ENTRY(KernelMain)
+ENTRY(_start)
 SECTIONS
 {
-  .text 0x100000 :
+  .text 0xFFFFFFFF80000000 :
   {
     code = .; _code = .; __code = .;
     *(.text*)
+    . = ALIGN(16);
+    KEEP(*(.limine_requests_start))
+    KEEP(*(.limine_requests))
+    KEEP(*(.limine_requests_end))
     . = ALIGN(4096);
   }
 
