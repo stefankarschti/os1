@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "pageframe.h"
+
 #define CODE_SEG     0x0008
 #define DATA_SEG     0x0010
 
@@ -23,8 +25,8 @@ struct Task
 	Registers regs;
 };
 
-void initTasks();
-Task* newTask(void *taskCode, uint64_t *stack, size_t stack_len);
+bool initTasks(PageFrameContainer &frames);
+Task* newTask(void *taskCode, uint64_t *stack, size_t stack_len, uint64_t cr3);
 
 #ifdef __cplusplus
 extern "C" {

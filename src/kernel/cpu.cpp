@@ -4,6 +4,22 @@
 #include "x86.h"
 #include "ioapic.h"
 #include "lapic.h"
+#include "memory_layout.h"
+
+namespace
+{
+[[noreturn]] void cpu_idle_loop()
+{
+	// Secondary CPUs are online in M1, but they do not yet run the final IDT or
+	// scheduler path. Keep interrupts disabled so they cannot take vectors on
+	// partially initialized state before later milestones wire them in fully.
+	for(;;)
+	{
+		asm volatile("cli");
+		asm volatile("hlt");
+	}
+}
+}
 
 cpu cpu_boot_template =
 {
@@ -123,7 +139,7 @@ void init()
 		xchg(&cpu_cur()->booted, 1);
 	}
 
-	die();
+	cpu_idle_loop();
 }
 
 void
@@ -137,10 +153,11 @@ cpu_bootothers(uint64_t cr3)
 		return;
 	}
 
-	// Write bootstrap code to unused memory at 0x1000.
+	// The AP trampoline lives in a fixed low-memory page until later boot paths
+	// can hand over a richer bootstrap allocator.
 	extern uint8_t cpustart_begin[];
 	extern uint8_t cpustart_end[];
-	uint8_t *code = (uint8_t*)0x1000;
+	uint8_t *code = (uint8_t*)kApTrampolineAddress;
 	memcpy(code, cpustart_begin, (cpustart_end - cpustart_begin));
 
 	// Boot CPUs
@@ -151,10 +168,10 @@ cpu_bootothers(uint64_t cr3)
 			continue;
 
 		// Fill in %rsp, %rip and start code on cpu.
-		*((uint64_t*)0x20) = (uint64_t)c;
-		*((uint64_t*)0x28) = (uint64_t)init;
-		*((uint64_t*)0x30) = cr3;
-		memset((void*)0x38, 0, 6); // IDT.Length = 0, IDT.Base = 0
+		*((uint64_t*)kApStartupCpuPageAddress) = (uint64_t)c;
+		*((uint64_t*)kApStartupRipAddress) = (uint64_t)init;
+		*((uint64_t*)kApStartupCr3Address) = cr3;
+		memset((void*)kApStartupIdtAddress, 0, kApStartupIdtSizeBytes); // IDT.Length = 0, IDT.Base = 0
 
 		debug("Starting CPU ")(c->id)();
 		DebugMemory(0x0, 0x0 + 256);

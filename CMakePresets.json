@@ -43,6 +43,14 @@
       "targets": [
         "disasm"
       ]
+    },
+    {
+      "name": "smoke",
+      "displayName": "Run smoke test",
+      "configurePreset": "default",
+      "targets": [
+        "smoke"
+      ]
     }
   ]
 }

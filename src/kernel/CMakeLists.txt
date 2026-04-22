@@ -1,19 +1,7 @@
 set(KERNEL_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker2.ld")
 
-function(os1_add_nasm_object out_var source_name format)
-  set(output_path "${CMAKE_CURRENT_BINARY_DIR}/${source_name}.o")
-  add_custom_command(
-    OUTPUT "${output_path}"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMAND "${OS1_NASM_EXECUTABLE}" "-f${format}" "${CMAKE_CURRENT_SOURCE_DIR}/${source_name}" -o "${output_path}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${source_name}"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    VERBATIM
-  )
-  set("${out_var}" "${output_path}" PARENT_SCOPE)
-endfunction()
-
 set(KERNEL_CXX_SOURCES
+  bootinfo.cpp
   cpu.cpp
   debug.cpp
   interrupt.cpp
@@ -44,7 +32,7 @@ set_target_properties(
   PROPERTIES
     C_STANDARD 99
     C_EXTENSIONS ON
-    CXX_STANDARD 14
+    CXX_STANDARD 20
     CXX_EXTENSIONS ON
 )
 
@@ -54,6 +42,22 @@ target_compile_options(
     $<$<COMPILE_LANGUAGE:C>:-ffreestanding -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
     $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
 )
+
+file(GLOB KERNEL_ASM_DEPENDENCIES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.asm" "${CMAKE_CURRENT_SOURCE_DIR}/*.inc")
+list(SORT KERNEL_ASM_DEPENDENCIES)
+
+function(os1_add_nasm_object out_var source_name format)
+  set(output_path "${CMAKE_CURRENT_BINARY_DIR}/${source_name}.o")
+  add_custom_command(
+    OUTPUT "${output_path}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}"
+    COMMAND "${OS1_NASM_EXECUTABLE}" "-f${format}" "${CMAKE_CURRENT_SOURCE_DIR}/${source_name}" -o "${output_path}"
+    DEPENDS ${KERNEL_ASM_DEPENDENCIES}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    VERBATIM
+  )
+  set("${out_var}" "${output_path}" PARENT_SCOPE)
+endfunction()
 
 os1_add_nasm_object(KERNEL_MEMORY_OBJECT "memory.asm" "elf64")
 os1_add_nasm_object(KERNEL_IRQHANDLER_OBJECT "irqhandler.asm" "elf64")
@@ -85,7 +89,7 @@ add_custom_command(
   OUTPUT "${OS1_CPUSTART_BIN}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_NASM_EXECUTABLE}" -fbin "${CMAKE_CURRENT_SOURCE_DIR}/cpustart.asm" -o "${OS1_CPUSTART_BIN}"
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cpustart.asm"
+  DEPENDS ${KERNEL_ASM_DEPENDENCIES}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   VERBATIM
 )

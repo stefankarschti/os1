@@ -1,6 +1,8 @@
 [bits 16]
 [org 0x7c00]
-loader_main16		equ 0x1000           ; Location for kernel in memory
+%include "../kernel/memory_layout.inc"
+
+loader_main16		equ LOADER16_LOAD_ADDRESS
 _start:
 	jmp 0 : _main
 loader_num_sectors	dw 8
@@ -13,7 +15,7 @@ _main:
 	mov fs, ax
 	mov gs, ax
 	mov [boot_device], dl					; save boot drive
-	mov ebp, 0x1000							; set up basic stack 
+	mov ebp, LOADER16_LOAD_ADDRESS			; set up basic stack 
 	mov esp, ebp
 	
 	mov si, str_boot_hello

@@ -1,0 +1,36 @@
+#ifndef _OS1_LIBC_SPAN_
+#define _OS1_LIBC_SPAN_
+
+#include <stddef.h>
+
+namespace std
+{
+template<typename T>
+class span
+{
+public:
+	using element_type = T;
+	using size_type = size_t;
+	using iterator = T*;
+	using reference = T&;
+
+	constexpr span() : data_(nullptr), size_(0) {}
+	constexpr span(T *data, size_t size) : data_(data), size_(size) {}
+
+	template<size_t N>
+	constexpr span(T (&array)[N]) : data_(array), size_(N) {}
+
+	constexpr iterator begin() const { return data_; }
+	constexpr iterator end() const { return data_ + size_; }
+	constexpr reference operator[](size_t index) const { return data_[index]; }
+	constexpr T *data() const { return data_; }
+	constexpr size_t size() const { return size_; }
+	constexpr bool empty() const { return 0 == size_; }
+
+private:
+	T *data_;
+	size_t size_;
+};
+}
+
+#endif

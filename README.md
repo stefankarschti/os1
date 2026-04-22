@@ -79,6 +79,24 @@ The existing helper scripts remain available as wrappers around the CMake workfl
 - `./start.sh`
 - `./dasm.sh`
 
+## Local CI With `act`
+
+This repo includes a checked-in `.actrc`, so the main CI job can be exercised locally with:
+
+```sh
+act -j build-and-smoke
+```
+
+For local `act` runs, `ubuntu-24.04` is mapped to `-self-hosted` on purpose. That avoids `act`'s missing `ubuntu-24.04` container mapping and lets the job reuse the local toolchain you already need for normal development. The `act` path therefore validates these host tools instead of provisioning them:
+
+- `cmake`
+- `ninja`
+- `nasm`
+- `qemu-system-x86_64`
+- `x86_64-elf-gcc`
+- `x86_64-elf-g++`
+- `x86_64-elf-ld`
+
 ## Documentation
 
 - [Goals](GOALS.md)

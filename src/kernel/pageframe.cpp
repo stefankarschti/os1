@@ -1,32 +1,33 @@
 #include "pageframe.h"
 #include "memory.h"
 #include "debug.h"
+#include "memory_layout.h"
 
 PageFrameContainer::PageFrameContainer()
 	:initialized_(false)
 {
 }
 
-bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_address, uint64_t bitmap_limit)
+bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_regions, uint64_t bitmap_address, uint64_t bitmap_limit)
 {
 	if(initialized_) return false;
 	bool result = false;
 	memory_size_ = 0;
 	memory_end_address_ = 0;
-	debug("num_memory_blocks = ")(info.num_memory_blocks)();
-	for(size_t i = 0; i < info.num_memory_blocks; i++)
+	debug("num_memory_blocks = ")(memory_regions.size())();
+	for(size_t i = 0; i < memory_regions.size(); i++)
 	{
-		MemoryBlock &b = info.memory_blocks[i];
-		debug.WriteInt(b.start, 16, 16); debug.Write(' ');
+		const BootMemoryRegion &b = memory_regions[i];
+		debug.WriteInt(b.physical_start, 16, 16); debug.Write(' ');
 		debug.WriteInt(b.length, 16, 16); debug.Write(' ');
-		debug.WriteIntLn(b.type);
-		if(1 == b.type)
+		debug.WriteIntLn(static_cast<uint64_t>(b.type));
+		if(BootMemoryRegionIsUsable(b))
 		{
 			// add to usable memory size
 			memory_size_ += b.length;
-			if(memory_end_address_ < b.start + b.length)
+			if(memory_end_address_ < b.physical_start + b.length)
 			{
-				memory_end_address_ = b.start + b.length;
+				memory_end_address_ = b.physical_start + b.length;
 			}
 		}
 	}
@@ -64,36 +65,54 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 	// paint pages in bitmap according to availability
 	if(result)
 	{
-		for(size_t i = 0; i < info.num_memory_blocks; i++)
+		for(size_t i = 0; i < memory_regions.size(); i++)
 		{
-			MemoryBlock &b = info.memory_blocks[i];
-			if(1 == b.type)
+			const BootMemoryRegion &b = memory_regions[i];
+			if(BootMemoryRegionIsUsable(b))
 			{
 				// check page start aligned
-				if(b.start & 0xFFF)
+				if(b.physical_start & (kPageSize - 1))
 				{
 					result = false;
 					break;
 				}
 
-				uint64_t start_page = b.start >> 12;
-				uint64_t end_page = (b.start + b.length) >> 12; // exclusive end. if page end is not aligned, the partial last page is lost memory
-
-				// set start_page:end_page bits to 1
-				uint64_t ifirst = start_page / 64;
-				uint64_t ilast = end_page / 64;
-
-				// deal with whole qwords
-				if(ifirst + 1 < ilast)
+				const uint64_t start_page = b.physical_start >> 12;
+				const uint64_t end_page = (b.physical_start + b.length) >> 12; // exclusive end. if page end is not aligned, the partial last page is lost memory
+				if(end_page <= start_page)
 				{
-					memsetq(bitmap_ + ifirst + 1, 0xFFFFFFFFFFFFFFFF, 8 * (ilast - ifirst - 1));
+					continue;
 				}
 
-				// deal with first qword
-				bitmap_[ifirst] |= 0xFFFFFFFFFFFFFFFF << (start_page % 64);
+				// Set the range of usable pages free in the bitmap. This boot-time
+				// path keeps the logic explicit so the loader's memory map is easy to
+				// audit while the rest of the VM system is still mostly identity-mapped.
+				const uint64_t ifirst = start_page / 64;
+				const uint64_t ilast = (end_page - 1) / 64;
 
-				// deal with last qword
-				bitmap_[ilast] |= 0xFFFFFFFFFFFFFFFF >> (64 - (end_page % 64));
+				if(ifirst == ilast)
+				{
+					const uint64_t first_bit = start_page % 64;
+					const uint64_t last_bit = (end_page - 1) % 64;
+					const uint64_t bit_count = last_bit - first_bit + 1;
+					const uint64_t mask = (64 == bit_count)
+							? 0xFFFFFFFFFFFFFFFFull
+							: (((1ull << bit_count) - 1) << first_bit);
+					bitmap_[ifirst] |= mask;
+					continue;
+				}
+
+				bitmap_[ifirst] |= 0xFFFFFFFFFFFFFFFFull << (start_page % 64);
+
+				if(ifirst + 1 < ilast)
+				{
+					memsetq(bitmap_ + ifirst + 1, 0xFFFFFFFFFFFFFFFFull, 8 * (ilast - ifirst - 1));
+				}
+
+				const uint64_t last_bits = end_page % 64;
+				bitmap_[ilast] |= (0 == last_bits)
+						? 0xFFFFFFFFFFFFFFFFull
+						: (0xFFFFFFFFFFFFFFFFull >> (64 - last_bits));
 			}
 		}
 	}
@@ -129,7 +148,7 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 	if(result)
 	{
 		uint64_t bitmap_end = (uint64_t)(bitmap_ + bitmap_limit_);
-		for(uint64_t vp = (uint64_t)bitmap_; vp < bitmap_end; vp += 0x1000)
+		for(uint64_t vp = (uint64_t)bitmap_; vp < bitmap_end; vp += kPageSize)
 		{
 			SetBusy(vp >> 12);
 		}
@@ -139,13 +158,13 @@ bool PageFrameContainer::Initialize(SystemInformation &info, uint64_t bitmap_add
 	if(result)
 	{
 		// mark kernel low data pages as busy
-		for(uint64_t vp = 0; vp < 0x20000; vp += 0x1000)
+		for(uint64_t vp = 0; vp < kEarlyReservedPhysicalEnd; vp += kPageSize)
 		{
 			SetBusy(vp >> 12);
 		}
 
 		// mark kernel code & stack as busy
-		for(uint64_t vp = 0x100000; vp < 0x160000; vp += 0x1000)
+		for(uint64_t vp = kKernelReservedPhysicalStart; vp < kKernelReservedPhysicalEnd; vp += kPageSize)
 		{
 			SetBusy(vp >> 12);
 		}

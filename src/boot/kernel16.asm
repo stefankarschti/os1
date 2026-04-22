@@ -1,18 +1,52 @@
-struc system_info_struct
-	.cursorx:		resb 1
-	.cursory:		resb 1
-	.num_memory_blocks	resw 1
-	.memory_blocks_ptr	resq 1
+%include "../kernel/memory_layout.inc"
+
+struc boot_text_console_info_struct
+	.columns:		resw 1
+	.rows:			resw 1
+	.cursor_x:		resw 1
+	.cursor_y:		resw 1
 endstruc
-struc memory_block_struct
-	.start:		resq 1
-	.length:	resq 1	
-	.type:		resd 1
-	.unused:	resd 1
+struc boot_framebuffer_info_struct
+	.physical_address:	resq 1
+	.width:				resd 1
+	.height:			resd 1
+	.pitch_bytes:		resd 1
+	.bits_per_pixel:	resw 1
+	.pixel_format:		resw 1
+endstruc
+struc boot_memory_region_struct
+	.physical_start:	resq 1
+	.length:			resq 1
+	.type:				resd 1
+	.attributes:		resd 1
+endstruc
+struc boot_module_info_struct
+	.physical_start:	resq 1
+	.length:			resq 1
+	.name:				resq 1
+endstruc
+struc boot_info_struct
+	.magic:					resq 1
+	.version:				resd 1
+	.source:				resd 1
+	.kernel_physical_start:	resq 1
+	.kernel_physical_end:	resq 1
+	.rsdp_physical:			resq 1
+	.smbios_physical:		resq 1
+	.command_line:			resq 1
+	.bootloader_name:		resq 1
+	.text_console:			resb boot_text_console_info_struct_size
+	.framebuffer:			resb boot_framebuffer_info_struct_size
+	.memory_map:			resq 1
+	.memory_map_count:		resd 1
+	.reserved0:				resd 1
+	.modules:				resq 1
+	.module_count:			resd 1
+	.reserved1:				resd 1
 endstruc
 
-section .bss start=0x500
-system_info resb system_info_struct_size
+section .bss start=BOOT_INFO_ADDRESS
+boot_info resb boot_info_struct_size
 
 e_entry		resq	1
 e_phoff		resq	1
@@ -27,14 +61,14 @@ p_vaddr		resq	1
 p_filesz	resq	1
 p_memsz		resq	1
 
-memory_blocks resb memory_block_struct_size * 20
-;...
+section .bss.boot_memory_map start=BOOT_MEMORY_REGION_BUFFER_ADDRESS
+boot_memory_map resb boot_memory_region_struct_size * BOOT_MEMORY_REGION_CAPACITY
 
-memory_pages	equ		0xA000		; Pointer to pages 16k
-kernel_image	equ 	0x10000		; ELF kernel image 64k
+memory_pages	equ		EARLY_LONG_MODE_PAGE_TABLES_ADDRESS
+kernel_image	equ 	KERNEL_IMAGE_LOAD_ADDRESS
 
 section .text
-[org 0x1000]
+[org LOADER16_LOAD_ADDRESS]
 [bits 16]
 	dw	0x7733
 loader_main16:
@@ -140,16 +174,31 @@ loader_main16:
 	xor ax, ax
 	mov es, ax
 
+	; Zero the published handoff block first so BIOS-only boot leaves future
+	; fields in a defined state until later boot paths populate them.
+	mov di, boot_info
+	mov cx, boot_info_struct_size / 2
+	cld
+	rep stosw
+	mov dword [boot_info + boot_info_struct.version], BOOT_INFO_VERSION
+	mov dword [boot_info + boot_info_struct.source], BOOT_SOURCE_BIOS_LEGACY
+	mov word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.columns], BOOT_TEXT_COLUMNS
+	mov word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.rows], BOOT_TEXT_ROWS
+
 	; save cursor position
 	mov ah, 03h
 	xor bh, bh
 	int 10h
-	mov byte [system_info + system_info_struct.cursorx], dl
-	mov byte [system_info + system_info_struct.cursory], dh
+	xor ax, ax
+	mov al, dl
+	mov word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.cursor_x], ax
+	xor ax, ax
+	mov al, dh
+	mov word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.cursor_y], ax
 
 	; detect memory
 .l2:
-	mov di, memory_blocks
+	mov di, boot_memory_map
 	call do_e820
 	jnc .l3
 	mov si, str_e820_failed
@@ -158,11 +207,13 @@ loader_main16:
 	jmp $			; can't detect memory. die here
 .l3:
 	; e820 success
-	mov word [system_info + system_info_struct.num_memory_blocks], bp
-	mov eax, memory_blocks
-	mov dword [system_info + system_info_struct.memory_blocks_ptr], eax
 	xor eax, eax
-	mov dword [system_info + system_info_struct.memory_blocks_ptr + 4], eax
+	mov ax, bp
+	mov dword [boot_info + boot_info_struct.memory_map_count], eax
+	mov eax, boot_memory_map
+	mov dword [boot_info + boot_info_struct.memory_map], eax
+	xor eax, eax
+	mov dword [boot_info + boot_info_struct.memory_map + 4], eax
 
 	; TODO: detect video modes
 
@@ -186,6 +237,7 @@ str_elf_fail_check    	db "[loader16] ELF check failed", 13, 10, 0
 str_a20					db "[loader16] A20 ", 0
 str_on					db "on", 0
 str_off					db "off", 0
+str_bootloader_name		db "bios-loader", 0
 boot_device 			db 0x00
 
 %include "disk16.asm"
@@ -252,6 +304,19 @@ loader_main64:
 	mov rax, [kernel_image + rsi]
 	mov [p_memsz], rax
 
+	; Publish the immutable pieces of the BIOS boot contract right before the
+	; kernel takes over. The kernel copies this block immediately on entry.
+	mov rax, BOOT_INFO_MAGIC
+	mov [boot_info + boot_info_struct.magic], rax
+	mov rax, str_bootloader_name
+	mov [boot_info + boot_info_struct.bootloader_name], rax
+	mov rax, boot_memory_map
+	mov [boot_info + boot_info_struct.memory_map], rax
+	mov rax, [p_vaddr]
+	mov [boot_info + boot_info_struct.kernel_physical_start], rax
+	add rax, [p_memsz]
+	mov [boot_info + boot_info_struct.kernel_physical_end], rax
+
     ; clear location
 	mov rdi, [p_vaddr]
 	xor rax, rax
@@ -280,16 +345,16 @@ loader_main64:
     ; init program stack
 	mov rbp, [p_vaddr]
 	add rbp, [p_memsz]
-	add rbp, 0x1000
+	add rbp, PAGE_SIZE
 	shr rbp, 12
 	shl rbp, 12
 	mov rsi, rbp			; base of stack: param to kernel main
-	add rbp, 0x1000
+	add rbp, PAGE_SIZE
 	mov rsp, rbp			; give at least 4k stack
 
 	; jump
 	mov rax, [e_entry]
-	mov rdi, system_info
+	mov rdi, boot_info
 	call rax		; call KernelMain
 .l3:		
 	hlt
@@ -301,4 +366,3 @@ hexdigit			db "0123456789ABCDEF",0
 
 ; Tail
 times 4096-($-$$) db 0xCC                ; Fill sectors
-

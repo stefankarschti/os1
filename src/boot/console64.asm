@@ -1,15 +1,14 @@
 [bits 64]
 VIDEO_MEM equ 0xB8000
+VIDEO_ROW_STRIDE equ BOOT_TEXT_COLUMNS * 2
 ; print64 console output
 print64:
 	mov edi, VIDEO_MEM
 	; compose edi	
-	xor rax, rax
-	mov al, byte [system_info + system_info_struct.cursory]
-	imul eax, 160
+	movzx eax, word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.cursor_y]
+	imul eax, VIDEO_ROW_STRIDE
 	add edi, eax
-	xor rax, rax
-	mov al, byte [system_info + system_info_struct.cursorx]
+	movzx eax, word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.cursor_x]
 	shl eax, 1
 	add edi, eax
 
@@ -23,21 +22,21 @@ print64:
 	jne .l1
 	mov eax, edi
 	sub eax, VIDEO_MEM
-	mov ecx, 160
+	mov ecx, VIDEO_ROW_STRIDE
 	xor edx, edx
 	idiv ecx
 	inc eax
-	cmp eax, 25
+	cmp eax, BOOT_TEXT_ROWS
 	jne .l2
 	; scroll up
-	mov ecx, 24 * 160 / 8
+	mov ecx, (BOOT_TEXT_ROWS - 1) * VIDEO_ROW_STRIDE / 8
 	push rsi
 	push rdi
 	push rax
-	mov esi, VIDEO_MEM + 160
+	mov esi, VIDEO_MEM + VIDEO_ROW_STRIDE
 	mov edi, VIDEO_MEM
 	rep movsq 
-	mov ecx, 160 / 8
+	mov ecx, VIDEO_ROW_STRIDE / 8
 	mov rax, 0x0720072007200720
 	rep stosq
 	pop rax
@@ -45,7 +44,7 @@ print64:
 	pop rsi
 	dec eax
 .l2:	
-	imul eax, 160
+	imul eax, VIDEO_ROW_STRIDE
 	add eax, VIDEO_MEM
 	mov edi, eax
 	jmp .next
@@ -54,17 +53,17 @@ print64:
 	inc edi
 	inc edi
 	; if edi overflows, scroll up
-	cmp edi, VIDEO_MEM + 160 * 25
+	cmp edi, VIDEO_MEM + VIDEO_ROW_STRIDE * BOOT_TEXT_ROWS
 	jne .next
-	sub edi, 160
+	sub edi, VIDEO_ROW_STRIDE
 	; scroll up
-	mov ecx, 24 * 160 / 8
+	mov ecx, (BOOT_TEXT_ROWS - 1) * VIDEO_ROW_STRIDE / 8
 	push rsi
 	push rdi
-	mov esi, VIDEO_MEM + 160
+	mov esi, VIDEO_MEM + VIDEO_ROW_STRIDE
 	mov edi, VIDEO_MEM
 	rep movsq 
-	mov ecx, 160 / 8
+	mov ecx, VIDEO_ROW_STRIDE / 8
 	mov rax, 0x0720072007200720
 	rep stosq
 	pop rdi
@@ -77,12 +76,12 @@ print64:
 	sub eax, VIDEO_MEM
 	mov ebx, eax
 	shr ebx, 1
-	mov ecx, 160
+	mov ecx, VIDEO_ROW_STRIDE
 	xor edx, edx
 	idiv ecx
-	mov byte [system_info + system_info_struct.cursory], al
+	mov word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.cursor_y], ax
 	shr edx, 1
-	mov byte [system_info + system_info_struct.cursorx], dl
+	mov word [boot_info + boot_info_struct.text_console + boot_text_console_info_struct.cursor_x], dx
 
 	; cursor low port to VGA index register
 	mov al, 0Fh
@@ -138,4 +137,3 @@ print64_qhex:
 
 	ret
 .buffer resb 17
-

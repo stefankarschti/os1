@@ -1,22 +1,22 @@
 ; trampoline code
 ; start a new CPU
-; LOAD at 0x1000
+; LOAD at the shared low-memory trampoline page
 ; memory format:
-; at 0x20: uint64_t CPU_PAGE => RSP = CPU_PAGE + 0x1000
-; at 0x28: uint64_t RIP
-; at 0x30: uint64_t CR3
-; at 0x38: uint16_t IDT.Length
-; at 0x3A: uint32_t IDT.Base
-; at 0x3E: end
-; code start at 0x1000
+; at AP_STARTUP_CPU_PAGE_ADDRESS: uint64_t CPU_PAGE => RSP = CPU_PAGE + PAGE_SIZE
+; at AP_STARTUP_RIP_ADDRESS: uint64_t RIP
+; at AP_STARTUP_CR3_ADDRESS: uint64_t CR3
+; at AP_STARTUP_IDT_ADDRESS: uint16_t IDT.Length + uint32_t IDT.Base
+; code start at AP_TRAMPOLINE_ADDRESS
+
+%include "memory_layout.inc"
 
 %define CODE_SEG     0x0008
 %define DATA_SEG     0x0010
 GDTT			equ 0x0
-P_CPU_PAGE		equ 0x20
-P_RIP			equ 0x28
-P_CR3			equ 0x30
-P_IDT			equ 0x38
+P_CPU_PAGE		equ AP_STARTUP_CPU_PAGE_ADDRESS
+P_RIP			equ AP_STARTUP_RIP_ADDRESS
+P_CR3			equ AP_STARTUP_CR3_ADDRESS
+P_IDT			equ AP_STARTUP_IDT_ADDRESS
 
 [bits 16]
 
@@ -55,7 +55,7 @@ cpustart_begin:
 
 	; load GDT
 	lgdt [GDTT + 3 * 8 + 2]
-	jmp CODE_SEG:(0x1000 + LongMode - cpustart_begin)         ; Load CS with 64 bit segment and flush the instruction cache
+	jmp CODE_SEG:(AP_TRAMPOLINE_ADDRESS + LongMode - cpustart_begin)         ; Load CS with 64 bit segment and flush the instruction cache
 
 [BITS 64]
 LongMode:
@@ -68,7 +68,7 @@ LongMode:
 
 	mov rsi, [P_CPU_PAGE]
 	mov rbp, rsi
-	add rbp, 0x1000
+	add rbp, PAGE_SIZE
 	mov rsp, rbp
 
 	mov rax, [P_RIP]

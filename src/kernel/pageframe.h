@@ -3,7 +3,9 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "sysinfo.h"
+#include <span>
+
+#include "bootinfo.h"
 #include "terminal.h"
 
 /**
@@ -16,12 +18,12 @@ public:
 	PageFrameContainer();
 	/**
 	 * @brief Initialize
-	 * @param info : system information
+	 * @param memory_regions : bootloader-provided memory regions
 	 * @param bitmap_address : base address
 	 * @param bitmap_limit : limit number of u64 in bitmap
 	 * @return
 	 */
-	bool Initialize(SystemInformation &info, uint64_t bitmap_address, uint64_t bitmap_limit);
+	bool Initialize(std::span<const BootMemoryRegion> memory_regions, uint64_t bitmap_address, uint64_t bitmap_limit);
 	uint64_t MemorySize() { return memory_size_; }
 	uint64_t MemoryEnd() { return memory_end_address_; }
 	uint64_t PageCount() { return page_count_; }

@@ -37,6 +37,11 @@ do_e820:
 	inc bp			; got a good entry: ++count, move to next storage spot
 
 	add di, 24
+	cmp bp, BOOT_MEMORY_REGION_CAPACITY
+	jb .skipent
+	test ebx, ebx
+	jne .failed
+	jmp .e820f
 .skipent:
 	test ebx, ebx		; if ebx resets to 0, list is complete
 	jne .e820lp
@@ -70,8 +75,8 @@ check_a20:
     not ax ; ax = 0xFFFF
     mov ds, ax
  
-    mov di, 0x0500
-    mov si, 0x0510
+    mov di, BOOT_INFO_ADDRESS
+    mov si, BOOT_INFO_ADDRESS + 0x10
  
     mov al, byte [es:di]
     push ax
@@ -113,4 +118,3 @@ enable_a20_fast:
 	out 0x92, al
 	pop ax
 	ret
-

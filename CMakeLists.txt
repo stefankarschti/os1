@@ -39,6 +39,7 @@ set(OS1_CPUSTART_BIN "${OS1_ARTIFACT_DIR}/cpustart.bin")
 set(OS1_KERNEL64_ELF "${OS1_ARTIFACT_DIR}/kernel64.elf")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
 set(OS1_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1.log")
+set(OS1_SMOKE_LOG "${OS1_ARTIFACT_DIR}/smoke.log")
 set(OS1_DUMP_ASM "${OS1_ARTIFACT_DIR}/dump.asm")
 set(OS1_CPUSTART_DUMP "${OS1_ARTIFACT_DIR}/cpustart.asm")
 
@@ -58,9 +59,9 @@ add_custom_command(
   COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_KERNEL16_BIN}" "of=${OS1_RAW_IMAGE}" seek=1 count=8 conv=notrunc,sync
   COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_KERNEL64_ELF}" "of=${OS1_RAW_IMAGE}" bs=512 seek=9 count=256 conv=notrunc,sync
   DEPENDS
-    boot_bin
-    kernel16_bin
-    kernel64_elf
+    "${OS1_BOOT_BIN}"
+    "${OS1_KERNEL16_BIN}"
+    "${OS1_KERNEL64_ELF}"
   VERBATIM
 )
 
@@ -114,11 +115,47 @@ if(OS1_OBJDUMP_EXECUTABLE)
       "-DCOMMAND_ARGS=${OS1_OBJDUMP_EXECUTABLE};-D;-b;binary;-m;i8086;-M;intel;${OS1_CPUSTART_BIN}"
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/write_stdout_to_file.cmake"
-    DEPENDS kernel64_elf cpustart_bin
+    DEPENDS "${OS1_KERNEL64_ELF}" "${OS1_CPUSTART_BIN}"
     VERBATIM
   )
 else()
   os1_add_unavailable_target(disasm "disasm target unavailable: no compatible objdump was found")
+endif()
+
+include(CTest)
+
+if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
+  set(OS1_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "initializing page frame allocator"
+    "Interrupts initialization successful"
+    "start multitasking"
+    "task table allocated at 0x"
+    "new task 0x"
+  )
+
+  add_test(
+    NAME os1_smoke
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DRAW_IMAGE=${OS1_RAW_IMAGE}"
+      "-DLOG_FILE=${OS1_SMOKE_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=8"
+      "-DEXPECTED_MARKERS=${OS1_SMOKE_MARKERS}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke$"
+    DEPENDS os1_image
+    USES_TERMINAL
+    VERBATIM
+  )
+else()
+  os1_add_unavailable_target(smoke "smoke target unavailable: qemu-system-x86_64 was not found")
 endif()
 
 message(STATUS "Artifacts will be written to ${OS1_ARTIFACT_DIR}")

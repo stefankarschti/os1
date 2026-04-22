@@ -2,26 +2,43 @@
 #include "cpu.h"
 #include "memory.h"
 #include "debug.h"
+#include "memory_layout.h"
 
-Task* taskList = (Task*)(0x408);
-uint64_t nextpid = 1;
-const size_t k_num_tasks = 32;
-
-void initTasks()
+namespace
 {
-	debug("max tasks ")(k_num_tasks)();
-//    debug("clearing tasks 0x")((uint64_t)taskList, 16)(" ")(k_num_tasks)("x")(sizeof(Task))("=")(k_num_tasks * sizeof(Task))();
-//    memset((void*)(taskList), 0, k_num_tasks * sizeof(Task));
-	for(int i = 0; i < k_num_tasks; ++i)
+constexpr size_t kNumTasks = 32;
+constexpr size_t kTaskTablePageCount = (kNumTasks * sizeof(Task) + kPageSize - 1) / kPageSize;
+}
+
+Task* taskList = nullptr;
+uint64_t nextpid = 1;
+
+bool initTasks(PageFrameContainer &frames)
+{
+	nextpid = 1;
+	uint64_t task_table_address = 0;
+	if(nullptr == taskList)
 	{
-		taskList[i].pid = 0;
+		// Task metadata used to live in a hard-coded low-memory slot. Allocating it
+		// from page frames makes ownership explicit and keeps early boot scratch
+		// memory separate from long-lived scheduler state.
+		if(!frames.Allocate(task_table_address, kTaskTablePageCount))
+		{
+			debug("task table allocation failed")();
+			return false;
+		}
+		taskList = (Task*)task_table_address;
+		debug("task table allocated at 0x")(task_table_address, 16)(" pages ")(kTaskTablePageCount)();
 	}
+	memset(taskList, 0, kTaskTablePageCount * kPageSize);
+	debug("max tasks ")(kNumTasks)();
 	cpu_cur()->current_task = nullptr;
+	return true;
 }
 
 Task* nextfreetss()
 {
-	size_t maxTasks = k_num_tasks;
+	size_t maxTasks = kNumTasks;
 	for(size_t i = 0; i < maxTasks; ++i)
     {
         if(0 == taskList[i].pid)
@@ -35,9 +52,9 @@ Task* nextfreetss()
 
 void linkTasks()
 {
-    Task* first = nullptr;
+	Task* first = nullptr;
     Task* last = nullptr;
-	size_t maxTasks = k_num_tasks;
+	size_t maxTasks = kNumTasks;
 	for(size_t i = 0; i < maxTasks; ++i)
     {
         if(taskList[i].pid)
@@ -70,7 +87,7 @@ void linkTasks()
 	debug("done")();
 }
 
-Task* newTask(void *code, uint64_t *stack, size_t stack_len)
+Task* newTask(void *code, uint64_t *stack, size_t stack_len, uint64_t cr3)
 {
 	Task *task = nextfreetss();
     if(nullptr == task)
@@ -97,7 +114,10 @@ Task* newTask(void *code, uint64_t *stack, size_t stack_len)
 	task->regs.r13 = 0;
 	task->regs.r14 = 0;
 	task->regs.r15 = (uint64_t) task;
-	task->regs.cr3 = 0x60000;
+	// Milestone 1 still runs only kernel tasks, so they intentionally share the
+	// kernel page tables. Passing CR3 explicitly removes the hidden boot-time
+	// assumption and makes later user-address spaces a local change.
+	task->regs.cr3 = cr3;
 	task->regs.rfl = 0x2202;
 
 	stack[stack_len - 1] = DATA_SEG;						// SS

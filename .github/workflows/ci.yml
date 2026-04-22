@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if [ "${ACT:-}" = "true" ]; then
+            # Local act runs this job directly on the host, so we reuse the
+            # developer's toolchain instead of trying to recreate a GitHub
+            # runner inside Docker.
+            command -v cmake
+            command -v ninja
+            command -v nasm
+            command -v qemu-system-x86_64
+          else
+            sudo apt-get update
+            sudo apt-get install -y nasm qemu-system-x86 cmake ninja-build
+          fi
+
+      - name: Enable Homebrew
+        if: ${{ !env.ACT }}
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          echo "$HOMEBREW_PREFIX/bin" >> "$GITHUB_PATH"
+          echo "$HOMEBREW_PREFIX/sbin" >> "$GITHUB_PATH"
+
+      - name: Install cross toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if [ "${ACT:-}" = "true" ]; then
+            command -v x86_64-elf-gcc
+            command -v x86_64-elf-g++
+            command -v x86_64-elf-ld
+          else
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+            brew install x86_64-elf-gcc
+          fi
+
+      - name: Configure
+        run: cmake --preset default
+
+      - name: Build
+        run: cmake --build --preset default
+
+      - name: Smoke test
+        run: ctest --test-dir build --output-on-failure

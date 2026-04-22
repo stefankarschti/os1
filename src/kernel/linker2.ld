@@ -3,7 +3,7 @@
 /*            Original file taken from Bran's Kernel Development */
 /*            tutorials: http://www.osdever.net/bkerndev/index.php. */
 
-ENTRY(_Z10KernelMainP17SystemInformationP3cpu)
+ENTRY(KernelMain)
 SECTIONS
 {
   .text 0x100000 :

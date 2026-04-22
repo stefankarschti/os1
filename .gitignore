@@ -2,3 +2,4 @@
 *.log
 dump.asm
 /build
+/.act-cache

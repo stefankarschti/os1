@@ -1,11 +1,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <span>
 
-#include "sysinfo.h"
+#include "bootinfo.h"
 #include "terminal.h"
 #include "interrupt.h"
 #include "memory.h"
+#include "memory_layout.h"
 #include "../libc/stdlib.h"
 #include "task.h"
 #include "pageframe.h"
@@ -542,16 +544,21 @@ stop:
     goto stop;
 }
 
-void KernelMain(SystemInformation *info, cpu* cpu_boot)
+extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 {
 	bool result;
     debug("[kernel64] hello!\n");
 
-	// deep copy system information
-	SystemInformation sysinfo = *info;
-	MemoryBlock memory_blocks[sysinfo.num_memory_blocks];
-	memcpy(memory_blocks, info->memory_blocks, sizeof(MemoryBlock) * sysinfo.num_memory_blocks);
-	sysinfo.memory_blocks = memory_blocks;
+	// Copy the bootloader-owned structure before allocator or SMP setup starts
+	// mutating low memory. Later boot paths can change their staging strategy
+	// without changing what the kernel consumes after this point.
+	const BootInfo *boot_info = OwnBootInfo(info);
+	if(nullptr == boot_info)
+	{
+		debug("invalid boot info")();
+		return;
+	}
+	const std::span<const BootMemoryRegion> memory_regions = BootMemoryRegions(*boot_info);
 
 	// init cpu
 	{
@@ -570,7 +577,7 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
 
     // initialize page frames
     debug("initializing page frame allocator")();
-	result = page_frames.Initialize(sysinfo, 0x20000, 0x40000 / 8);
+	result = page_frames.Initialize(memory_regions, kPageFrameBitmapBaseAddress, kPageFrameBitmapQwordLimit);
     debug(result ? "Success" : "Failure")();
     if(!result) return;
 
@@ -584,16 +591,17 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     VirtualMemory kvm(page_frames);
     debug("create kernel identity page tables")();
 	// map first 1 MB RAM
-	result = kvm.Allocate(0x0, 256, true);
+	result = kvm.Allocate(0x0, kKernelReservedPhysicalStart / kPageSize, true);
+	if(!result) return;
 	// map detected blocks
-	for(int i = 0; i < sysinfo.num_memory_blocks; ++i)
+	for(size_t i = 0; i < memory_regions.size(); ++i)
 	{
-		auto &mb = memory_blocks[i];
-			if(mb.type == 1 && mb.start >= 0x100000 && mb.length > 0)
-			{
-				uint64_t start = (mb.start / 4096) * 4096;
-				uint64_t npages = ((mb.length - 1) / 4096) + 1;
-				debug("identity mapping: 0x")(start, 16)(" ")(npages)(" pages. length = 0x")(npages * 4096, 16)();
+		const auto &region = memory_regions[i];
+		if(BootMemoryRegionIsUsable(region) && region.physical_start >= kKernelReservedPhysicalStart && region.length > 0)
+		{
+			uint64_t start = (region.physical_start / kPageSize) * kPageSize;
+			uint64_t npages = ((region.length - 1) / kPageSize) + 1;
+			debug("identity mapping: 0x")(start, 16)(" ")(npages)(" pages. length = 0x")(npages * kPageSize, 16)();
 			result = kvm.Allocate(start, npages, true);
 			debug(result ? "Success" : "Failure")();
 			if(!result) return;
@@ -613,11 +621,11 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
 	ioapic_init();		// prepare to handle external device interrupts
 	lapic_init();		// setup this CPU's local APIC
 
-		// boot the other cpus
-		cpu_bootothers(kvm.Root());
+	// boot the other cpus
+	cpu_bootothers(kvm.Root());
 
-	    // initialize terminals
-	    for(size_t i = 0; i < kNumTerminals; ++i)
+	// initialize terminals
+	for(size_t i = 0; i < kNumTerminals; ++i)
     {
         uint64_t p;
         if(page_frames.Allocate(p))
@@ -635,7 +643,7 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     active_terminal = &terminal[0];
     active_terminal->Copy((uint16_t*)0xB8000);
     active_terminal->Link();
-    active_terminal->MoveCursor(sysinfo.cursory, sysinfo.cursorx);
+    active_terminal->MoveCursor(boot_info->text_console.cursor_y, boot_info->text_console.cursor_x);
 
     // greetings
 	debug("greetings on terminal 0")();
@@ -741,11 +749,12 @@ void KernelMain(SystemInformation *info, cpu* cpu_boot)
     if(result) 	debug("alloc stack3 at 0x")(stack3, 16)(); else debug("alloc stack3 failed")();
     if(!result) return;
 
-    initTasks();
+    result = initTasks(page_frames);
+    if(!result) return;
     debug("sizeof Task is ")(sizeof(Task))();
-    Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * 4096 / 8);
-    Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * 4096 / 8);
-	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * 4096 / 8);
+    Task* task1 = newTask((void*)process1, (uint64_t*)stack1, k_stack_num_pages * kPageSize / 8, kvm.Root());
+    Task* task2 = newTask((void*)process2, (uint64_t*)stack2, k_stack_num_pages * kPageSize / 8, kvm.Root());
+	Task* task3 = newTask((void*)process3, (uint64_t*)stack3, k_stack_num_pages * kPageSize / 8, kvm.Root());
 
     // start multitasking
 	if(task1 && task2 && task3)
@@ -777,9 +786,6 @@ stop:
     asm volatile("hlt");
     goto stop;
 }
-
-
-static uint64_t char_index = 0;
 
 void process1()
 {

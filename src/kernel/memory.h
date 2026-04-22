@@ -67,11 +67,10 @@ void memsetd(void* ptr, uint32_t value, uint64_t num);
  */
 void memsetq(void* ptr, uint64_t value, uint64_t num);
 
-void memcpy(void *dest, void *src, uint64_t len);
+void memcpy(void *dest, const void *src, uint64_t len);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-
