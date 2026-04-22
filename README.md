@@ -83,3 +83,7 @@ The existing helper scripts remain available as wrappers around the CMake workfl
 
 - [Architecture](doc/ARCHITECTURE.md)
 - [Review 2026-04-21](doc/2026-04-21-review.md)
+- [Milestone 1 Design: Boot Contract And Kernel Stabilization](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md)
+- [Milestone 2 Design: Process Model And Isolation](doc/2026-04-22-milestone-2-process-model-and-isolation.md)
+- [Milestone 3 Design: Modern Default Boot Path](doc/2026-04-22-milestone-3-modern-default-boot-path.md)
+- [Milestone 4 Design: Modern Platform Support](doc/2026-04-22-milestone-4-modern-platform-support.md)
