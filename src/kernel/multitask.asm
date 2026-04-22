@@ -1,126 +1,84 @@
-panic:
-	mov rsi, 0xB8000
-	xor ah, ah
-	add ax, 0xF00
-	mov word [rsi], ax
-	hlt
-	jmp panic
+%include "cpu.inc"
+%include "task.inc"
+%include "trapframe.inc"
 
-regs equ 3 * 8
-CPU_CURRENT_TASK equ 8
-
-extern lapic_eoi
-
-; set active task to RDI
-; switch to this task
-; start timer
 global startMultiTask
+global restore_thread
+global restore_frame_ptr
+
 startMultiTask:
-	cli
-	mov r15, rdi
-	mov [gs:CPU_CURRENT_TASK], r15
+	jmp restore_thread
 
-	cmp r15, [r15 + regs + 15 * 8]
-	je .do
-	mov ax, 'E'
-	call panic ; error stop - corrupted r15
-.do:
-; start irq0 timer: 1193182 ticks/s divided by ax
-	mov al, 0x34
-	out 0x43, al
-	mov ax, 1193    ; 1193182 ticks/s divided by ax
-	out 0x40, al    ; low
-	rol ax, 8
-	out 0x40, al    ; high
-	rol ax, 8
-
-	; restore registers
-	mov rax, [r15 + regs + 17 * 8]
+restore_thread:
+	mov [gs:CPU_CURRENT_THREAD], rdi
+	mov rax, [rdi + THREAD_KERNEL_STACK_TOP]
+	mov [gs:CPU_TSS_RSP0], rax
+	mov rax, [rdi + THREAD_ADDRESS_SPACE_CR3]
 	mov cr3, rax
-	mov rax, [r15 + regs + 0 * 8]
-	mov rbx, [r15 + regs + 1 * 8]
-	mov rcx, [r15 + regs + 2 * 8]
-	mov rdx, [r15 + regs + 3 * 8]
-	mov rsi, [r15 + regs + 4 * 8]
-	mov rdi, [r15 + regs + 5 * 8]
-	mov rbp, [r15 + regs + 6 * 8]
-	mov rsp, [r15 + regs + 7 * 8]
-	mov r8,  [r15 + regs + 8 * 8]
-	mov r9,  [r15 + regs + 9 * 8]
-	mov r10, [r15 + regs + 10 * 8]
-	mov r11, [r15 + regs + 11 * 8]
-	mov r12, [r15 + regs + 12 * 8]
-	mov r13, [r15 + regs + 13 * 8]
-	mov r14, [r15 + regs + 14 * 8]
-	mov r15, [r15 + regs + 15 * 8]
+	lea rdi, [rdi + THREAD_FRAME]
+	jmp restore_frame_ptr
+
+restore_frame_ptr:
+	sub rsp, 16
+	mov r11, rdi
+	mov rax, [r11 + TF_CS]
+	test al, 3
+	jz .kernel_return
+	lea rax, [r11 + TF_RIP]
+	mov [rsp], rax
+	jmp .resume_user
+
+.kernel_return:
+	mov rax, [r11 + TF_RSP]
+	sub rax, 16
+	mov rcx, [r11 + TF_RFLAGS]
+	mov [rax], rcx
+	mov rcx, [r11 + TF_RIP]
+	mov [rax + 8], rcx
+	mov [rsp], rax
+	jmp .resume_kernel
+
+.resume_user:
+	mov rax, [r11 + TF_R11]
+	mov [rsp + 8], rax
+
+	mov r15, [r11 + TF_R15]
+	mov r14, [r11 + TF_R14]
+	mov r13, [r11 + TF_R13]
+	mov r12, [r11 + TF_R12]
+	mov r10, [r11 + TF_R10]
+	mov r9,  [r11 + TF_R9]
+	mov r8,  [r11 + TF_R8]
+	mov rbp, [r11 + TF_RBP]
+	mov rsi, [r11 + TF_RSI]
+	mov rdi, [r11 + TF_RDI]
+	mov rdx, [r11 + TF_RDX]
+	mov rcx, [r11 + TF_RCX]
+	mov rbx, [r11 + TF_RBX]
+	mov rax, [r11 + TF_RAX]
+	mov r11, [rsp + 8]
+	mov rsp, [rsp]
 	iretq
 
-global task_switch_irq
-task_switch_irq:
-	cli
-	mov r15, [gs:CPU_CURRENT_TASK]
-	test r15, r15
-	jnz .l1
+.resume_kernel:
+	mov rax, [r11 + TF_R11]
+	mov [rsp + 8], rax
 
-	push rax
-	call lapic_eoi
-	mov al, 0x20
-	out 0x20, al
-	pop rax
-	iretq
-
-.l1:
-	cmp r15, [r15 + regs + 15 * 8]
-	je .do
-	mov ax, 'E'
-	call panic ; error stop - corrupted r15
-.do:
-	; save registers
-	mov [r15 + regs + 0 * 8], rax
-	mov [r15 + regs + 1 * 8], rbx
-	mov [r15 + regs + 2 * 8], rcx
-	mov [r15 + regs + 3 * 8], rdx
-	mov [r15 + regs + 4 * 8], rsi
-	mov [r15 + regs + 5 * 8], rdi
-	mov [r15 + regs + 6 * 8], rbp
-	mov [r15 + regs + 7 * 8], rsp
-	mov [r15 + regs + 8 * 8], r8
-	mov [r15 + regs + 9 * 8], r9
-	mov [r15 + regs + 10 * 8], r10
-	mov [r15 + regs + 11 * 8], r11
-	mov [r15 + regs + 12 * 8], r12
-	mov [r15 + regs + 13 * 8], r13
-	mov [r15 + regs + 14 * 8], r14
-	mov [r15 + regs + 15 * 8], r15
-	mov rax, [rsp + 16]	; rflags
-	mov [r15 + regs + 16 * 8], rax
-	mov rax, cr3
-	mov [r15 + regs + 17 * 8], rax
-
-	; task switch
-	mov r15, [r15]
-	mov [gs:CPU_CURRENT_TASK], r15
-	call lapic_eoi
-	mov al, 0x20
-	out 0x20, al
-
-	; restore registers
-	mov rax, [r15 + regs + 17 * 8]
-	mov cr3, rax
-	mov rax, [r15 + regs + 0 * 8]
-	mov rbx, [r15 + regs + 1 * 8]
-	mov rcx, [r15 + regs + 2 * 8]
-	mov rdx, [r15 + regs + 3 * 8]
-	mov rsi, [r15 + regs + 4 * 8]
-	mov rdi, [r15 + regs + 5 * 8]
-	mov rbp, [r15 + regs + 6 * 8]
-	mov rsp, [r15 + regs + 7 * 8]
-	mov r8,  [r15 + regs + 8 * 8]
-	mov r9,  [r15 + regs + 9 * 8]
-	mov r10, [r15 + regs + 10 * 8]
-	mov r11, [r15 + regs + 11 * 8]
-	mov r12, [r15 + regs + 12 * 8]
-	mov r13, [r15 + regs + 13 * 8]
-	mov r14, [r15 + regs + 14 * 8]
-	mov r15, [r15 + regs + 15 * 8]
-	iretq
+	mov r15, [r11 + TF_R15]
+	mov r14, [r11 + TF_R14]
+	mov r13, [r11 + TF_R13]
+	mov r12, [r11 + TF_R12]
+	mov r10, [r11 + TF_R10]
+	mov r9,  [r11 + TF_R9]
+	mov r8,  [r11 + TF_R8]
+	mov rbp, [r11 + TF_RBP]
+	mov rsi, [r11 + TF_RSI]
+	mov rdi, [r11 + TF_RDI]
+	mov rdx, [r11 + TF_RDX]
+	mov rcx, [r11 + TF_RCX]
+	mov rbx, [r11 + TF_RBX]
+	mov rax, [r11 + TF_RAX]
+	mov r11, [rsp + 8]
+	mov rsp, [rsp]
+	popfq
+	ret

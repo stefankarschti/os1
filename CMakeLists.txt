@@ -37,31 +37,61 @@ set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
 set(OS1_CPUSTART_BIN "${OS1_ARTIFACT_DIR}/cpustart.bin")
 set(OS1_KERNEL64_ELF "${OS1_ARTIFACT_DIR}/kernel64.elf")
+set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
 set(OS1_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1.log")
 set(OS1_SMOKE_LOG "${OS1_ARTIFACT_DIR}/smoke.log")
 set(OS1_DUMP_ASM "${OS1_ARTIFACT_DIR}/dump.asm")
 set(OS1_CPUSTART_DUMP "${OS1_ARTIFACT_DIR}/cpustart.asm")
 
+set(OS1_LOADER16_IMAGE_START_LBA 1)
+# The BIOS stage-0 boot sector must know up front how much contiguous disk
+# space is reserved for the stage-1 loader, so M2 gives that image a generous
+# fixed slot instead of relying on the old 8-sector layout.
+set(OS1_LOADER16_IMAGE_SECTOR_COUNT 64)
+math(EXPR OS1_KERNEL_IMAGE_START_LBA "${OS1_LOADER16_IMAGE_START_LBA} + ${OS1_LOADER16_IMAGE_SECTOR_COUNT}")
+set(OS1_KERNEL_IMAGE_SECTOR_COUNT 256)
+math(EXPR OS1_INITRD_IMAGE_START_LBA "${OS1_KERNEL_IMAGE_START_LBA} + ${OS1_KERNEL_IMAGE_SECTOR_COUNT}")
+set(OS1_INITRD_IMAGE_SECTOR_COUNT 128)
+
+set(OS1_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(OS1_IMAGE_LAYOUT_INC "${OS1_GENERATED_DIR}/image_layout.inc")
+
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/templates/image_layout.inc.in"
+  "${OS1_IMAGE_LAYOUT_INC}"
+  @ONLY
+)
+
 find_program(OS1_NASM_EXECUTABLE NAMES nasm REQUIRED)
 find_program(OS1_DD_EXECUTABLE NAMES dd REQUIRED)
+find_program(OS1_CPIO_EXECUTABLE NAMES cpio REQUIRED)
 find_program(OS1_QEMU_EXECUTABLE NAMES qemu-system-x86_64)
 find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
 
 add_subdirectory(src/boot)
 add_subdirectory(src/kernel)
+add_subdirectory(src/user)
 
 add_custom_command(
   OUTPUT "${OS1_RAW_IMAGE}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_DD_EXECUTABLE}" if=/dev/zero "of=${OS1_RAW_IMAGE}" bs=1048576 count=1
   COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_BOOT_BIN}" "of=${OS1_RAW_IMAGE}" bs=512 count=1 conv=notrunc,sync
-  COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_KERNEL16_BIN}" "of=${OS1_RAW_IMAGE}" seek=1 count=8 conv=notrunc,sync
-  COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_KERNEL64_ELF}" "of=${OS1_RAW_IMAGE}" bs=512 seek=9 count=256 conv=notrunc,sync
+  COMMAND
+    "${OS1_DD_EXECUTABLE}"
+    "if=${OS1_KERNEL16_BIN}"
+    "of=${OS1_RAW_IMAGE}"
+    "seek=${OS1_LOADER16_IMAGE_START_LBA}"
+    "count=${OS1_LOADER16_IMAGE_SECTOR_COUNT}"
+    conv=notrunc,sync
+  COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_KERNEL64_ELF}" "of=${OS1_RAW_IMAGE}" bs=512 "seek=${OS1_KERNEL_IMAGE_START_LBA}" "count=${OS1_KERNEL_IMAGE_SECTOR_COUNT}" conv=notrunc,sync
+  COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_INITRD_CPIO}" "of=${OS1_RAW_IMAGE}" bs=512 "seek=${OS1_INITRD_IMAGE_START_LBA}" "count=${OS1_INITRD_IMAGE_SECTOR_COUNT}" conv=notrunc,sync
   DEPENDS
     "${OS1_BOOT_BIN}"
     "${OS1_KERNEL16_BIN}"
     "${OS1_KERNEL64_ELF}"
+    "${OS1_INITRD_CPIO}"
   VERBATIM
 )
 
@@ -129,9 +159,12 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[kernel64] hello!"
     "initializing page frame allocator"
     "Interrupts initialization successful"
-    "start multitasking"
-    "task table allocated at 0x"
-    "new task 0x"
+    "initrd module discovered"
+    "starting first user process"
+    "[user/init] hello"
+    "[user/yield] tick 0"
+    "user page fault killed pid"
+    "idle thread online"
   )
 
   add_test(

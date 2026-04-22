@@ -45,6 +45,13 @@ public:
 	bool Allocate(uint64_t &address, unsigned page_count);
 
 	/**
+	 * @brief Reserve a physical range so later allocators do not hand it out.
+	 * Boot modules stay pinned this way until the kernel grows a richer boot-
+	 * time object-lifetime model.
+	 */
+	bool ReserveRange(uint64_t address, uint64_t length);
+
+	/**
 	 * @brief Free one page
 	 * @param address Address of the page
 	 * @return bool True if success

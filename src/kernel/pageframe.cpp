@@ -215,6 +215,10 @@ bool PageFrameContainer::Allocate(uint64_t &address)
 					uint64_t mask = 1ull << (ipage % 64);
 					mask = ~mask;
 					*p &= mask;
+					if(free_page_count_ > 0)
+					{
+						--free_page_count_;
+					}
 
 					// return this one
 					return true;
@@ -249,7 +253,13 @@ bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
 //				debug("return ")(last_free)(" to ")(i)();
 				address = last_free << 12;
 				for(auto j = last_free; j <= i; ++j)
+				{
 					SetBusy(j);
+				}
+				if(free_page_count_ >= count)
+				{
+					free_page_count_ -= count;
+				}
 				return true;
 			}
 		}
@@ -281,10 +291,44 @@ bool PageFrameContainer::Free(uint64_t address)
 		if(0 == (*p & mask))
 		{
 			*p |= mask; // mark as free
+			++free_page_count_;
 			result = true;
 		}
 	}
 	return result;
+}
+
+bool PageFrameContainer::ReserveRange(uint64_t address, uint64_t length)
+{
+	if(!initialized_ || (0 == length))
+	{
+		return false;
+	}
+
+	const uint64_t start_page = address >> 12;
+	const uint64_t end_page = (address + length + kPageSize - 1) >> 12;
+	if(end_page <= start_page)
+	{
+		return true;
+	}
+
+	for(uint64_t ipage = start_page; ipage < end_page; ++ipage)
+	{
+		if(ipage >= page_count_)
+		{
+			return false;
+		}
+		if(IsFree(ipage))
+		{
+			SetBusy(ipage);
+			if(free_page_count_ > 0)
+			{
+				--free_page_count_;
+			}
+		}
+	}
+
+	return true;
 }
 
 void PageFrameContainer::SetFree(uint64_t ipage)

@@ -18,7 +18,13 @@ constexpr uint64_t kApTrampolineAddress = kLoader16LoadAddress;
 // The loader publishes the BootInfo block in low memory so the kernel can copy
 // it before any allocator or paging policy changes ownership.
 constexpr uint64_t kBootInfoAddress = 0x0500;
+// BIOS disk packets live in dedicated low-memory scratch so firmware I/O does
+// not scribble over executable boot sectors while loading later stages.
+constexpr uint64_t kBootDiskPacketAddress = 0x0800;
+constexpr uint64_t kLoaderDiskPacketAddress = 0x0820;
+constexpr uint64_t kLoaderDiskRangeStateAddress = 0x0840;
 constexpr uint64_t kBootMemoryRegionBufferAddress = 0x6000;
+constexpr uint64_t kBootModuleInfoBufferAddress = 0x7000;
 constexpr size_t kBootMemoryRegionCapacity = 128;
 
 // The temporary real-mode page tables only exist long enough to enter long
@@ -27,6 +33,9 @@ constexpr uint64_t kEarlyLongModePageTablesAddress = 0xA000;
 
 // The BIOS loader expands the kernel ELF from this low-memory image buffer.
 constexpr uint64_t kKernelImageLoadAddress = 0x10000;
+// The BIOS loader keeps the initrd below 1 MiB so legacy CHS transfers can
+// reach it without relying on flaky EDD flat-address packet support.
+constexpr uint64_t kInitrdLoadAddress = 0x80000;
 
 // The AP trampoline communicates through a tiny parameter block in low memory
 // because secondary CPUs start before they have per-CPU stacks or rich state.
@@ -47,6 +56,15 @@ constexpr uint64_t kPageFrameBitmapQwordLimit =
 constexpr uint64_t kEarlyReservedPhysicalEnd = 0x20000;
 constexpr uint64_t kKernelReservedPhysicalStart = 0x100000;
 constexpr uint64_t kKernelReservedPhysicalEnd = 0x160000;
+
+// Milestone 2 keeps user mappings in their own PML4 slot because the kernel
+// still relies on low supervisor identity mappings for physical-memory access.
+constexpr uint64_t kUserPml4Index = 1;
+constexpr uint64_t kUserSpaceBase = 0x0000008000000000ull;
+constexpr uint64_t kUserImageBase = 0x0000008000400000ull;
+constexpr uint64_t kUserStackTop = 0x0000008040000000ull;
+constexpr size_t kUserStackPages = 16;
+constexpr size_t kKernelThreadStackPages = 4;
 
 constexpr uint16_t kBootTextColumns = 80;
 constexpr uint16_t kBootTextRows = 25;

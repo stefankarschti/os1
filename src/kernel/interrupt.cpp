@@ -1,10 +1,9 @@
 #include "interrupt.h"
+
+#include "cpu.h"
 #include "memory.h"
 
-
 extern "C" {
-int task_switch_irq();
-
 int irq0();
 int irq1();
 int irq2();
@@ -22,40 +21,69 @@ int irq13();
 int irq14();
 int irq15();
 
-int int_00h();	// #DE
-int int_01h();	// #DB
-int int_02h();	// NMI
-int int_03h();	// #BP
-int int_04h();	// #OF
-int int_05h();	// #BR
-int int_06h();	// #UD
-int int_07h();	// #NM
-int int_08h();	// #DF
-int int_09h();	// coprocessor
-int int_0Ah();	// #TS
-int int_0Bh();	// #NP
-int int_0Ch();	// #SS
-int int_0Dh();	// #GP
-int int_0Eh();	// #PF page fault
-
-int int_10h();	// #MF
-int int_11h();	// #AC
-int int_12h();	// #MC
-int int_13h();	// #XF
-
-int int_1Dh();	// #VC
-int int_1Eh();	// #SX
+int int_00h();
+int int_01h();
+int int_02h();
+int int_03h();
+int int_04h();
+int int_05h();
+int int_06h();
+int int_07h();
+int int_08h();
+int int_09h();
+int int_0Ah();
+int int_0Bh();
+int int_0Ch();
+int int_0Dh();
+int int_0Eh();
+int int_10h();
+int int_11h();
+int int_12h();
+int int_13h();
+int int_1Dh();
+int int_1Eh();
+int int_80h();
 }
 
-extern "C" void set_irq_hook(int number, void (*pFunction)(void*), void* data);
-extern "C" void set_exception_handler(int number, void (*handler)(uint64_t, uint64_t, uint64_t));
+namespace
+{
+void (*irq_hook[16])(void*) = {};
+void *irq_data[16] = {};
+ExceptionHandler exception_handler_function[256] = {};
 
-void Interrupts::SetIDT(int index, uint64_t address)
+static inline void lidt(void* base, uint16_t size)
+{
+	struct {
+		uint16_t length;
+		void* base;
+	} __attribute__((packed)) idtr = { size, base };
+
+	asm volatile("lidt %0" : : "m"(idtr));
+}
+}
+
+void DispatchIRQHook(int number)
+{
+	if((number >= 0) && (number < 16) && irq_hook[number])
+	{
+		irq_hook[number](irq_data[number]);
+	}
+}
+
+void DispatchExceptionHandler(int number, TrapFrame *frame)
+{
+	if((number >= 0) && (number < 256) && exception_handler_function[number])
+	{
+		exception_handler_function[number](frame);
+	}
+}
+
+void Interrupts::SetIDT(int index, uint64_t address, uint8_t type_attr)
 {
 	IDT[index].offset_1 = address & 0xffff;
-	IDT[index].selector = 0x08; /* KERNEL_CODE_SEGMENT_OFFSET */
+	IDT[index].selector = CPU_GDT_KCODE;
 	IDT[index].ist = 0;
-	IDT[index].type_attr = 0x8e; /* INTERRUPT_GATE */
+	IDT[index].type_attr = type_attr;
 	IDT[index].offset_2 = (address >> 16) & 0xffff;
 	IDT[index].offset_3 = (address >> 32) & 0xffffffff;
 	IDT[index].zero = 0;
@@ -72,25 +100,14 @@ void Interrupts::ClearIDT(int index)
 	IDT[index].zero = 0;
 }
 
-static inline void lidt(void* base, uint16_t size)
-{   // This function works in 32 and 64bit mode
-	struct {
-		uint16_t length;
-		void*    base;
-	} __attribute__((packed)) IDTR = { size, base };
-
-	asm volatile ( "lidt %0" : : "m"(IDTR) );  // let the compiler choose an addressing mode
-}
-
 bool Interrupts::Initialize()
 {
-	asm volatile ("cli");
+	asm volatile("cli");
 	for(int i = 0; i < 256; i++)
 	{
 		ClearIDT(i);
 	}
 
-	// remapping the PIC
 	outb(0x20, 0x11);
 	outb(0xA0, 0x11);
 	outb(0x21, 0x20);
@@ -102,8 +119,7 @@ bool Interrupts::Initialize()
 	outb(0x21, 0x0);
 	outb(0xA1, 0x0);
 
-	SetIDT(32, (uint64_t)task_switch_irq);
-//	SetIDT(32, (uint64_t)irq0);
+	SetIDT(32, (uint64_t)irq0);
 	SetIDT(33, (uint64_t)irq1);
 	SetIDT(34, (uint64_t)irq2);
 	SetIDT(35, (uint64_t)irq3);
@@ -120,7 +136,6 @@ bool Interrupts::Initialize()
 	SetIDT(46, (uint64_t)irq14);
 	SetIDT(47, (uint64_t)irq15);
 
-	// set exception vectors
 	SetIDT(0x00, (uint64_t)int_00h);
 	SetIDT(0x01, (uint64_t)int_01h);
 	SetIDT(0x02, (uint64_t)int_02h);
@@ -142,31 +157,36 @@ bool Interrupts::Initialize()
 	SetIDT(0x13, (uint64_t)int_13h);
 	SetIDT(0x1D, (uint64_t)int_1Dh);
 	SetIDT(0x1E, (uint64_t)int_1Eh);
+	SetIDT(T_SYSCALL, (uint64_t)int_80h, 0xEE);
 
-	// clear irq hooks
 	for(int i = 0; i < 16; ++i)
 	{
-		set_irq_hook(i, nullptr, nullptr);
+		irq_hook[i] = nullptr;
+		irq_data[i] = nullptr;
 	}
-
-	// clear int hooks
 	for(int i = 0; i < 256; ++i)
 	{
-		set_exception_handler(i, nullptr);
+		exception_handler_function[i] = nullptr;
 	}
 
-	// load IDT
 	lidt(IDT, 256 * sizeof(IDTDescriptor));
-	asm volatile ("sti");
+	asm volatile("sti");
 	return true;
 }
 
 void Interrupts::SetIRQHandler(int number, void (*pFunction)(void *), void *data)
 {
-	set_irq_hook(number, pFunction, data);
+	if((number >= 0) && (number < 16))
+	{
+		irq_hook[number] = pFunction;
+		irq_data[number] = data;
+	}
 }
 
-void Interrupts::SetExceptionHandler(int number, void (*handler)(uint64_t, uint64_t, uint64_t))
+void Interrupts::SetExceptionHandler(int number, ExceptionHandler handler)
 {
-	set_exception_handler(number, handler);
+	if((number >= 0) && (number < 256))
+	{
+		exception_handler_function[number] = handler;
+	}
 }
