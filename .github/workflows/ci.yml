@@ -20,38 +20,6 @@ jobs:
         run: |
           set -euxo pipefail
           if [ "${ACT:-}" = "true" ]; then
-            find_ovmf_code() {
-              for candidate in \
-                "$(dirname "$(dirname "$(command -v qemu-system-x86_64)")")/share/qemu/edk2-x86_64-code.fd" \
-                "$(dirname "$(dirname "$(command -v qemu-system-x86_64)")")/share/qemu/OVMF_CODE.fd" \
-                "/usr/share/OVMF/OVMF_CODE.fd" \
-                "/usr/share/OVMF/OVMF_CODE_4M.fd" \
-                "/usr/share/edk2/ovmf/OVMF_CODE.fd" \
-                "/usr/share/edk2/ovmf/OVMF_CODE_4M.fd" \
-                "/usr/share/qemu/OVMF_CODE.fd"
-              do
-                if [ -f "$candidate" ]; then
-                  return 0
-                fi
-              done
-              return 1
-            }
-            find_ovmf_vars() {
-              for candidate in \
-                "$(dirname "$(dirname "$(command -v qemu-system-x86_64)")")/share/qemu/edk2-x86_64-vars.fd" \
-                "$(dirname "$(dirname "$(command -v qemu-system-x86_64)")")/share/qemu/OVMF_VARS.fd" \
-                "/usr/share/OVMF/OVMF_VARS.fd" \
-                "/usr/share/OVMF/OVMF_VARS_4M.fd" \
-                "/usr/share/edk2/ovmf/OVMF_VARS.fd" \
-                "/usr/share/edk2/ovmf/OVMF_VARS_4M.fd" \
-                "/usr/share/qemu/OVMF_VARS.fd"
-              do
-                if [ -f "$candidate" ]; then
-                  return 0
-                fi
-              done
-              return 1
-            }
             # Local act runs this job directly on the host, so we reuse the
             # developer's toolchain instead of trying to recreate a GitHub
             # runner inside Docker.
@@ -61,8 +29,6 @@ jobs:
             command -v cpio
             command -v xorriso
             command -v qemu-system-x86_64
-            find_ovmf_code
-            find_ovmf_vars
           else
             sudo apt-get update
             sudo apt-get install -y nasm cpio xorriso ovmf qemu-system-x86 cmake ninja-build
@@ -88,8 +54,12 @@ jobs:
             brew install x86_64-elf-gcc
           fi
 
+      # OS1_REQUIRE_UEFI_SMOKE=ON turns a missing OVMF firmware into a
+      # configure-time hard error. Firmware discovery itself lives in
+      # CMakeLists.txt (single source of truth); this workflow must never
+      # re-implement the candidate list.
       - name: Configure
-        run: cmake --preset default
+        run: cmake --preset default -DOS1_REQUIRE_UEFI_SMOKE=ON
 
       - name: Build
         run: |

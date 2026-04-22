@@ -99,6 +99,15 @@ find_program(OS1_XORRISO_EXECUTABLE NAMES xorriso REQUIRED)
 find_program(OS1_QEMU_EXECUTABLE NAMES qemu-system-x86_64)
 find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
 
+# OVMF/edk2 firmware discovery is centralized here so the kernel build is the
+# single source of truth. CI workflows and developer scripts must not re-implement
+# this candidate list — read the resulting OS1_OVMF_* cache entries instead.
+# Vendor layout notes:
+#   - Ubuntu 'ovmf' apt package: /usr/share/OVMF/OVMF_{CODE,VARS}[_4M].fd
+#   - Fedora 'edk2-ovmf' rpm:    /usr/share/edk2/ovmf/OVMF_{CODE,VARS}[_4M].fd
+#   - Arch 'edk2-ovmf' pkg:      /usr/share/OVMF/x64/OVMF_{CODE,VARS}.4m.fd (not yet listed)
+#   - Homebrew qemu (9+):        $PREFIX/share/qemu/edk2-x86_64-code.fd
+#                                $PREFIX/share/qemu/edk2-i386-vars.fd  (x86_64 build shares i386 VARS)
 set(OS1_OVMF_CODE "${OS1_OVMF_CODE}" CACHE FILEPATH "Path to the OVMF/edk2 code firmware image used for UEFI run and smoke targets")
 set(OS1_OVMF_VARS_TEMPLATE "${OS1_OVMF_VARS_TEMPLATE}" CACHE FILEPATH "Path to the OVMF/edk2 vars template used for UEFI run and smoke targets")
 
@@ -139,6 +148,31 @@ if(OS1_QEMU_EXECUTABLE)
       set(OS1_OVMF_VARS_TEMPLATE "${OS1_OVMF_VARS_TEMPLATE_DETECTED}" CACHE FILEPATH "Path to the OVMF/edk2 vars template used for UEFI run and smoke targets" FORCE)
     endif()
   endif()
+endif()
+
+if(OS1_OVMF_CODE)
+  message(STATUS "OVMF code firmware:  ${OS1_OVMF_CODE}")
+else()
+  message(STATUS "OVMF code firmware:  not found (set -DOS1_OVMF_CODE=<path> to override)")
+endif()
+if(OS1_OVMF_VARS_TEMPLATE)
+  message(STATUS "OVMF vars firmware:  ${OS1_OVMF_VARS_TEMPLATE}")
+else()
+  message(STATUS "OVMF vars firmware:  not found (set -DOS1_OVMF_VARS_TEMPLATE=<path> to override)")
+endif()
+
+# Loud, deterministic signal when the default (UEFI) smoke path would silently
+# be skipped. Keeping this as WARNING instead of FATAL_ERROR lets a developer
+# without OVMF still build and exercise the BIOS compatibility path, but CI
+# logs always surface the gap clearly. CI then fails on the missing test count
+# below, not here, so the error stays actionable.
+if(OS1_QEMU_EXECUTABLE AND (NOT OS1_OVMF_CODE OR NOT OS1_OVMF_VARS_TEMPLATE))
+  message(WARNING
+    "UEFI smoke path will be SKIPPED: OVMF firmware not detected. "
+    "Install edk2/ovmf (Homebrew 'qemu', apt 'ovmf', dnf 'edk2-ovmf') "
+    "or set -DOS1_OVMF_CODE=... and -DOS1_OVMF_VARS_TEMPLATE=... "
+    "Only the BIOS compatibility smoke will run; CI will fail on missing UEFI coverage."
+  )
 endif()
 
 add_subdirectory(src/boot)
@@ -323,6 +357,30 @@ include(CTest)
 # rather than timing jitter.
 set(OS1_UEFI_SMOKE_TIMEOUT_SECONDS 12)
 set(OS1_BIOS_SMOKE_TIMEOUT_SECONDS 12)
+
+# Preventive: if CI (or any caller) sets OS1_REQUIRE_UEFI_SMOKE=ON, a missing
+# UEFI smoke becomes a configure-time hard error rather than a silent skip.
+# GitHub Actions + act both set this via the CI workflow, so a missing OVMF
+# firmware cannot regress coverage unnoticed.
+option(OS1_REQUIRE_UEFI_SMOKE "Fail configure if the UEFI smoke test cannot be registered" OFF)
+if(OS1_REQUIRE_UEFI_SMOKE)
+  set(OS1_REQUIRE_UEFI_REASON "")
+  if(NOT OS1_QEMU_EXECUTABLE)
+    set(OS1_REQUIRE_UEFI_REASON "qemu-system-x86_64 not found")
+  elseif(NOT OS1_OVMF_CODE OR NOT EXISTS "${OS1_OVMF_CODE}")
+    set(OS1_REQUIRE_UEFI_REASON "OVMF code firmware missing or unreadable: '${OS1_OVMF_CODE}'")
+  elseif(NOT OS1_OVMF_VARS_TEMPLATE OR NOT EXISTS "${OS1_OVMF_VARS_TEMPLATE}")
+    set(OS1_REQUIRE_UEFI_REASON "OVMF vars template missing or unreadable: '${OS1_OVMF_VARS_TEMPLATE}'")
+  endif()
+  if(OS1_REQUIRE_UEFI_REASON)
+    message(FATAL_ERROR
+      "OS1_REQUIRE_UEFI_SMOKE=ON but the UEFI smoke path is unavailable.\n"
+      "Reason: ${OS1_REQUIRE_UEFI_REASON}\n"
+      "Install edk2/ovmf (Homebrew 'qemu', apt 'ovmf', dnf 'edk2-ovmf') "
+      "or override OS1_OVMF_CODE / OS1_OVMF_VARS_TEMPLATE."
+    )
+  endif()
+endif()
 
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   set(OS1_UEFI_SMOKE_MARKERS
