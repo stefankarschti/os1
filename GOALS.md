@@ -1,5 +1,7 @@
 # GOALS
 
+This document captures the long-term direction of `os1`. For the concrete snapshot of what exists today, see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md). For the sequenced design that turns these goals into code, see the milestone designs under [doc/](doc/).
+
 ## Vision
 
 `os1` is a self-documented teaching and engineering operating system project.
@@ -358,7 +360,7 @@ The project is not trying to:
 
 ## Recommended sequencing
 
-The existing review is directionally correct on the importance of protected userland: the next major milestone should still center on **clean handoff plus ring-3 foundations**, and this project explicitly prioritizes **running isolated user programs** over early broad real-hardware support. However, the architecture should be shaped early by **SMP readiness** and eventual accelerator / heterogeneous-compute support, even when some capabilities are initially stubbed or emulator-first.
+The existing review is directionally correct on the importance of protected userland: this project explicitly prioritizes **running isolated user programs** over early broad real-hardware support. However, the architecture should be shaped early by **SMP readiness** and eventual accelerator / heterogeneous-compute support, even when some capabilities are initially stubbed or emulator-first.
 
 In other words:
 
@@ -366,32 +368,34 @@ In other words:
 - SMP should influence kernel structure early, not be bolted on late
 - GPU / accelerator compute should be considered a first-class future subsystem early enough that memory, scheduling, driver, and security boundaries do not assume a CPU-only world
 
-### Milestone A: Clean boot and kernel baseline
+The in-repo milestone designs (M1–M4) refine the coarser A–G map below into concrete engineering plans.
+
+### Milestone A: Clean boot and kernel baseline *(implemented — see [M1 design](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md))*
 
 - reliable boot in emulator
-- documented boot flow
+- documented boot flow via a versioned `BootInfo` handoff
 - basic memory and interrupt setup
 - serial output and terminal output
+- centralized early-boot addresses, AP idle state, C++20 kernel baseline, headless QEMU smoke test in CI
 
-### Milestone B: Modern platform handoff
+### Milestone B: Modern platform handoff *(partially implemented — M1 covers the contract; M3 + M4 deliver the modern boot and discovery paths)*
 
-- common boot information handoff structure
-- UEFI path
-- framebuffer support
-- ACPI discovery
-- improved platform abstraction
-- early APIC / SMP-oriented platform groundwork
+- common boot information handoff structure (*`BootInfo` — implemented*)
+- UEFI path ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md))
+- framebuffer support (M3 handoff; compositor later)
+- ACPI discovery ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md))
+- improved platform abstraction (M4)
+- early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, and AP bring-up are implemented; SMP scheduling is still a follow-on)
 - early accelerator / GPU device discovery path where feasible
 
-### Milestone C: Real userland foundation
+### Milestone C: Real userland foundation *(implemented — see [M2 design](doc/2026-04-22-milestone-2-process-model-and-isolation.md))*
 
 - ring-3 user-mode execution
-- ELF executable loading
-- syscall interface
-- shell
-- initrd / filesystem-backed userland
+- ELF64 executable loading from a cpio-newc initrd
+- `int 0x80` syscall interface (`write`, `exit`, `yield`, `getpid`)
+- initrd-backed userland with `/bin/init`, `/bin/yield`, `/bin/fault`
 
-This milestone is more important than early broad real-hardware support.
+Later follow-ups expected in this area: a shell, richer syscall surface, richer file-descriptor semantics, and an optional fast-syscall (`SYSCALL`/`SYSRET`) path.
 
 ### Milestone D: Persistence and local security
 
@@ -423,16 +427,20 @@ This milestone is more important than early broad real-hardware support.
 
 ## Open design choices
 
+Some earlier open questions have since been resolved in source or in the milestone designs; they are listed here for the record rather than as open work:
+
+- **Resolved:** the kernel-facing boot contract is a single versioned `BootInfo` block normalized by each boot source (see [M1](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) and [`src/kernel/bootinfo.h`](src/kernel/bootinfo.h)).
+- **Resolved:** the modern default boot path is Limine plus UEFI, while BIOS remains available during the transition ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md)).
+- **Resolved:** the first user-program ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with `int 0x80` syscalls matching the System V AMD64 register layout ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [`src/kernel/syscall_abi.h`](src/kernel/syscall_abi.h), [`src/user/`](src/user/)).
+
 The following are not fully decided yet and should be revisited explicitly:
 
-- BIOS-only early boot vs early dual BIOS/UEFI support
-- exact boot protocol and loader strategy
-- ELF loader details and user-program ABI expectations
 - first filesystem choice
-- first NIC/device targets in QEMU / virtio-first environments
-- staging plan from AP startup to full user-process SMP scheduling across CPUs
+- first NIC/device targets in QEMU / virtio-first environments beyond the initial `virtio-blk` + `virtio-net` set proposed in [M4](doc/2026-04-22-milestone-4-modern-platform-support.md)
+- staging plan from AP startup (currently: APs run `cpu_idle_loop()`) to full user-process SMP scheduling across CPUs
 - later GPU / accelerator target model after discovery-only phase: compute queues, minimal kernel offload primitives, or richer user-facing submission model
 - whether the terminal compositor stays intentionally minimal or grows into a broader desktop shell
+- whether to keep `int 0x80` as the permanent syscall entry or migrate to `SYSCALL`/`SYSRET` once the current userland matures
 
 ## Additional recommended goals
 
