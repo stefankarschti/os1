@@ -1,6 +1,6 @@
 # os1
 
-Operating System Playground.
+`os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The near-term focus is a terminal-first, QEMU/virtio-first system with a clean boot handoff and protected userland, growing later toward SMP, networking, remote administration, and an optional framebuffer desktop layer without losing architectural coherence.
 
 ## Prerequisites
 
@@ -81,6 +81,7 @@ The existing helper scripts remain available as wrappers around the CMake workfl
 
 ## Documentation
 
+- [Goals](GOALS.md)
 - [Architecture](doc/ARCHITECTURE.md)
 - [Review 2026-04-21](doc/2026-04-21-review.md)
 - [Milestone 1 Design: Boot Contract And Kernel Stabilization](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md)

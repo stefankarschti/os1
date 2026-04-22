@@ -1,0 +1,453 @@
+# GOALS
+
+## Vision
+
+`os1` is a self-documented teaching and engineering operating system project.
+
+The aim is **not** to become a production general-purpose operating system. The aim is to build a clean, understandable, technically serious OS whose source code demonstrates the major mechanisms of a modern OS through a small, coherent system.
+
+The project should favor:
+
+- clarity over cleverness
+- explicit architecture over accidental complexity
+- strong documentation near the code
+- incremental progress with runnable milestones
+- modern OS concepts over nostalgia-driven dead ends
+- complete vertical slices over scattered low-level experiments
+
+The project should remain small enough to understand, but ambitious enough to cover the core building blocks of a modern system.
+
+## Primary objectives
+
+### 1. Educational value through source code
+
+The source code should be readable, structured, and documented where it matters.
+
+Goals:
+
+- make subsystem boundaries clear
+- document invariants and assumptions
+- explain why a design was chosen, not only what it does
+- keep low-level code auditable
+- support learning by reading the source tree and docs
+- preserve important bring-up knowledge in architecture notes and milestone reviews
+
+### 2. Meaningful modern-OS feature coverage
+
+`os1` should eventually demonstrate most major OS areas, including:
+
+- boot and platform initialization
+- physical and virtual memory management
+- interrupts and exceptions
+- task scheduling and process management
+- user/kernel separation
+- executable loading
+- filesystems and storage abstraction
+- device drivers
+- networking
+- multiuser security model
+- remote access
+- optional graphical desktop layer
+
+This does **not** mean full parity with Linux, BSD, or Windows. It means meaningful coverage of the concepts in a system that still fits in one person’s head.
+
+### 3. Simplicity first
+
+When several approaches are possible, prefer the one that:
+
+- is easier to reason about
+- is easier to debug
+- keeps long-term architecture clean
+- does not block future extension
+
+Avoid premature optimization, speculative abstractions, and feature creep.
+
+### 4. Runnable vertical slices
+
+The project should be developed through complete milestones rather than disconnected technical experiments.
+
+Examples:
+
+- boot to terminal
+- load and run a user program in user mode
+- mount a filesystem and run a shell
+- obtain network connectivity
+- support remote login through SSH
+- optionally launch a simple graphical desktop
+
+A narrow but complete milestone is better than broad unfinished infrastructure.
+
+## Scope and platform goals
+
+### Primary architecture
+
+- Primary target: `x86_64`
+- The design should avoid unnecessary assumptions that would prevent later ports.
+
+### Future architecture portability
+
+Keep the door open for later support of:
+
+- `AArch64`
+- `RISC-V`
+
+Portability should be enabled by clean architecture boundaries, not by forcing premature cross-architecture generalization everywhere.
+
+Practical rule:
+
+- architect for portability early
+- implement portability only when justified
+
+### Boot strategy
+
+Initial path:
+
+- legacy BIOS boot is acceptable as an early safe step and learning vehicle
+
+Target path:
+
+- transition to UEFI-based boot as the primary modern path
+
+Design rule:
+
+- bootloader- or firmware-specific logic should hand off into a common kernel boot interface
+- the kernel should not become tightly coupled to a single boot path if avoidable
+- BIOS compatibility should not dominate long-term architecture decisions once UEFI exists
+
+### Platform discovery
+
+The project should support modern machine discovery on `x86_64`, including:
+
+- memory map handoff
+- ACPI discovery and parsing
+- interrupt-controller discovery
+- timer discovery
+- eventual PCI/PCIe enumeration
+
+### Development target environments
+
+Near-term development should optimize for:
+
+- QEMU reproducibility first
+- virtio-first virtual-device support where applicable
+- clean serial-debug workflow
+- predictable virtual hardware targets
+
+Real-hardware bring-up matters, but not before the architecture is coherent enough to justify it.
+
+## User-facing system goals
+
+### Terminal-first operating system
+
+The main system should first become a usable terminal-oriented OS.
+
+Core expectations:
+
+- text terminal interface
+- shell and command execution
+- user accounts
+- file permissions
+- remote login
+
+### Networking
+
+Networking is a first-class goal, not an afterthought.
+
+Initial network goals:
+
+- network driver model
+- IPv4 support
+- basic TCP/IP stack
+- DHCP or static addressing
+- DNS resolver support
+- remote shell and file transfer primitives
+
+### SSH and remote administration
+
+A major usability goal is remote login.
+
+Target capability:
+
+- log into `os1` remotely over SSH
+
+Implications:
+
+- user authentication
+- privilege separation
+- process isolation
+- permissions model
+- enough network stack maturity to support a secure remote session
+- pseudo-terminal and session-management support eventually
+
+SSH is a **late-mid-stage goal**, not an early bring-up feature.
+
+### Optional desktop variant
+
+After the terminal-oriented system is coherent, `os1` may grow an optional home-made GUI / desktop mode.
+
+This GUI is explicitly secondary to the core OS.
+
+The first GUI target should be a **framebuffer terminal compositor**, not a general desktop environment.
+
+Goals for the desktop variant:
+
+- simple framebuffer or compositor-based UI
+- built-in terminal windows or panes
+- basic input handling
+- minimal windowing or pane management
+- simple native widgets only if justified
+
+Non-goal:
+
+- competing with mature desktop environments
+
+## System architecture goals
+
+### Kernel model
+
+The project should remain **monolithic at first**.
+
+Reasoning:
+
+- simpler to understand and debug
+- better fit for a one-person hobby OS
+- avoids premature complexity around module loading and ABI stability
+
+Later modularization is acceptable where it clearly improves structure, but early design should not pretend that a microkernel or plugin-heavy model is free.
+
+### Kernel and userland separation
+
+A major goal is to evolve from kernel-only execution to a real protected system.
+
+Required eventual capabilities:
+
+- ring-3 or equivalent user-mode execution
+- executable loading
+- syscall interface
+- process isolation
+- controlled resource access
+
+This is one of the most important milestones in the project.
+
+### Process and scheduling model
+
+The system should support:
+
+- multitasking
+- per-process isolation
+- scheduler with clear policy
+- early SMP-aware design
+- eventual full user-process SMP scheduling across CPUs
+
+SMP should come early enough to shape:
+
+- per-CPU data structures
+- interrupt routing assumptions
+- locking strategy
+- scheduler design
+- tracing / observability design
+
+The implementation may still progress through simpler intermediate steps, but the architecture should not assume that single-core is the long-term model.
+
+### Security model
+
+The project should support a simple but real security foundation.
+
+Goals:
+
+- multiuser model
+- user/group identity
+- file ownership and permissions
+- privilege boundaries
+- least-privilege design where practical
+- secure enough architecture to justify SSH and remote administration
+
+Non-goal:
+
+- enterprise-grade hardening in early stages
+
+### Storage and filesystems
+
+The system should support persistent storage with a simple, understandable filesystem story.
+
+Suggested progression:
+
+- initrd or in-memory filesystem early
+- simple native filesystem or readable existing simple filesystem later
+- block-device abstraction
+- partition awareness later if justified
+
+### Driver model
+
+The system should gradually move from emulator- and board-specific code toward a clearer device-driver model.
+
+Likely priorities:
+
+- console
+- timer
+- keyboard
+- storage
+- network
+- framebuffer
+- interrupt-controller and SMP-enabling platform devices
+- early accelerator / GPU discovery and compute-oriented interfaces where available
+
+Early accelerator work should start with **discovery only**. Later, this may evolve toward actual compute submission on a virtual or real device, including AI-oriented experimentation, but the early goal is to avoid painting the system into a CPU-only corner.
+
+## Engineering goals
+
+### Documentation quality
+
+Documentation should exist at several levels:
+
+- high-level architecture documents
+- per-subsystem design notes
+- code comments for invariants and tricky low-level behavior
+- milestone reviews / retrospectives
+- clear notes on current state vs target state
+
+### Testability and observability
+
+The system should become easier to inspect and debug over time.
+
+Suggested goals:
+
+- serial logging
+- structured tracing where justified
+- deterministic emulator workflows
+- debug build modes
+- subsystem-specific test harnesses where practical
+- milestone demo scripts
+
+### Performance stance
+
+Performance matters, but not at the expense of clarity in early stages.
+
+Rules:
+
+- do not sacrifice architecture for trivial micro-optimizations
+- do not introduce high-level runtime dependencies that weaken control over the system
+- optimize deliberately after measurement
+
+### Language stance
+
+Preferred implementation language:
+
+- C++ as the main systems language
+
+Acceptable supporting languages:
+
+- assembly where required for boot, interrupts, context switching, and CPU-specific entry paths
+- limited C or other targeted low-level components only when clearly justified
+
+Rule:
+
+- the language mix must serve clarity, control, and performance
+- language experimentation is not a goal by itself
+
+## Non-goals
+
+The project is not trying to:
+
+- become Linux-compatible in the short term
+- support all hardware quickly
+- maximize feature count at the expense of coherence
+- become GUI-first before the terminal system is solid
+- chase novelty with weak fundamentals
+- preserve legacy BIOS as a first-class long-term identity
+
+## Recommended sequencing
+
+The existing review is directionally correct on the importance of protected userland: the next major milestone should still center on **clean handoff plus ring-3 foundations**, and this project explicitly prioritizes **running isolated user programs** over early broad real-hardware support. However, the architecture should be shaped early by **SMP readiness** and eventual accelerator / heterogeneous-compute support, even when some capabilities are initially stubbed or emulator-first.
+
+In other words:
+
+- protected userland outranks early real-hardware breadth
+- SMP should influence kernel structure early, not be bolted on late
+- GPU / accelerator compute should be considered a first-class future subsystem early enough that memory, scheduling, driver, and security boundaries do not assume a CPU-only world
+
+### Milestone A: Clean boot and kernel baseline
+
+- reliable boot in emulator
+- documented boot flow
+- basic memory and interrupt setup
+- serial output and terminal output
+
+### Milestone B: Modern platform handoff
+
+- common boot information handoff structure
+- UEFI path
+- framebuffer support
+- ACPI discovery
+- improved platform abstraction
+- early APIC / SMP-oriented platform groundwork
+- early accelerator / GPU device discovery path where feasible
+
+### Milestone C: Real userland foundation
+
+- ring-3 user-mode execution
+- ELF executable loading
+- syscall interface
+- shell
+- initrd / filesystem-backed userland
+
+This milestone is more important than early broad real-hardware support.
+
+### Milestone D: Persistence and local security
+
+- persistent storage
+- user accounts
+- permissions
+- multiuser model
+
+### Milestone E: Networking foundation
+
+- NIC support
+- IP networking
+- TCP basics
+- remote shell building blocks
+
+### Milestone F: SSH-capable remote administration
+
+- secure login path
+- session management
+- pseudo-terminals
+- enough security maturity to justify remote exposure
+
+### Milestone G: Optional desktop layer
+
+- framebuffer terminal compositor
+- terminal windows or panes
+- keyboard and pointing-device support
+- optional evolution toward a small desktop shell later
+
+## Open design choices
+
+The following are not fully decided yet and should be revisited explicitly:
+
+- BIOS-only early boot vs early dual BIOS/UEFI support
+- exact boot protocol and loader strategy
+- ELF loader details and user-program ABI expectations
+- first filesystem choice
+- first NIC/device targets in QEMU / virtio-first environments
+- staging plan from AP startup to full user-process SMP scheduling across CPUs
+- later GPU / accelerator target model after discovery-only phase: compute queues, minimal kernel offload primitives, or richer user-facing submission model
+- whether the terminal compositor stays intentionally minimal or grows into a broader desktop shell
+
+## Additional recommended goals
+
+These are strong candidates to adopt explicitly:
+
+- **serial-first debugging:** always preserve a reliable non-graphical debug path
+- **QEMU-first developer workflow:** every major milestone should be reproducible in emulation
+- **deterministic milestone demos:** each milestone should have a short demonstration script
+- **architecture isolation:** keep `arch/x86_64` concerns separate from generic kernel code
+- **clear trust boundaries:** document privileged vs unprivileged code paths early
+- **bring-up notebooks / logs:** preserve decisions, dead ends, and lessons learned
+- **target-state honesty:** clearly label what is current, what is experimental, and what is aspirational
+- **SMP observability:** make per-CPU behavior and cross-CPU events inspectable early
+- **accelerator awareness:** keep memory, scheduling, and driver abstractions compatible with eventual GPU / accelerator compute support
+
+## Short project thesis
+
+`os1` should become a clean, well-documented, terminal-first operating system for `x86_64` that demonstrates the major mechanisms of a modern OS, prioritizes protected userland over early hardware breadth, adopts monolithic-kernel and QEMU/virtio-first development early, grows toward full SMP user-process scheduling, secure multiuser networking, and remote login, and optionally supports a simple home-made framebuffer terminal compositor later without compromising core system clarity.
