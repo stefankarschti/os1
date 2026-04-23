@@ -2,6 +2,8 @@
 %include "task.inc"
 %include "trapframe.inc"
 
+%define KERNEL_DATA_SEGMENT 0x10
+
 global startMultiTask
 global restore_thread
 global restore_frame_ptr
@@ -30,11 +32,16 @@ restore_frame_ptr:
 
 .kernel_return:
 	mov rax, [r11 + TF_RSP]
-	sub rax, 16
-	mov rcx, [r11 + TF_RFLAGS]
-	mov [rax], rcx
+	sub rax, 24
 	mov rcx, [r11 + TF_RIP]
+	mov [rax], rcx
+	mov rcx, [r11 + TF_CS]
 	mov [rax + 8], rcx
+	mov rcx, [r11 + TF_RFLAGS]
+	mov [rax + 16], rcx
+	mov rcx, [r11 + TF_RSP]
+	mov [rax + 24], rcx
+	mov qword [rax + 32], KERNEL_DATA_SEGMENT
 	mov [rsp], rax
 	jmp .resume_kernel
 
@@ -80,5 +87,8 @@ restore_frame_ptr:
 	mov rax, [r11 + TF_RAX]
 	mov r11, [rsp + 8]
 	mov rsp, [rsp]
-	popfq
-	ret
+	mov ax, KERNEL_DATA_SEGMENT
+	mov ds, ax
+	mov es, ax
+	mov ss, ax
+	iretq

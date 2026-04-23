@@ -8,7 +8,8 @@ enum {
 	SYS_write = 1,
 	SYS_exit = 2,
 	SYS_yield = 3,
-	SYS_getpid = 4
+	SYS_getpid = 4,
+	SYS_read = 5
 };
 
 long os1_syscall0(uint64_t number);
@@ -19,6 +20,11 @@ long os1_syscall3(uint64_t number, uint64_t arg0, uint64_t arg1, uint64_t arg2);
 static inline long os1_write(int fd, const void *buffer, size_t length)
 {
 	return os1_syscall3(SYS_write, (uint64_t)fd, (uint64_t)buffer, (uint64_t)length);
+}
+
+static inline long os1_read(int fd, void *buffer, size_t length)
+{
+	return os1_syscall3(SYS_read, (uint64_t)fd, (uint64_t)buffer, (uint64_t)length);
 }
 
 static inline void os1_exit(int status)

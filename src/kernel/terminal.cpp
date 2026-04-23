@@ -118,6 +118,7 @@ void Terminal::ReadLn(char *line)
 
 void Terminal::KeyPress(char ascii, uint16_t scancode)
 {
+	(void)scancode;
 	ascii_char_ = ascii;
 	if('\n' == ascii || isprint(ascii))
 		Write(ascii);
@@ -130,6 +131,14 @@ void Terminal::InternalWrite(char c)
 	{
 		row_++;
 		col_ = 0;
+	}
+	else if('\b' == c)
+	{
+		if(col_ > 0)
+		{
+			--col_;
+			buffer_[row_ * width_ + col_] = 0x0720;
+		}
 	}
 	else if(isprint(c))
 	{

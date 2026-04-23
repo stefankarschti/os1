@@ -5,6 +5,7 @@
 
 #include "bootinfo.h"
 #include "display.h"
+#include "console_input.h"
 #include "terminal.h"
 #include "interrupt.h"
 #include "memory.h"
@@ -479,6 +480,34 @@ bool CopyIntoAddressSpace(VirtualMemory &vm, uint64_t virtual_address, const uin
 	return true;
 }
 
+bool CopyToUser(const Thread *thread, uint64_t user_pointer, const void *source, size_t length)
+{
+	if((nullptr == thread) || (nullptr == source))
+	{
+		return false;
+	}
+
+	VirtualMemory vm(page_frames, thread->address_space_cr3);
+	const uint8_t *src = (const uint8_t*)source;
+	size_t copied = 0;
+	while(copied < length)
+	{
+		uint64_t physical = 0;
+		uint64_t flags = 0;
+		if(!vm.Translate(user_pointer + copied, physical, flags))
+		{
+			return false;
+		}
+		const size_t page_offset = (user_pointer + copied) & (kPageSize - 1);
+		const size_t chunk = ((length - copied) < (kPageSize - page_offset))
+			? (length - copied)
+			: (kPageSize - page_offset);
+		memcpy((void*)physical, src + copied, chunk);
+		copied += chunk;
+	}
+	return true;
+}
+
 bool DestroyUserAddressSpace(uint64_t cr3)
 {
 	if(0 == cr3)
@@ -659,6 +688,59 @@ bool CopyFromUser(const Thread *thread, uint64_t user_pointer, void *destination
 	return true;
 }
 
+bool TryCompleteConsoleRead(Thread *thread, uint64_t user_buffer, size_t length, long &result)
+{
+	result = -1;
+	if(nullptr == thread)
+	{
+		return true;
+	}
+	if((0 == user_buffer) || (0 == length))
+	{
+		return true;
+	}
+	if(!ConsoleInputHasLine())
+	{
+		return false;
+	}
+
+	char line[kConsoleInputMaxLineBytes];
+	size_t line_length = 0;
+	if(!ConsoleInputPopLine(line, sizeof(line), line_length))
+	{
+		return false;
+	}
+	if((line_length > length) || !CopyToUser(thread, user_buffer, line, line_length))
+	{
+		return true;
+	}
+
+	result = (long)line_length;
+	return true;
+}
+
+void WakeConsoleReaders()
+{
+	while(ConsoleInputHasLine())
+	{
+		Thread *thread = firstBlockedThread(ThreadWaitReason::ConsoleRead);
+		if(nullptr == thread)
+		{
+			return;
+		}
+
+		long result = -1;
+		if(!TryCompleteConsoleRead(thread, thread->wait_address, (size_t)thread->wait_length, result))
+		{
+			return;
+		}
+
+		clearThreadWait(thread);
+		thread->frame.rax = (uint64_t)result;
+		markThreadReady(thread);
+	}
+}
+
 long SysWrite(int fd, uint64_t user_buffer, size_t length)
 {
 	if((fd != 1) && (fd != 2))
@@ -697,11 +779,28 @@ Thread *HandleSyscall(TrapFrame *frame)
 		return nullptr;
 	}
 
-	switch(frame->rax)
+		switch(frame->rax)
 	{
 	case SYS_write:
 		frame->rax = (uint64_t)SysWrite((int)frame->rdi, frame->rsi, (size_t)frame->rdx);
 		return thread;
+	case SYS_read:
+	{
+		long read_result = -1;
+		if((int)frame->rdi != 0)
+		{
+			frame->rax = (uint64_t)-1;
+			return thread;
+		}
+		if(TryCompleteConsoleRead(thread, frame->rsi, (size_t)frame->rdx, read_result))
+		{
+			frame->rax = (uint64_t)read_result;
+			return thread;
+		}
+
+		blockCurrentThread(ThreadWaitReason::ConsoleRead, frame->rsi, frame->rdx);
+		return ScheduleNext(false);
+	}
 	case SYS_exit:
 		markCurrentThreadDying((int)frame->rdi);
 		return ScheduleNext(false);
@@ -723,8 +822,13 @@ Thread *HandleIrq(TrapFrame *frame)
 	{
 		DispatchIRQHook(irq);
 	}
+	else if(IRQ_TIMER == irq)
+	{
+		ConsoleInputPollSerial();
+	}
 
 	AcknowledgeLegacyIrq(irq);
+	WakeConsoleReaders();
 
 	if(nullptr == currentThread())
 	{
@@ -737,6 +841,10 @@ Thread *HandleIrq(TrapFrame *frame)
 	}
 
 	reapDeadThreads(page_frames);
+	if((currentThread() == idleThread()) && (nullptr != firstRunnableUserThread()))
+	{
+		return ScheduleNext(true);
+	}
 	return currentThread();
 }
 
@@ -972,6 +1080,7 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 
 	keyboard.Initialize();
 	keyboard.SetActiveTerminal(active_terminal);
+	ConsoleInputInitialize();
 	if(ismp)
 	{
 		if(!platform_enable_isa_irq(IRQ_TIMER, IRQ_TIMER)

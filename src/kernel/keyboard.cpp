@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include "console_input.h"
 #include "memory.h"
 
 bool KernelKeyboardHook(uint16_t scancode);
@@ -82,6 +83,7 @@ char key_to_char(uint8_t key)
 
 void Keyboard::IRQHandler(Keyboard *object)
 {
+	(void)object;
 	// hook for keyboard handler
 	const uint16_t KBDATAPORT = 0x60;	/* kbd data port */
 //	const uint16_t KBSTATUS =	0x61;	/* kbd status */
@@ -108,12 +110,9 @@ void Keyboard::IRQHandler(Keyboard *object)
 	// process further if kernel approves
 	if(KernelKeyboardHook(scancode))
 	{
-		// print char to active terminal if any
-		if(object->active_terminal_ && !brk)
+		if(!brk)
 		{
-			char txt[4];
-			txt[0] = key_to_char(key);
-			object->active_terminal_->KeyPress(txt[0], scancode);
+			ConsoleInputOnKeyboardChar(key_to_char(key));
 		}
 	}
 }

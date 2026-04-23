@@ -3,6 +3,7 @@ set(KERNEL_LIMINE_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker_limine.ld")
 
 set(KERNEL_CXX_SOURCES
   bootinfo.cpp
+  console_input.cpp
   cpu.cpp
   debug.cpp
   display.cpp

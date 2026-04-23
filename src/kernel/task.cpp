@@ -232,14 +232,15 @@ Thread *createKernelThread(Process *process, void (*entry)(void), PageFrameConta
 	thread->kernel_stack_top = stack_base + kKernelThreadStackPages * kPageSize;
 	thread->exit_status = 0;
 	thread->frame = {};
-	// Kernel threads enter a normal C++ function through `iretq`, not a `call`,
-	// so reserve one dummy return slot to preserve the usual SysV stack shape at
-	// function entry.
-	*((uint64_t*)(thread->kernel_stack_top - sizeof(uint64_t))) = 0;
+	// Kernel threads enter a normal C++ function through the scheduler return
+	// path, not a direct `call`, so reserve one dummy return slot at a SysV
+	// function-entry-aligned stack position. The 16 bytes above it stay available
+	// for the synthetic kernel `iretq` frame used by the scheduler.
+	*((uint64_t*)(thread->kernel_stack_top - 3 * sizeof(uint64_t))) = 0;
 	thread->frame.rip = (uint64_t)entry;
 	thread->frame.cs = kKernelCodeSegment;
 	thread->frame.rflags = 0x202;
-	thread->frame.rsp = thread->kernel_stack_top - sizeof(uint64_t);
+	thread->frame.rsp = thread->kernel_stack_top - 3 * sizeof(uint64_t);
 	thread->frame.ss = kKernelDataSegment;
 
 	if(nullptr == g_idle_thread)
@@ -365,6 +366,50 @@ void markThreadReady(Thread *thread)
 	}
 }
 
+void blockCurrentThread(ThreadWaitReason reason, uint64_t wait_address, uint64_t wait_length)
+{
+	Thread *thread = currentThread();
+	if((nullptr == thread) || (ThreadState::Dying == thread->state) || (ThreadState::Free == thread->state))
+	{
+		return;
+	}
+
+	thread->wait_reason = reason;
+	thread->wait_address = wait_address;
+	thread->wait_length = wait_length;
+	thread->state = ThreadState::Blocked;
+	if(thread->process && (ProcessState::Dying != thread->process->state))
+	{
+		thread->process->state = ProcessState::Ready;
+	}
+	relinkRunnableThreads();
+}
+
+void clearThreadWait(Thread *thread)
+{
+	if(nullptr == thread)
+	{
+		return;
+	}
+
+	thread->wait_reason = ThreadWaitReason::None;
+	thread->wait_address = 0;
+	thread->wait_length = 0;
+}
+
+Thread *firstBlockedThread(ThreadWaitReason reason)
+{
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		if((ThreadState::Blocked == threadTable[i].state)
+			&& (reason == threadTable[i].wait_reason))
+		{
+			return threadTable + i;
+		}
+	}
+	return nullptr;
+}
+
 void markCurrentThreadDying(int exit_status)
 {
 	Thread *thread = currentThread();
@@ -375,6 +420,7 @@ void markCurrentThreadDying(int exit_status)
 
 	thread->exit_status = exit_status;
 	thread->state = ThreadState::Dying;
+	clearThreadWait(thread);
 	if(thread->process)
 	{
 		thread->process->exit_status = exit_status;

@@ -10,6 +10,10 @@ if(NOT DEFINED SMOKE_TIMEOUT_SECONDS)
   set(SMOKE_TIMEOUT_SECONDS 8)
 endif()
 
+if(NOT DEFINED SMOKE_SETTLE_AFTER_MARKERS_SECONDS)
+  set(SMOKE_SETTLE_AFTER_MARKERS_SECONDS 0)
+endif()
+
 if(NOT DEFINED EXPECTED_MARKERS)
   set(EXPECTED_MARKERS "")
 endif()
@@ -88,10 +92,22 @@ set(runner_command
   "${LOG_FILE}"
   --timeout
   "${SMOKE_TIMEOUT_SECONDS}"
+  --settle-after-markers
+  "${SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
 )
 foreach(marker IN LISTS EXPECTED_MARKERS)
   list(APPEND runner_command --marker "${marker}")
 endforeach()
+if(DEFINED REJECTED_MARKERS)
+  foreach(marker IN LISTS REJECTED_MARKERS)
+    list(APPEND runner_command --reject-marker "${marker}")
+  endforeach()
+endif()
+if(DEFINED SERIAL_INPUT_EVENTS)
+  foreach(event IN LISTS SERIAL_INPUT_EVENTS)
+    list(APPEND runner_command --send-after "${event}")
+  endforeach()
+endif()
 list(APPEND runner_command --)
 list(APPEND runner_command ${qemu_command})
 

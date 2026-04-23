@@ -32,6 +32,12 @@ enum class ThreadState : uint32_t
 	Dying = 4,
 };
 
+enum class ThreadWaitReason : uint32_t
+{
+	None = 0,
+	ConsoleRead = 1,
+};
+
 struct AddressSpace
 {
 	uint64_t cr3 = 0;
@@ -60,6 +66,10 @@ struct Thread
 	uint64_t kernel_stack_top = 0;
 	int exit_status = 0;
 	TrapFrame frame{};
+	ThreadWaitReason wait_reason = ThreadWaitReason::None;
+	uint32_t reserved2 = 0;
+	uint64_t wait_address = 0;
+	uint64_t wait_length = 0;
 };
 
 #define THREAD_STATIC_ASSERT(name, expr) typedef char thread_static_assert_##name[(expr) ? 1 : -1]
@@ -83,6 +93,9 @@ Thread *idleThread(void);
 Thread *nextRunnableThread(Thread *after);
 void setCurrentThread(Thread *thread);
 void markThreadReady(Thread *thread);
+void blockCurrentThread(ThreadWaitReason reason, uint64_t wait_address = 0, uint64_t wait_length = 0);
+void clearThreadWait(Thread *thread);
+Thread *firstBlockedThread(ThreadWaitReason reason);
 void markCurrentThreadDying(int exit_status);
 void reapDeadThreads(PageFrameContainer &frames);
 size_t runnableThreadCount(void);
