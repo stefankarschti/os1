@@ -979,42 +979,36 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 	return true;
 }
 
+__attribute__((noinline, optimize("O1")))
 [[nodiscard]] BootInfo *BuildBootInfo(const limine_file &initrd_module,
 		uint64_t kernel_physical_start,
 		uint64_t kernel_physical_end,
 		uint64_t boot_info_storage_physical)
 {
 	WriteSerialLn("[limine-shim] BuildBootInfo start");
-	LowHandoffBootInfoStorage *storage = nullptr;
-	BootInfo *boot_info = nullptr;
-	BootMemoryRegion *memory_map = nullptr;
-	BootModuleInfo *modules = nullptr;
-	BootStringArena arena{};
-	if(g_hhdm_offset_valid)
-	{
-		storage = (LowHandoffBootInfoStorage*)(boot_info_storage_physical + g_hhdm_offset);
-		boot_info = &storage->info;
-		memory_map = storage->memory_map;
-		modules = storage->modules;
-		arena.base = storage->string_pool;
-		arena.capacity = sizeof(storage->string_pool);
-		arena.used = 0;
-	}
-	if((nullptr == boot_info) || (nullptr == memory_map) || (nullptr == modules) || (nullptr == arena.base))
+	if(!g_hhdm_offset_valid)
 	{
 		WriteSerialLn("[limine-shim] handoff storage unavailable");
 		return nullptr;
 	}
+
+	auto *storage = (LowHandoffBootInfoStorage*)(boot_info_storage_physical + g_hhdm_offset);
 	WriteSerialLn("[limine-shim] bootinfo storage ok");
 
 	// The shared low-half kernel copies BootInfo immediately on entry, so a
 	// small staging area carved out of the already-reserved kernel low-memory
 	// window is sufficient and avoids depending on shim-owned higher-half .bss.
-	ZeroBytes(boot_info, sizeof(BootInfo));
-	ZeroBytes(memory_map, sizeof(BootMemoryRegion) * kBootInfoMaxMemoryRegions);
-	ZeroBytes(modules, sizeof(BootModuleInfo) * kBootInfoMaxModules);
-	ZeroBytes(arena.base, arena.capacity);
+	ZeroBytes(storage, sizeof(*storage));
 	WriteSerialLn("[limine-shim] bootinfo storage cleared");
+
+	BootInfo *boot_info = &storage->info;
+	BootMemoryRegion *memory_map = storage->memory_map;
+	BootModuleInfo *modules = storage->modules;
+	BootStringArena arena{
+		.base = storage->string_pool,
+		.capacity = sizeof(storage->string_pool),
+		.used = 0,
+	};
 
 	BootInfo &boot = *boot_info;
 	boot.magic = kBootInfoMagic;
