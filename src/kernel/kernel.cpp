@@ -1106,8 +1106,6 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 	}
 
 	Thread *init_thread = LoadUserProgram("/bin/init");
-	LoadUserProgram("/bin/yield");
-	LoadUserProgram("/bin/fault");
 	if(nullptr == init_thread)
 	{
 		WriteConsoleLine("failed to load /bin/init");

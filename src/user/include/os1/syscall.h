@@ -12,10 +12,18 @@ enum {
 	SYS_read = 5
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 long os1_syscall0(uint64_t number);
 long os1_syscall1(uint64_t number, uint64_t arg0);
 long os1_syscall2(uint64_t number, uint64_t arg0, uint64_t arg1);
 long os1_syscall3(uint64_t number, uint64_t arg0, uint64_t arg1, uint64_t arg2);
+
+#ifdef __cplusplus
+}
+#endif
 
 static inline long os1_write(int fd, const void *buffer, size_t length)
 {
