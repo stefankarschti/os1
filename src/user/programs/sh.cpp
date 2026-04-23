@@ -71,6 +71,17 @@ void WriteUnsigned(uint64_t value)
 	WriteUnsignedBase(value, 10, 1);
 }
 
+void WriteSigned(long value)
+{
+	if(value < 0)
+	{
+		WriteChar('-');
+		WriteUnsigned(static_cast<uint64_t>(-value));
+		return;
+	}
+	WriteUnsigned(static_cast<uint64_t>(value));
+}
+
 void WriteHex(uint64_t value, size_t digits = 1)
 {
 	WriteUnsignedBase(value, 16, digits);
@@ -183,6 +194,7 @@ const char *ProcessStateName(uint32_t state)
 	case 1: return "ready";
 	case 2: return "running";
 	case 3: return "dying";
+	case 4: return "zombie";
 	default: return "free";
 	}
 }
@@ -466,6 +478,100 @@ void RunUnknown(const char *command)
 	WriteString(command);
 	WriteChar('\n');
 }
+
+bool CopyString(char *destination, size_t destination_size, const char *source)
+{
+	if((nullptr == destination) || (0 == destination_size) || (nullptr == source))
+	{
+		return false;
+	}
+
+	size_t index = 0;
+	while(source[index])
+	{
+		if((index + 1) >= destination_size)
+		{
+			return false;
+		}
+		destination[index] = source[index];
+		++index;
+	}
+	destination[index] = 0;
+	return true;
+}
+
+bool ResolveCommandPath(const char *command, char *path, size_t path_size)
+{
+	if((nullptr == command) || (nullptr == path) || (0 == path_size))
+	{
+		return false;
+	}
+
+	if('/' == command[0])
+	{
+		return CopyString(path, path_size, command);
+	}
+
+	static constexpr char kBinPrefix[] = "/bin/";
+	const size_t prefix_length = sizeof(kBinPrefix) - 1;
+	const size_t command_length = StringLength(command);
+	if((prefix_length + command_length + 1) > path_size)
+	{
+		return false;
+	}
+
+	for(size_t i = 0; i < prefix_length; ++i)
+	{
+		path[i] = kBinPrefix[i];
+	}
+	for(size_t i = 0; i < command_length; ++i)
+	{
+		path[prefix_length + i] = command[i];
+	}
+	path[prefix_length + command_length] = 0;
+	return true;
+}
+
+void WriteSpawnOutcome(const char *command, long pid, int status)
+{
+	WriteString("shell spawn ");
+	WriteString(command);
+	WriteString(" ok pid=");
+	WriteSigned(pid);
+	WriteString(" status=");
+	WriteSigned(status);
+	WriteChar('\n');
+	WriteString("shell prompt resumed\n");
+}
+
+void RunExternal(const char *command)
+{
+	char path[OS1_OBSERVE_INITRD_PATH_BYTES];
+	if(!ResolveCommandPath(command, path, sizeof(path)))
+	{
+		RunUnknown(command);
+		return;
+	}
+
+	const long pid = os1_spawn(path);
+	if(pid < 0)
+	{
+		RunUnknown(command);
+		return;
+	}
+
+	int status = 0;
+	const long waited = os1_waitpid(static_cast<uint64_t>(pid), &status);
+	if(waited != pid)
+	{
+		WriteString("wait failed: ");
+		WriteString(command);
+		WriteChar('\n');
+		return;
+	}
+
+	WriteSpawnOutcome(command, waited, status);
+}
 }
 
 int main(void)
@@ -534,7 +640,7 @@ int main(void)
 		}
 		else
 		{
-			RunUnknown(tokens[0]);
+			RunExternal(tokens[0]);
 		}
 	}
 }

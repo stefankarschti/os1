@@ -21,6 +21,7 @@ enum class ProcessState : uint32_t
 	Ready = 1,
 	Running = 2,
 	Dying = 3,
+	Zombie = 4,
 };
 
 enum class ThreadState : uint32_t
@@ -36,6 +37,7 @@ enum class ThreadWaitReason : uint32_t
 {
 	None = 0,
 	ConsoleRead = 1,
+	ChildExit = 2,
 };
 
 struct AddressSpace
@@ -49,6 +51,7 @@ struct Process
 	ProcessState state = ProcessState::Free;
 	AddressSpace address_space{};
 	int exit_status = 0;
+	Process *parent = nullptr;
 	char name[32]{};
 };
 
@@ -97,6 +100,7 @@ void blockCurrentThread(ThreadWaitReason reason, uint64_t wait_address = 0, uint
 void clearThreadWait(Thread *thread);
 Thread *firstBlockedThread(ThreadWaitReason reason);
 void markCurrentThreadDying(int exit_status);
+bool reapProcess(Process *process, PageFrameContainer &frames);
 void reapDeadThreads(PageFrameContainer &frames);
 size_t runnableThreadCount(void);
 Thread *firstRunnableUserThread(void);

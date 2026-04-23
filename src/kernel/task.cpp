@@ -105,6 +105,22 @@ bool processHasThreads(Process *process)
 	return false;
 }
 
+void orphanChildren(Process *process)
+{
+	if(nullptr == process)
+	{
+		return;
+	}
+
+	for(size_t i = 0; i < kMaxProcesses; ++i)
+	{
+		if(processTable[i].parent == process)
+		{
+			processTable[i].parent = nullptr;
+		}
+	}
+}
+
 void fillProcessName(Process *process, const char *name)
 {
 	if(nullptr == process)
@@ -424,9 +440,31 @@ void markCurrentThreadDying(int exit_status)
 	if(thread->process)
 	{
 		thread->process->exit_status = exit_status;
-		thread->process->state = ProcessState::Dying;
+		thread->process->state = thread->process->parent
+			? ProcessState::Zombie
+			: ProcessState::Dying;
 	}
 	relinkRunnableThreads();
+}
+
+bool reapProcess(Process *process, PageFrameContainer &frames)
+{
+	if((nullptr == process) || processHasThreads(process))
+	{
+		return false;
+	}
+
+	if((process != g_kernel_process) && (process->address_space.cr3 != 0))
+	{
+		VirtualMemory vm(frames, process->address_space.cr3);
+		vm.DestroyUserSlot(kUserPml4Index);
+		uint64_t *pml4 = (uint64_t*)process->address_space.cr3;
+		pml4[0] = 0;
+		frames.Free(process->address_space.cr3);
+	}
+	orphanChildren(process);
+	clearProcess(process);
+	return true;
 }
 
 void reapDeadThreads(PageFrameContainer &frames)
@@ -453,15 +491,12 @@ void reapDeadThreads(PageFrameContainer &frames)
 
 		if(owner && !processHasThreads(owner))
 		{
-			if((owner != g_kernel_process) && (owner->address_space.cr3 != 0))
+			if(ProcessState::Zombie == owner->state)
 			{
-				VirtualMemory vm(frames, owner->address_space.cr3);
-				vm.DestroyUserSlot(kUserPml4Index);
-				uint64_t *pml4 = (uint64_t*)owner->address_space.cr3;
-				pml4[0] = 0;
-				frames.Free(owner->address_space.cr3);
+				continue;
 			}
-			clearProcess(owner);
+
+			reapProcess(owner, frames);
 		}
 	}
 
