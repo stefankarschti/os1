@@ -218,8 +218,6 @@ The build writes outputs under `build/artifacts/`:
 The helper wrapper scripts remain available as thin CMake frontends:
 
 - `./run.sh`
-- `./start.sh`
-- `./dasm.sh`
 
 ## Documentation
 
