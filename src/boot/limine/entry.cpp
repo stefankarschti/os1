@@ -971,6 +971,7 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 		uint64_t kernel_physical_end,
 		uint64_t boot_info_storage_physical)
 {
+	WriteSerialLn("[limine-shim] BuildBootInfo start");
 	LowHandoffBootInfoStorage *storage = MapBootInfoStorage(boot_info_storage_physical);
 	BootInfo *boot_info = BootInfoStorage(storage);
 	BootMemoryRegion *memory_map = BootMemoryMapStorage(storage);
@@ -981,6 +982,7 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 		WriteSerialLn("[limine-shim] handoff storage unavailable");
 		return nullptr;
 	}
+	WriteSerialLn("[limine-shim] bootinfo storage ok");
 
 	// The shared low-half kernel copies BootInfo immediately on entry, so a
 	// small staging area carved out of the already-reserved kernel low-memory
@@ -989,6 +991,7 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 	ZeroBytes(memory_map, sizeof(BootMemoryRegion) * kBootInfoMaxMemoryRegions);
 	ZeroBytes(modules, sizeof(BootModuleInfo) * kBootInfoMaxModules);
 	ZeroBytes(arena.base, arena.capacity);
+	WriteSerialLn("[limine-shim] bootinfo storage cleared");
 
 	BootInfo &boot = *boot_info;
 	boot.magic = kBootInfoMagic;
@@ -1006,27 +1009,33 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 		WriteSerialLn("[limine-shim] bootloader info handoff failed");
 		return nullptr;
 	}
+	WriteSerialLn("[limine-shim] bootinfo bootloader ok");
 	if(!PopulateCommandLine(boot, arena))
 	{
 		WriteSerialLn("[limine-shim] command line handoff failed");
 		return nullptr;
 	}
+	WriteSerialLn("[limine-shim] bootinfo cmdline ok");
 	if(!PopulateMemoryMap(boot, memory_map))
 	{
 		WriteSerialLn("[limine-shim] memory map handoff failed");
 		return nullptr;
 	}
+	WriteSerialLn("[limine-shim] bootinfo memmap ok");
 	if(!PopulateInitrdModule(boot, arena, initrd_module, modules))
 	{
 		WriteSerialLn("[limine-shim] initrd handoff failed");
 		return nullptr;
 	}
+	WriteSerialLn("[limine-shim] bootinfo initrd ok");
 	if(!PopulateFramebuffer(boot))
 	{
 		WriteSerialLn("[limine-shim] framebuffer handoff failed");
 		return nullptr;
 	}
+	WriteSerialLn("[limine-shim] bootinfo framebuffer ok");
 	PopulateFirmwarePointers(boot);
+	WriteSerialLn("[limine-shim] bootinfo ready");
 	return boot_info;
 }
 }
@@ -1073,6 +1082,7 @@ extern "C" [[noreturn]] void _start()
 	WriteSerialHex((uint64_t)cpu_boot);
 	WriteSerialLn("");
 
+	WriteSerialLn("[limine-shim] building BootInfo");
 	BootInfo *boot_info = BuildBootInfo(*initrd_file,
 			kernel_physical_start,
 			kernel_physical_end,
