@@ -60,6 +60,8 @@ set(OS1_BIOS_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1-bios.log")
 set(OS1_OVMF_VARS_FILE "${OS1_ARTIFACT_DIR}/ovmf-vars.fd")
 set(OS1_SMOKE_LOG "${OS1_ARTIFACT_DIR}/smoke.log")
 set(OS1_SMOKE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-bios.log")
+set(OS1_SMOKE_SPAWN_LOG "${OS1_ARTIFACT_DIR}/smoke-spawn.log")
+set(OS1_SMOKE_SPAWN_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-spawn-bios.log")
 set(OS1_DUMP_ASM "${OS1_ARTIFACT_DIR}/dump.asm")
 set(OS1_CPUSTART_DUMP "${OS1_ARTIFACT_DIR}/cpustart.asm")
 
@@ -369,6 +371,26 @@ set(OS1_SMOKE_REJECT_MARKERS
   "#UD invalid opcode"
 )
 
+# The shell prompt does not terminate with a newline, so the line-buffered
+# smoke runner observes it when the following command output flushes.
+set(OS1_SHELL_INPUT_EVENTS
+  "shell prompt ready::help\\n"
+  "help echo pid sys ps cpu pci initrd exit::echo hi\\n"
+  "echo: hi::pid\\n"
+  "pid: ::sys\\n"
+  "sys boot=::ps\\n"
+  "pid tid pstate tstate mode cr3 name::cpu\\n"
+  "cpu slot apic bsp booted pid tid::pci\\n"
+  "pci 00:03.0 1af4:1042::initrd\\n"
+  "initrd /bin/yield size=::echo done\\n"
+)
+
+set(OS1_SHELL_SPAWN_INPUT_EVENTS
+  "shell prompt ready::yield\\n"
+  "shell spawn yield ok pid=::fault\\n"
+  "shell spawn fault ok pid=::nope\\n"
+)
+
 # Preventive: if CI (or any caller) sets OS1_REQUIRE_UEFI_SMOKE=ON, a missing
 # UEFI smoke becomes a configure-time hard error rather than a silent skip.
 # GitHub Actions + act both set this via the CI workflow, so a missing OVMF
@@ -420,21 +442,9 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd path size"
     "initrd /bin/sh size="
     "initrd /bin/yield size="
+    "initrd /bin/fault size="
     "echo: done"
     "idle thread online"
-  )
-  # The shell prompt does not terminate with a newline, so the line-buffered
-  # smoke runner observes it when the following command output flushes.
-  set(OS1_SHELL_INPUT_EVENTS
-    "shell prompt ready::help\\n"
-    "help echo pid sys ps cpu pci initrd exit::echo hi\\n"
-    "echo: hi::pid\\n"
-    "pid: ::sys\\n"
-    "sys boot=::ps\\n"
-    "pid tid pstate tstate mode cr3 name::cpu\\n"
-    "cpu slot apic bsp booted pid tid::pci\\n"
-    "pci 00:03.0 1af4:1042::initrd\\n"
-    "initrd /bin/yield size=::echo done\\n"
   )
 
   add_test(
@@ -465,8 +475,54 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     USES_TERMINAL
     VERBATIM
   )
+
+  set(OS1_UEFI_SPAWN_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "boot source: limine"
+    "virtio-blk smoke ok"
+    "starting first user process"
+    "shell prompt ready"
+    "[user/yield] tick 0"
+    "[user/yield] tick 2"
+    "shell spawn yield ok pid="
+    "shell prompt resumed"
+    "[user/fault] boom"
+    "shell spawn fault ok pid="
+    "unknown command: nope"
+    "idle thread online"
+  )
+
+  add_test(
+    NAME os1_smoke_spawn
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DISO_IMAGE=${OS1_ISO_IMAGE}"
+      "-DOVMF_CODE=${OS1_OVMF_CODE}"
+      "-DOVMF_VARS_TEMPLATE=${OS1_OVMF_VARS_TEMPLATE}"
+      "-DLOG_FILE=${OS1_SMOKE_SPAWN_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_UEFI_SPAWN_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DSERIAL_INPUT_EVENTS=${OS1_SHELL_SPAWN_INPUT_EVENTS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke_spawn
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_spawn$"
+    DEPENDS os1_image "${OS1_VIRTIO_TEST_DISK}"
+    USES_TERMINAL
+    VERBATIM
+  )
 else()
   os1_add_unavailable_target(smoke "smoke target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
+  os1_add_unavailable_target(smoke_spawn "smoke_spawn target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
 
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
@@ -496,6 +552,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd path size"
     "initrd /bin/sh size="
     "initrd /bin/yield size="
+    "initrd /bin/fault size="
     "echo: done"
     "idle thread online"
   )
@@ -526,14 +583,58 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     USES_TERMINAL
     VERBATIM
   )
+
+  set(OS1_BIOS_SPAWN_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "boot source: bios"
+    "virtio-blk smoke ok"
+    "starting first user process"
+    "shell prompt ready"
+    "[user/yield] tick 0"
+    "[user/yield] tick 2"
+    "shell spawn yield ok pid="
+    "shell prompt resumed"
+    "[user/fault] boom"
+    "shell spawn fault ok pid="
+    "unknown command: nope"
+    "idle thread online"
+  )
+
+  add_test(
+    NAME os1_smoke_spawn_bios
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DRAW_IMAGE=${OS1_RAW_IMAGE}"
+      "-DLOG_FILE=${OS1_SMOKE_SPAWN_BIOS_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_BIOS_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_BIOS_SPAWN_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DSERIAL_INPUT_EVENTS=${OS1_SHELL_SPAWN_INPUT_EVENTS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke_spawn_bios
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_spawn_bios$"
+    DEPENDS os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
+    USES_TERMINAL
+    VERBATIM
+  )
 else()
   os1_add_unavailable_target(smoke_bios "smoke_bios target unavailable: qemu-system-x86_64 was not found")
+  os1_add_unavailable_target(smoke_spawn_bios "smoke_spawn_bios target unavailable: qemu-system-x86_64 was not found")
 endif()
 
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   add_custom_target(
     smoke_all
-    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_bios)?$"
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_spawn)?(_bios)?$"
     DEPENDS os1_image os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM

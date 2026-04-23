@@ -10,7 +10,9 @@ enum {
 	SYS_yield = 3,
 	SYS_getpid = 4,
 	SYS_read = 5,
-	SYS_observe = 6
+	SYS_observe = 6,
+	SYS_spawn = 7,
+	SYS_waitpid = 8,
 };
 
 #ifdef __cplusplus
@@ -39,6 +41,16 @@ static inline long os1_read(int fd, void *buffer, size_t length)
 static inline long os1_observe(uint64_t kind, void *buffer, size_t length)
 {
 	return os1_syscall3(SYS_observe, kind, (uint64_t)buffer, (uint64_t)length);
+}
+
+static inline long os1_spawn(const char *path)
+{
+	return os1_syscall1(SYS_spawn, (uint64_t)path);
+}
+
+static inline long os1_waitpid(uint64_t pid, int *status)
+{
+	return os1_syscall2(SYS_waitpid, pid, (uint64_t)status);
 }
 
 static inline void os1_exit(int status)

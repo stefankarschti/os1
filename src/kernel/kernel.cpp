@@ -312,9 +312,12 @@ void KernelIdleThread()
 	}
 }
 
+void WakeChildWaiters();
+
 [[nodiscard]] Thread *ScheduleNext(bool keep_current)
 {
 	reapDeadThreads(page_frames);
+	WakeChildWaiters();
 	Thread *current = currentThread();
 	if(keep_current && current)
 	{
@@ -711,7 +714,7 @@ bool LoadUserElf(const uint8_t *image, uint64_t image_size, uint64_t &cr3, uint6
 	return true;
 }
 
-Thread *LoadUserProgram(const char *path)
+Thread *LoadUserProgram(const char *path, Process *parent = nullptr)
 {
 	const uint8_t *file_data = nullptr;
 	uint64_t file_size = 0;
@@ -736,11 +739,12 @@ Thread *LoadUserProgram(const char *path)
 		DestroyUserAddressSpace(user_cr3);
 		return nullptr;
 	}
+	process->parent = parent;
 
 	Thread *thread = createUserThread(process, entry, user_rsp, page_frames);
 	if(nullptr == thread)
 	{
-		DestroyUserAddressSpace(user_cr3);
+		reapProcess(process, page_frames);
 		return nullptr;
 	}
 
@@ -774,6 +778,136 @@ bool CopyFromUser(const Thread *thread, uint64_t user_pointer, void *destination
 		copied += chunk;
 	}
 	return true;
+}
+
+bool CopyUserString(const Thread *thread, uint64_t user_pointer, char *destination, size_t destination_size)
+{
+	if((nullptr == thread) || (nullptr == destination) || (0 == destination_size) || (0 == user_pointer))
+	{
+		return false;
+	}
+
+	for(size_t index = 0; index < destination_size; ++index)
+	{
+		char ch = 0;
+		if(!CopyFromUser(thread, user_pointer + index, &ch, sizeof(ch)))
+		{
+			return false;
+		}
+		destination[index] = ch;
+		if(0 == ch)
+		{
+			return true;
+		}
+	}
+
+	destination[destination_size - 1] = 0;
+	return false;
+}
+
+Process *FindChildProcess(Process *parent, uint64_t pid, bool zombie_only)
+{
+	if(nullptr == parent)
+	{
+		return nullptr;
+	}
+
+	for(size_t i = 0; i < kMaxProcesses; ++i)
+	{
+		Process *candidate = processTable + i;
+		if((candidate->parent != parent) || (ProcessState::Free == candidate->state))
+		{
+			continue;
+		}
+		if(zombie_only && (ProcessState::Zombie != candidate->state))
+		{
+			continue;
+		}
+		if((0 == pid) || (candidate->pid == pid))
+		{
+			return candidate;
+		}
+	}
+	return nullptr;
+}
+
+bool ProcessHasAnyThreads(const Process *process)
+{
+	if(nullptr == process)
+	{
+		return false;
+	}
+
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		if((threadTable[i].process == process) && (ThreadState::Free != threadTable[i].state))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool TryCompleteWaitPid(Thread *thread, uint64_t pid, uint64_t user_status_pointer, long &result)
+{
+	result = -1;
+	if((nullptr == thread) || (nullptr == thread->process) || ((pid >> 63) != 0))
+	{
+		return true;
+	}
+
+	Process *child = FindChildProcess(thread->process, pid, true);
+	if(nullptr != child)
+	{
+		if(ProcessHasAnyThreads(child))
+		{
+			return false;
+		}
+
+		const int exit_status = child->exit_status;
+		if((0 != user_status_pointer)
+			&& !CopyToUser(thread, user_status_pointer, &exit_status, sizeof(exit_status)))
+		{
+			return true;
+		}
+
+		result = static_cast<long>(child->pid);
+		if(!reapProcess(child, page_frames))
+		{
+			result = -1;
+		}
+		return true;
+	}
+
+	if(nullptr != FindChildProcess(thread->process, pid, false))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void WakeChildWaiters()
+{
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		Thread *thread = threadTable + i;
+		if((ThreadState::Blocked != thread->state)
+			|| (ThreadWaitReason::ChildExit != thread->wait_reason))
+		{
+			continue;
+		}
+
+		long result = -1;
+		if(!TryCompleteWaitPid(thread, thread->wait_length, thread->wait_address, result))
+		{
+			continue;
+		}
+
+		clearThreadWait(thread);
+		thread->frame.rax = static_cast<uint64_t>(result);
+		markThreadReady(thread);
+	}
 }
 
 bool TryCompleteConsoleRead(Thread *thread, uint64_t user_buffer, size_t length, long &result)
@@ -1234,6 +1368,28 @@ long SysWrite(int fd, uint64_t user_buffer, size_t length)
 	return (long)written;
 }
 
+long SysSpawn(uint64_t user_path)
+{
+	Thread *thread = currentThread();
+	if((nullptr == thread) || (nullptr == thread->process))
+	{
+		return -1;
+	}
+
+	char path[OS1_OBSERVE_INITRD_PATH_BYTES];
+	if(!CopyUserString(thread, user_path, path, sizeof(path)))
+	{
+		return -1;
+	}
+
+	Thread *child = LoadUserProgram(path, thread->process);
+	if((nullptr == child) || (nullptr == child->process))
+	{
+		return -1;
+	}
+	return static_cast<long>(child->process->pid);
+}
+
 Thread *HandleSyscall(TrapFrame *frame)
 {
 	Thread *thread = currentThread();
@@ -1275,6 +1431,21 @@ Thread *HandleSyscall(TrapFrame *frame)
 	case SYS_observe:
 		frame->rax = static_cast<uint64_t>(SysObserve(frame->rdi, frame->rsi, static_cast<size_t>(frame->rdx)));
 		return thread;
+		case SYS_spawn:
+			frame->rax = static_cast<uint64_t>(SysSpawn(frame->rdi));
+			return thread;
+		case SYS_waitpid:
+		{
+			long wait_result = -1;
+			if(TryCompleteWaitPid(thread, frame->rdi, frame->rsi, wait_result))
+			{
+				frame->rax = static_cast<uint64_t>(wait_result);
+				return thread;
+			}
+
+			blockCurrentThread(ThreadWaitReason::ChildExit, frame->rsi, frame->rdi);
+			return ScheduleNext(false);
+		}
 	default:
 		frame->rax = (uint64_t)-1;
 		return thread;

@@ -11,6 +11,8 @@ enum : uint64_t
 	SYS_getpid = 4,
 	SYS_read = 5,
 	SYS_observe = 6,
+	SYS_spawn = 7,
+	SYS_waitpid = 8,
 };
 
 #endif
