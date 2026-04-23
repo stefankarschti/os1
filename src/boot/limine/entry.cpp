@@ -8,23 +8,27 @@
 #include "memory.h"
 
 // The shared kernel still expects to start on a low identity-mapped stack.
-// The shim switches to the boot CPU page before making the final call so the
-// modern path enters the exact same C++ ABI as the BIOS loader.
-extern "C" [[gnu::naked, noreturn]] void limine_enter_kernel(void (*)(BootInfo *, cpu *), BootInfo *, cpu *)
-{
-	asm volatile(
-		"mov %rdi, %rax\n"
-		"lea 4096(%rdx), %rsp\n"
-		"and $-16, %rsp\n"
-		"mov %rsi, %rdi\n"
-		"mov %rdx, %rsi\n"
-		"call *%rax\n"
-		"1:\n"
-		"cli\n"
-		"hlt\n"
-		"jmp 1b\n"
-	);
-}
+// Keep this as a real assembler symbol rather than a naked C++ function:
+// GCC's naked-function semantics are compiler-sensitive, and the GitHub runner
+// uses a newer cross compiler than local `act` runs.
+extern "C" [[noreturn]] void limine_enter_kernel(void (*)(BootInfo *, cpu *), BootInfo *, cpu *);
+
+asm(R"ASM(
+.global limine_enter_kernel
+.type limine_enter_kernel, @function
+limine_enter_kernel:
+	mov %rdi, %rax
+	lea 4096(%rdx), %rsp
+	and $-16, %rsp
+	mov %rsi, %rdi
+	mov %rdx, %rsi
+	call *%rax
+1:
+	cli
+	hlt
+	jmp 1b
+.size limine_enter_kernel, .-limine_enter_kernel
+)ASM");
 
 namespace
 {
