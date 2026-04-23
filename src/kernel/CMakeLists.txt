@@ -26,6 +26,7 @@ set(KERNEL_CXX_SOURCES
 add_library(kernel_core_objects OBJECT ${KERNEL_CXX_SOURCES})
 target_include_directories(kernel_core_objects PRIVATE
   "${PROJECT_SOURCE_DIR}/src/libc"
+  "${PROJECT_SOURCE_DIR}/src/uapi"
   "${PROJECT_SOURCE_DIR}/third_party/font8x8"
 )
 set_target_properties(
@@ -49,6 +50,7 @@ add_library(kernel_limine_frontend OBJECT "${PROJECT_SOURCE_DIR}/src/boot/limine
 target_include_directories(kernel_limine_frontend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${PROJECT_SOURCE_DIR}/src/libc"
+  "${PROJECT_SOURCE_DIR}/src/uapi"
   "${PROJECT_SOURCE_DIR}/third_party/limine/v11.4.0"
 )
 set_target_properties(

@@ -90,5 +90,7 @@ struct VirtioBlkDevice
 bool platform_init(const BootInfo &boot_info, VirtualMemory &kernel_vm);
 bool platform_enable_isa_irq(int bus_irq, int irq = -1);
 const VirtioBlkDevice *platform_virtio_blk();
+size_t platform_pci_device_count();
+const PciDevice *platform_pci_devices();
 
 #endif // PLATFORM_H

@@ -26,6 +26,7 @@ function(os1_add_user_program program_name source_file output_var)
       -Wall
       -Wextra
       "-I${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "-I${PROJECT_SOURCE_DIR}/src/uapi"
       -nostdlib
       -nostartfiles
       -nodefaultlibs
@@ -73,6 +74,7 @@ function(os1_add_user_cxx_program program_name source_file output_var)
       -Wall
       -Wextra
       "-I${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "-I${PROJECT_SOURCE_DIR}/src/uapi"
       -nostdlib
       -nostartfiles
       -nodefaultlibs
