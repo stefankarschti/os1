@@ -327,30 +327,6 @@ else()
   os1_add_unavailable_target(run_bios "run_bios target unavailable: qemu-system-x86_64 was not found")
 endif()
 
-if(OS1_OBJDUMP_EXECUTABLE)
-  add_custom_target(
-    disasm
-    BYPRODUCTS "${OS1_DUMP_ASM}" "${OS1_CPUSTART_DUMP}"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-    COMMAND
-      "${CMAKE_COMMAND}"
-      "-DOUTPUT_FILE=${OS1_DUMP_ASM}"
-      "-DCOMMAND_ARGS=${OS1_OBJDUMP_EXECUTABLE};-d;-M;intel;${OS1_KERNEL_LIMINE_ELF}"
-      -P
-      "${PROJECT_SOURCE_DIR}/cmake/scripts/write_stdout_to_file.cmake"
-    COMMAND
-      "${CMAKE_COMMAND}"
-      "-DOUTPUT_FILE=${OS1_CPUSTART_DUMP}"
-      "-DCOMMAND_ARGS=${OS1_OBJDUMP_EXECUTABLE};-D;-b;binary;-m;i8086;-M;intel;${OS1_CPUSTART_BIN}"
-      -P
-      "${PROJECT_SOURCE_DIR}/cmake/scripts/write_stdout_to_file.cmake"
-    DEPENDS "${OS1_KERNEL_LIMINE_ELF}" "${OS1_CPUSTART_BIN}"
-    VERBATIM
-  )
-else()
-  os1_add_unavailable_target(disasm "disasm target unavailable: no compatible objdump was found")
-endif()
-
 include(CTest)
 
 # The smoke runner terminates QEMU as soon as every expected marker has been

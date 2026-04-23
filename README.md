@@ -19,7 +19,7 @@ Optional helper tools:
 
 - `qemu-system-x86_64` for `run`, `run_bios`, and smoke tests
 - OVMF / edk2 firmware images for the default UEFI path
-- `x86_64-elf-objdump` or `objdump` for `disasm`
+- `x86_64-elf-objdump` or `objdump`
 
 On macOS with Homebrew:
 
@@ -82,12 +82,6 @@ Legacy BIOS compatibility path:
 
 ```sh
 cmake --build build --target run_bios
-```
-
-Generate disassembly outputs:
-
-```sh
-cmake --build build --target disasm
 ```
 
 ## Smoke Tests

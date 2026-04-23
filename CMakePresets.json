@@ -45,14 +45,6 @@
       ]
     },
     {
-      "name": "disasm",
-      "displayName": "Generate disassembly",
-      "configurePreset": "default",
-      "targets": [
-        "disasm"
-      ]
-    },
-    {
       "name": "smoke",
       "displayName": "Run UEFI smoke test",
       "configurePreset": "default",

@@ -1,6 +1,3 @@
-*.raw
-*.log
-dump.asm
 /build
 /.act-cache
 /.claude
