@@ -727,39 +727,6 @@ template <typename T>
 	return true;
 }
 
-[[nodiscard]] LowHandoffBootInfoStorage *MapBootInfoStorage(uint64_t physical_address)
-{
-	return MapPhysicalPointer<LowHandoffBootInfoStorage>(physical_address);
-}
-
-[[nodiscard]] BootInfo *BootInfoStorage(LowHandoffBootInfoStorage *storage)
-{
-	return storage ? &storage->info : nullptr;
-}
-
-[[nodiscard]] BootMemoryRegion *BootMemoryMapStorage(LowHandoffBootInfoStorage *storage)
-{
-	return storage ? storage->memory_map : nullptr;
-}
-
-[[nodiscard]] BootModuleInfo *BootModuleStorage(LowHandoffBootInfoStorage *storage)
-{
-	return storage ? storage->modules : nullptr;
-}
-
-[[nodiscard]] BootStringArena CreateBootStringArena(LowHandoffBootInfoStorage *storage)
-{
-	BootStringArena arena{};
-	if(nullptr == storage)
-	{
-		return arena;
-	}
-	arena.base = storage->string_pool;
-	arena.capacity = sizeof(storage->string_pool);
-	arena.used = 0;
-	return arena;
-}
-
 [[nodiscard]] char *ReserveBootString(BootStringArena &arena,
 		size_t capacity)
 {
@@ -972,11 +939,22 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 		uint64_t boot_info_storage_physical)
 {
 	WriteSerialLn("[limine-shim] BuildBootInfo start");
-	LowHandoffBootInfoStorage *storage = MapBootInfoStorage(boot_info_storage_physical);
-	BootInfo *boot_info = BootInfoStorage(storage);
-	BootMemoryRegion *memory_map = BootMemoryMapStorage(storage);
-	BootModuleInfo *modules = BootModuleStorage(storage);
-	BootStringArena arena = CreateBootStringArena(storage);
+	const auto *hhdm = g_hhdm_request.response;
+	LowHandoffBootInfoStorage *storage = nullptr;
+	BootInfo *boot_info = nullptr;
+	BootMemoryRegion *memory_map = nullptr;
+	BootModuleInfo *modules = nullptr;
+	BootStringArena arena{};
+	if(LiminePointerMapped(hhdm))
+	{
+		storage = (LowHandoffBootInfoStorage*)(boot_info_storage_physical + hhdm->offset);
+		boot_info = &storage->info;
+		memory_map = storage->memory_map;
+		modules = storage->modules;
+		arena.base = storage->string_pool;
+		arena.capacity = sizeof(storage->string_pool);
+		arena.used = 0;
+	}
 	if((nullptr == boot_info) || (nullptr == memory_map) || (nullptr == modules) || (nullptr == arena.base))
 	{
 		WriteSerialLn("[limine-shim] handoff storage unavailable");
