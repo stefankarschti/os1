@@ -297,16 +297,6 @@ void KernelIdleThread()
 	{
 		next = idleThread();
 	}
-	if(next)
-	{
-		debug("schedule -> tid ")(next->tid)
-			(" pid ")(next->process ? next->process->pid : 0)
-			(" mode ")(next->user_mode ? "user" : "kernel")
-			(" cs 0x")(next->frame.cs, 16)
-			(" rip 0x")(next->frame.rip, 16)();
-		// `restore_thread` owns the actual current-thread flip; publishing it here
-		// lets an in-flight trap save the wrong CPU context into `next->frame`.
-	}
 	return next;
 }
 

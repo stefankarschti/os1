@@ -17,6 +17,8 @@ asm(R"ASM(
 .global limine_enter_kernel
 .type limine_enter_kernel, @function
 limine_enter_kernel:
+	cli
+	cld
 	mov %rdi, %rax
 	lea 4096(%rdx), %rsp
 	and $-16, %rsp
@@ -1032,6 +1034,8 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 extern "C" [[noreturn]] void _start()
 {
 	InitSerial();
+	asm volatile("cli");
+	asm volatile("cld");
 	WriteSerialLn("[limine-shim] start");
 	if(!LIMINE_BASE_REVISION_SUPPORTED(g_limine_base_revision))
 	{
