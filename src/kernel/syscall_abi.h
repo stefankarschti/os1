@@ -9,6 +9,7 @@ enum : uint64_t
 	SYS_exit = 2,
 	SYS_yield = 3,
 	SYS_getpid = 4,
+	SYS_read = 5,
 };
 
 #endif

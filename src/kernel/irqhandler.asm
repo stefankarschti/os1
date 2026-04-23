@@ -67,16 +67,53 @@ trap_entry_common:
 .dispatch:
 	mov r12, rax
 	mov rdi, rax
+	mov r13, rsp
 	and rsp, -16
 	call trap_dispatch
+	mov rsp, r13
 	test rax, rax
 	jz .resume_frame
+	mov rbx, [gs:CPU_CURRENT_THREAD]
+	cmp rax, rbx
+	jne .switch_thread
+	mov rdx, [r12 + TF_CS]
+	test dl, 3
+	jnz .switch_thread
+	jmp .resume_live_kernel
+
+.switch_thread:
 	mov rdi, rax
 	jmp restore_thread
 
 .resume_frame:
 	mov rdi, r12
 	jmp restore_frame_ptr
+
+.resume_live_kernel:
+	mov rdx, [r12 + TF_RIP]
+	mov [rsp + 32], rdx
+	mov rdx, [r12 + TF_CS]
+	mov [rsp + 40], rdx
+	mov rdx, [r12 + TF_RFLAGS]
+	mov [rsp + 48], rdx
+
+	mov r15, [r12 + TF_R15]
+	mov r14, [r12 + TF_R14]
+	mov r13, [r12 + TF_R13]
+	mov r11, [r12 + TF_R11]
+	mov r10, [r12 + TF_R10]
+	mov r9,  [r12 + TF_R9]
+	mov r8,  [r12 + TF_R8]
+	mov rbp, [r12 + TF_RBP]
+	mov rsi, [r12 + TF_RSI]
+	mov rdi, [r12 + TF_RDI]
+	mov rdx, [r12 + TF_RDX]
+	mov rcx, [r12 + TF_RCX]
+	mov rbx, [r12 + TF_RBX]
+	mov rax, [r12 + TF_RAX]
+	mov r12, [r12 + TF_R12]
+	add rsp, 32
+	iretq
 
 %macro IRQ_STUB 1
 global irq%1

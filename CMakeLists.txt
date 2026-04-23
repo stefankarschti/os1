@@ -363,6 +363,10 @@ include(CTest)
 # acceleration (GitHub Actions ubuntu-hosted, in particular).
 set(OS1_UEFI_SMOKE_TIMEOUT_SECONDS 120)
 set(OS1_BIOS_SMOKE_TIMEOUT_SECONDS 60)
+set(OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS 1)
+set(OS1_SMOKE_REJECT_MARKERS
+  "#UD invalid opcode"
+)
 
 # Preventive: if CI (or any caller) sets OS1_REQUIRE_UEFI_SMOKE=ON, a missing
 # UEFI smoke becomes a configure-time hard error rather than a silent skip.
@@ -401,10 +405,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "framebuffer console active"
     "initrd module discovered"
     "starting first user process"
-    "[user/init] hello"
+    "shell input ready"
+    "shell input echo: ping"
     "[user/yield] tick 0"
     "user page fault killed pid"
     "idle thread online"
+  )
+  set(OS1_SHELL_INPUT_EVENTS
+    "shell input ready::ping\\n"
   )
 
   add_test(
@@ -417,7 +425,10 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       "-DOVMF_VARS_TEMPLATE=${OS1_OVMF_VARS_TEMPLATE}"
       "-DLOG_FILE=${OS1_SMOKE_LOG}"
       "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
       "-DEXPECTED_MARKERS=${OS1_UEFI_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DSERIAL_INPUT_EVENTS=${OS1_SHELL_INPUT_EVENTS}"
       "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
       "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
       "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
@@ -449,7 +460,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "Interrupts initialization successful"
     "initrd module discovered"
     "starting first user process"
-    "[user/init] hello"
+    "shell input ready"
+    "shell input echo: ping"
     "[user/yield] tick 0"
     "user page fault killed pid"
     "idle thread online"
@@ -463,7 +475,10 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       "-DRAW_IMAGE=${OS1_RAW_IMAGE}"
       "-DLOG_FILE=${OS1_SMOKE_BIOS_LOG}"
       "-DSMOKE_TIMEOUT_SECONDS=${OS1_BIOS_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
       "-DEXPECTED_MARKERS=${OS1_BIOS_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DSERIAL_INPUT_EVENTS=${OS1_SHELL_INPUT_EVENTS}"
       "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
       "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
       "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
