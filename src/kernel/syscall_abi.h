@@ -13,6 +13,7 @@ enum : uint64_t
 	SYS_observe = 6,
 	SYS_spawn = 7,
 	SYS_waitpid = 8,
+	SYS_exec = 9,
 };
 
 #endif

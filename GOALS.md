@@ -1,6 +1,6 @@
 # GOALS
 
-This document captures the long-term direction of `os1`. For the concrete snapshot of what exists today, see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md). For the sequenced design that turns these goals into code, see the milestone designs under [doc/](doc/).
+This document captures the long-term direction of `os1`. For the concrete snapshot of what exists today, see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) (which now includes a system diagram and end-to-end workflow). For the build, run, and smoke workflow, see [README.md](README.md). For a full code-grounded project review, see [doc/2026-04-23-review.md](doc/2026-04-23-review.md). For the most recent completed operator-environment design, see [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md).
 
 ## Vision
 
@@ -223,16 +223,16 @@ Later modularization is acceptable where it clearly improves structure, but earl
 
 ### Kernel and userland separation
 
-The project has already crossed the first protected-userland threshold: it can load statically linked user ELF programs from an initrd, enter ring 3, service a small syscall ABI, and kill a faulting user process without panicking the kernel. The remaining goal is to deepen that foundation into a more complete operating system model.
+The project has already crossed the first protected-userland threshold: it boots directly into a ring-3 shell staged as both `/bin/init` and `/bin/sh`, can load statically linked user ELF programs from an initrd, services a small but real syscall ABI, and can kill or reap a faulting child process without panicking the kernel. The remaining goal is to deepen that foundation into a more complete operating system model.
 
 Required eventual capabilities:
 
-- richer executable loading and launch policy
-- stronger process lifecycle management
-- broader syscall surface
+- filesystem-backed executable loading and launch policy
+- stronger process and thread lifecycle management
+- broader descriptor, IPC, and resource-access models
+- arguments, environment passing, and richer program-loading semantics
 - filesystem-backed program and data access
-- controlled resource access
-- a user-facing environment beyond the current initrd self-test programs
+- a multiuser environment beyond the current initrd shell and companion programs
 
 Protected userland remains one of the most important architectural pillars in the project.
 
@@ -373,7 +373,7 @@ In other words:
 - SMP should influence kernel structure early, not be bolted on late
 - GPU / accelerator compute should be considered a first-class future subsystem early enough that memory, scheduling, driver, and security boundaries do not assume a CPU-only world
 
-The in-repo milestone designs (M1–M4) refine the coarser A–G map below into concrete engineering plans.
+The in-repo milestone designs (M1–M5) refine the coarser A–G map below into concrete engineering plans.
 
 ### Milestone A: Clean boot and kernel baseline *(implemented — see [M1 design](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md))*
 
@@ -394,21 +394,28 @@ The in-repo milestone designs (M1–M4) refine the coarser A–G map below into 
 - early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, ACPI-derived AP bring-up, and AP idle state are implemented; SMP scheduling is still a follow-on)
 - early accelerator / GPU device discovery path where feasible
 
-### Milestone C: Real userland foundation *(implemented — see [M2 design](doc/2026-04-22-milestone-2-process-model-and-isolation.md))*
+### Milestone C: Protected userland and operator shell baseline *(implemented across [M2 design](doc/2026-04-22-milestone-2-process-model-and-isolation.md) and [M5 design](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md))*
 
 - ring-3 user-mode execution
 - ELF64 executable loading from a cpio-newc initrd
-- `int 0x80` syscall interface (`write`, `exit`, `yield`, `getpid`)
-- initrd-backed userland with `/bin/init`, `/bin/yield`, `/bin/fault`
+- a small `int 0x80` syscall interface for console I/O, observability, and initrd-backed process control
+- initrd-backed operator environment with `/bin/init`, `/bin/sh`, `/bin/yield`, and `/bin/fault`
+- serial-drivable shell and smoke coverage on both boot paths
 
-Later follow-ups expected in this area: a shell, richer syscall surface, richer file-descriptor semantics, and an optional fast-syscall (`SYSCALL`/`SYSRET`) path.
+Later follow-ups expected in this area: filesystem-backed loading, richer file-descriptor semantics, arguments/environment support, and an optional fast-syscall (`SYSCALL`/`SYSRET`) path.
 
-### Milestone D: Persistence and local security
+### Milestone D: Persistence and local security *(next)*
 
-- persistent storage
-- user accounts
-- permissions
-- multiuser model
+The virtio-blk probe in Milestone 4 is a smoke path, not a block layer. Milestone D therefore has two halves that should not be conflated:
+
+1. a narrow in-kernel `BlockDevice` abstraction above `virtio-blk`, followed by a first read-only filesystem (FAT32 or a bespoke simple FS) and filesystem-backed `exec`;
+2. a small multiuser/permissions foundation (uid/gid, file ownership, user table) so Milestone F can meaningfully run SSH.
+
+Implementation notes grounded in current source:
+
+- promote `VirtioBlkReadSector` in [src/kernel/platform.cpp](src/kernel/platform.cpp) from a polling one-shot into a request-slab behind a `BlockDevice` interface
+- move `virtio-blk` to MSI/MSI-X *before* the filesystem layer is written on top
+- add argv/envp handoff in [`LoadUserElf`](src/kernel/kernel.cpp) so a real `init` can evolve apart from `/bin/sh`
 
 ### Milestone E: Networking foundation
 
@@ -437,7 +444,8 @@ Some earlier open questions have since been resolved in source or in the milesto
 
 - **Resolved:** the kernel-facing boot contract is a single versioned `BootInfo` block normalized by each boot source (see [M1](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) and [`src/kernel/bootinfo.h`](src/kernel/bootinfo.h)).
 - **Resolved:** the modern default boot path is Limine plus UEFI, while BIOS remains available during the transition ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md)).
-- **Resolved:** the first user-program ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with `int 0x80` syscalls matching the System V AMD64 register layout ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [`src/kernel/syscall_abi.h`](src/kernel/syscall_abi.h), [`src/user/`](src/user/)).
+- **Resolved:** the first protected-userland ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with `int 0x80` syscalls matching the System V AMD64 register layout and now covering console I/O, observability, and initrd-backed process control ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [`src/kernel/syscall_abi.h`](src/kernel/syscall_abi.h), [`src/uapi/os1/observe.h`](src/uapi/os1/observe.h), [`src/user/`](src/user/)).
+- **Resolved:** the first operator environment is an initrd-backed ring-3 shell staged as both `/bin/init` and `/bin/sh`, scriptable through serial input and backed by explicit kernel observability snapshots rather than parsed boot logs ([M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)).
 
 The following are not fully decided yet and should be revisited explicitly:
 
