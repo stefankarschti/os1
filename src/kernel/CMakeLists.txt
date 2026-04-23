@@ -1,9 +1,11 @@
-set(KERNEL_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker2.ld")
+set(KERNEL_BIOS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker2.ld")
+set(KERNEL_LIMINE_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker_limine.ld")
 
 set(KERNEL_CXX_SOURCES
   bootinfo.cpp
   cpu.cpp
   debug.cpp
+  display.cpp
   interrupt.cpp
   ioapic.cpp
   kernel.cpp
@@ -19,24 +21,53 @@ set(KERNEL_CXX_SOURCES
   "${PROJECT_SOURCE_DIR}/src/libc/stdlib.cpp"
 )
 
-add_library(kernel_objects OBJECT ${KERNEL_CXX_SOURCES})
-
-target_include_directories(kernel_objects PRIVATE "${PROJECT_SOURCE_DIR}/src/libc")
-
+add_library(kernel_core_objects OBJECT ${KERNEL_CXX_SOURCES})
+target_include_directories(kernel_core_objects PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/libc"
+  "${PROJECT_SOURCE_DIR}/third_party/font8x8"
+)
 set_target_properties(
-  kernel_objects
+  kernel_core_objects
   PROPERTIES
     C_STANDARD 99
     C_EXTENSIONS ON
     CXX_STANDARD 20
     CXX_EXTENSIONS ON
 )
-
 target_compile_options(
-  kernel_objects
+  kernel_core_objects
   PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
-    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    # Kernel code runs with asynchronous IRQs on the current stack, so the
+    # SysV red zone is unsafe and must stay disabled across both boot paths.
+    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
+)
+
+add_library(kernel_limine_frontend OBJECT "${PROJECT_SOURCE_DIR}/src/boot/limine/entry.cpp")
+target_include_directories(kernel_limine_frontend PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${PROJECT_SOURCE_DIR}/src/libc"
+  "${PROJECT_SOURCE_DIR}/third_party/limine/v11.4.0"
+)
+set_target_properties(
+  kernel_limine_frontend
+  PROPERTIES
+    CXX_STANDARD 20
+    CXX_EXTENSIONS ON
+)
+target_compile_options(
+  kernel_limine_frontend
+  PRIVATE
+    -ffreestanding
+    -mno-red-zone
+    -mcmodel=large
+    -O0
+    -Wall
+    -Wextra
+    -fno-asynchronous-unwind-tables
+    -fno-unwind-tables
+    -fno-exceptions
+    -fno-rtti
 )
 
 file(GLOB KERNEL_ASM_DEPENDENCIES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.asm" "${CMAKE_CURRENT_SOURCE_DIR}/*.inc")
@@ -70,14 +101,26 @@ set(KERNEL_ASM_OBJECTS
 )
 
 add_custom_command(
-  OUTPUT "${OS1_KERNEL64_ELF}"
+  OUTPUT "${OS1_KERNEL_BIOS_ELF}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL64_ELF}" -n
+  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_BIOS_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_BIOS_ELF}" -n
   DEPENDS
-    kernel_objects
-    $<TARGET_OBJECTS:kernel_objects>
-    "${KERNEL_LINKER_SCRIPT}"
+    kernel_core_objects
+    $<TARGET_OBJECTS:kernel_core_objects>
+    "${KERNEL_BIOS_LINKER_SCRIPT}"
     ${KERNEL_ASM_OBJECTS}
+  COMMAND_EXPAND_LISTS
+  VERBATIM
+)
+
+add_custom_command(
+  OUTPUT "${OS1_KERNEL_LIMINE_ELF}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_LIMINE_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_limine_frontend> -o "${OS1_KERNEL_LIMINE_ELF}" -n
+  DEPENDS
+    kernel_limine_frontend
+    $<TARGET_OBJECTS:kernel_limine_frontend>
+    "${KERNEL_LIMINE_LINKER_SCRIPT}"
   COMMAND_EXPAND_LISTS
   VERBATIM
 )
@@ -91,5 +134,6 @@ add_custom_command(
   VERBATIM
 )
 
-add_custom_target(kernel64_elf DEPENDS "${OS1_KERNEL64_ELF}")
+add_custom_target(kernel_bios_elf DEPENDS "${OS1_KERNEL_BIOS_ELF}")
+add_custom_target(kernel_limine_elf DEPENDS "${OS1_KERNEL_LIMINE_ELF}")
 add_custom_target(cpustart_bin DEPENDS "${OS1_CPUSTART_BIN}")

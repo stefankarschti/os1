@@ -26,6 +26,13 @@ enum class BootSource : uint32_t
 	TestHarness = 3,
 };
 
+enum class BootFramebufferPixelFormat : uint16_t
+{
+	Unknown = 0,
+	Rgb = 1,
+	Bgr = 2,
+};
+
 // The first entries intentionally match BIOS E820 memory-type values so the
 // early loader can forward them without translation.
 enum class BootMemoryType : uint32_t
@@ -66,7 +73,7 @@ struct BootFramebufferInfo
 	uint32_t height;
 	uint32_t pitch_bytes;
 	uint16_t bits_per_pixel;
-	uint16_t pixel_format;
+	BootFramebufferPixelFormat pixel_format;
 };
 
 struct BootModuleInfo
@@ -132,6 +139,27 @@ BOOTINFO_STATIC_ASSERT(boot_info_module_count_offset, offsetof(BootInfo, module_
 [[nodiscard]] inline bool BootMemoryRegionIsUsable(const BootMemoryRegion &region)
 {
 	return region.type == BootMemoryType::Usable;
+}
+
+[[nodiscard]] inline const char *BootSourceName(BootSource source)
+{
+	switch(source)
+	{
+	case BootSource::BiosLegacy: return "bios";
+	case BootSource::Limine: return "limine";
+	case BootSource::TestHarness: return "test";
+	default: return "unknown";
+	}
+}
+
+[[nodiscard]] inline const char *BootFramebufferPixelFormatName(BootFramebufferPixelFormat pixel_format)
+{
+	switch(pixel_format)
+	{
+	case BootFramebufferPixelFormat::Rgb: return "rgb";
+	case BootFramebufferPixelFormat::Bgr: return "bgr";
+	default: return "unknown";
+	}
 }
 
 [[nodiscard]] inline std::span<const BootMemoryRegion>

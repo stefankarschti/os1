@@ -22,7 +22,7 @@
   "buildPresets": [
     {
       "name": "default",
-      "displayName": "Build os1 image",
+      "displayName": "Build os1 ISO",
       "configurePreset": "default",
       "targets": [
         "os1_image"
@@ -30,26 +30,42 @@
     },
     {
       "name": "run",
-      "displayName": "Run os1 in QEMU",
+      "displayName": "Run os1 UEFI image in QEMU",
       "configurePreset": "default",
       "targets": [
         "run"
       ]
     },
     {
-      "name": "disasm",
-      "displayName": "Generate disassembly",
+      "name": "run_bios",
+      "displayName": "Run os1 BIOS image in QEMU",
       "configurePreset": "default",
       "targets": [
-        "disasm"
+        "run_bios"
       ]
     },
     {
       "name": "smoke",
-      "displayName": "Run smoke test",
+      "displayName": "Run UEFI smoke test",
       "configurePreset": "default",
       "targets": [
         "smoke"
+      ]
+    },
+    {
+      "name": "smoke_bios",
+      "displayName": "Run BIOS smoke test",
+      "configurePreset": "default",
+      "targets": [
+        "smoke_bios"
+      ]
+    },
+    {
+      "name": "smoke_all",
+      "displayName": "Run all smoke tests",
+      "configurePreset": "default",
+      "targets": [
+        "smoke_all"
       ]
     }
   ]

@@ -1,8 +1,10 @@
 name: CI
 
 on:
-  push:
   pull_request:
+    branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -26,10 +28,12 @@ jobs:
             command -v cmake
             command -v ninja
             command -v nasm
+            command -v cpio
+            command -v xorriso
             command -v qemu-system-x86_64
           else
             sudo apt-get update
-            sudo apt-get install -y nasm qemu-system-x86 cmake ninja-build
+            sudo apt-get install -y nasm cpio xorriso ovmf qemu-system-x86 cmake ninja-build
           fi
 
       - name: Enable Homebrew
@@ -52,11 +56,17 @@ jobs:
             brew install x86_64-elf-gcc
           fi
 
+      # OS1_REQUIRE_UEFI_SMOKE=ON turns a missing OVMF firmware into a
+      # configure-time hard error. Firmware discovery itself lives in
+      # CMakeLists.txt (single source of truth); this workflow must never
+      # re-implement the candidate list.
       - name: Configure
-        run: cmake --preset default
+        run: cmake --preset default -DOS1_REQUIRE_UEFI_SMOKE=ON
 
       - name: Build
-        run: cmake --build --preset default
+        run: |
+          cmake --build --preset default
+          cmake --build build --target os1_bios_image
 
       - name: Smoke test
         run: ctest --test-dir build --output-on-failure

@@ -102,19 +102,22 @@ Practical rule:
 
 ### Boot strategy
 
-Initial path:
+Current path:
 
-- legacy BIOS boot is acceptable as an early safe step and learning vehicle
+- Limine plus UEFI is the default boot path
+- the legacy BIOS raw image remains in-tree as a compatibility path and continuous-test target
 
-Target path:
+Long-term rule:
 
-- transition to UEFI-based boot as the primary modern path
+- keep the kernel bootloader-agnostic through the shared `BootInfo` contract
+- keep BIOS support only while it remains cheap and architecturally clean
+- avoid reintroducing bootloader-specific assumptions into kernel code once they have been normalized away
 
 Design rule:
 
 - bootloader- or firmware-specific logic should hand off into a common kernel boot interface
 - the kernel should not become tightly coupled to a single boot path if avoidable
-- BIOS compatibility should not dominate long-term architecture decisions once UEFI exists
+- BIOS compatibility should not dominate long-term architecture decisions now that the UEFI path exists
 
 ### Platform discovery
 
@@ -219,17 +222,18 @@ Later modularization is acceptable where it clearly improves structure, but earl
 
 ### Kernel and userland separation
 
-A major goal is to evolve from kernel-only execution to a real protected system.
+The project has already crossed the first protected-userland threshold: it can load statically linked user ELF programs from an initrd, enter ring 3, service a small syscall ABI, and kill a faulting user process without panicking the kernel. The remaining goal is to deepen that foundation into a more complete operating system model.
 
 Required eventual capabilities:
 
-- ring-3 or equivalent user-mode execution
-- executable loading
-- syscall interface
-- process isolation
+- richer executable loading and launch policy
+- stronger process lifecycle management
+- broader syscall surface
+- filesystem-backed program and data access
 - controlled resource access
+- a user-facing environment beyond the current initrd self-test programs
 
-This is one of the most important milestones in the project.
+Protected userland remains one of the most important architectural pillars in the project.
 
 ### Process and scheduling model
 

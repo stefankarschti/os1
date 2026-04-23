@@ -25,6 +25,10 @@ constexpr uint64_t kLoaderDiskPacketAddress = 0x0820;
 constexpr uint64_t kLoaderDiskRangeStateAddress = 0x0840;
 constexpr uint64_t kBootMemoryRegionBufferAddress = 0x6000;
 constexpr uint64_t kBootModuleInfoBufferAddress = 0x7000;
+// The Limine shim mirrors the BIOS handoff layout by copying strings into a
+// small low-memory pool before switching to its final identity-mapped CR3.
+constexpr uint64_t kBootStringBufferAddress = 0x7200;
+constexpr uint64_t kBootStringBufferSizeBytes = 0x0E00;
 constexpr size_t kBootMemoryRegionCapacity = 128;
 
 // The temporary real-mode page tables only exist long enough to enter long

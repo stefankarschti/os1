@@ -1,6 +1,7 @@
 #include "memory.h"
 #include <stdlib.h>
 #include "debug.h"
+#include "display.h"
 #include "terminal.h"
 
 void Terminal::Clear()
@@ -13,48 +14,38 @@ void Terminal::Clear()
 void Terminal::SetBuffer(uint16_t *buffer)
 {
 	buffer_ = buffer;
-	screen_ = nullptr;
+	display_ = nullptr;
 }
 
-void Terminal::Copy(uint16_t *buffer)
+void Terminal::Copy(const uint16_t *buffer)
 {
-	if(!buffer_) return;
+	if(!buffer_ || !buffer) return;
 	memcpy(buffer_, buffer, 80 * 25 * 2);
 }
 
-void Terminal::Link()
+void Terminal::Link(TextDisplayBackend *display)
 {
 	if(!buffer_) return;
-	screen_ = (uint16_t*)0xB8000;
-	memcpy(screen_, buffer_, 80 * 25 * 2);
+	display_ = display;
 	MoveCursor(row_, col_);
 }
 
 void Terminal::Unlink()
 {
-	if(screen_)
+	if(display_)
 	{
-		memsetw(screen_, 0x0720, 80 * 25 * 2);
-		screen_ = nullptr;
+		DetachTextDisplay(display_);
+		display_ = nullptr;
 	}
-	uint16_t pos = 0;
-	outb(0x3d4, 0x0f);
-	outb(0x3d5, (uint8_t) (pos & 0xff));
-	outb(0x3d4, 0x0e);
-	outb(0x3d5, (uint8_t) ((pos >> 8) & 0xff));
 }
 
 void Terminal::MoveCursor(int row, int col)
 {
 	row_ = row;
 	col_ = col;
-	if(screen_)
+	if(display_)
 	{
-		uint16_t pos = row_ * width_ + col_;
-		outb(0x3D4, 0x0F);
-		outb(0x3D5, (uint8_t) (pos & 0xFF));
-		outb(0x3D4, 0x0E);
-		outb(0x3D5, (uint8_t) ((pos >> 8) & 0xFF));
+		PresentTextDisplay(display_, buffer_, width_, height_, col_, row_);
 	}
 }
 
@@ -135,7 +126,6 @@ void Terminal::KeyPress(char ascii, uint16_t scancode)
 void Terminal::InternalWrite(char c)
 {
 	if(!buffer_) return;
-	auto s = screen_;
 	if('\n' == c)
 	{
 		row_++;
@@ -144,7 +134,6 @@ void Terminal::InternalWrite(char c)
 	else if(isprint(c))
 	{
 		buffer_[row_ * width_ + col_] = c + (7 << 8);
-		if(s) s[row_ * width_ + col_] = c + (7 << 8);
 		col_++;
 		if(col_ >= width_)
 		{
@@ -158,11 +147,6 @@ void Terminal::InternalWrite(char c)
 		// scroll up
 		memcpy(buffer_, buffer_ + width_, 2 * (height_ - 1) * width_);
 		memsetw(buffer_ + (height_ - 1) * width_, 0x0720, 2 * width_);
-		if(s)
-		{
-			memcpy(s, s + width_, 2 * (height_ - 1) * width_);
-			memsetw(s + (height_ - 1) * width_, 0x0720, 2 * width_);
-		}
 		row_ = height_ - 1;
 	}
 }

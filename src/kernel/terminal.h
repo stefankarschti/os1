@@ -6,6 +6,8 @@
 #include "stdbool.h"
 #include "stdint.h"
 
+class TextDisplayBackend;
+
 /**
  * @brief The Terminal class
  */
@@ -14,9 +16,9 @@ class Terminal
 public:
 	void Clear();
 	void SetBuffer(uint16_t *buffer);
-	void Copy(uint16_t *buffer);
-	void Link();	// links to real screen
-	void Unlink();	// unlinks from real screen
+	void Copy(const uint16_t *buffer);
+	void Link(TextDisplayBackend *display);	// links to active display backend
+	void Unlink();	// detaches from whichever backend is active
 
 	void MoveCursor(int row, int col);
 	void Write(const char* str);
@@ -30,7 +32,7 @@ public:
 
 private:
 	uint16_t *buffer_ = nullptr;
-	uint16_t *screen_ = nullptr;	// if not null, mirror to screen
+	TextDisplayBackend *display_ = nullptr;
 	const int width_ = 80;
 	const int height_ = 25;
 	int row_ = 0;
@@ -45,4 +47,3 @@ private:
 };
 
 #endif
-

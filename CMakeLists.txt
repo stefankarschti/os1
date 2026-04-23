@@ -32,31 +32,60 @@ foreach(OS1_LANG C CXX)
   endforeach()
 endforeach()
 
+function(os1_detect_existing_file out_var)
+  foreach(candidate ${ARGN})
+    if(candidate AND EXISTS "${candidate}")
+      set(${out_var} "${candidate}" PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+  set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
 set(OS1_ARTIFACT_DIR "${CMAKE_BINARY_DIR}/artifacts")
+set(OS1_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(OS1_ISO_STAGE_DIR "${CMAKE_BINARY_DIR}/iso-root")
+
 set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
 set(OS1_CPUSTART_BIN "${OS1_ARTIFACT_DIR}/cpustart.bin")
-set(OS1_KERNEL64_ELF "${OS1_ARTIFACT_DIR}/kernel64.elf")
+set(OS1_KERNEL_BIOS_ELF "${OS1_ARTIFACT_DIR}/kernel_bios.elf")
+set(OS1_KERNEL_LIMINE_ELF "${OS1_ARTIFACT_DIR}/kernel_limine.elf")
 set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
+set(OS1_ISO_IMAGE "${OS1_ARTIFACT_DIR}/os1.iso")
 set(OS1_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1.log")
+set(OS1_BIOS_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1-bios.log")
+set(OS1_OVMF_VARS_FILE "${OS1_ARTIFACT_DIR}/ovmf-vars.fd")
 set(OS1_SMOKE_LOG "${OS1_ARTIFACT_DIR}/smoke.log")
+set(OS1_SMOKE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-bios.log")
 set(OS1_DUMP_ASM "${OS1_ARTIFACT_DIR}/dump.asm")
 set(OS1_CPUSTART_DUMP "${OS1_ARTIFACT_DIR}/cpustart.asm")
 
+set(OS1_LIMINE_DIR "${PROJECT_SOURCE_DIR}/third_party/limine/v11.4.0")
+set(OS1_LIMINE_BOOTX64 "${OS1_LIMINE_DIR}/BOOTX64.EFI")
+set(OS1_LIMINE_UEFI_CD "${OS1_LIMINE_DIR}/limine-uefi-cd.bin")
+set(OS1_LIMINE_PROTOCOL_HEADER "${OS1_LIMINE_DIR}/limine.h")
+set(OS1_LIMINE_CONFIG_SOURCE "${PROJECT_SOURCE_DIR}/src/boot/limine/limine.conf")
+
+foreach(OS1_VENDOR_FILE
+    "${OS1_LIMINE_BOOTX64}"
+    "${OS1_LIMINE_UEFI_CD}"
+    "${OS1_LIMINE_PROTOCOL_HEADER}"
+    "${OS1_LIMINE_CONFIG_SOURCE}")
+  if(NOT EXISTS "${OS1_VENDOR_FILE}")
+    message(FATAL_ERROR "Missing required vendored Limine input: ${OS1_VENDOR_FILE}")
+  endif()
+endforeach()
+
 set(OS1_LOADER16_IMAGE_START_LBA 1)
-# The BIOS stage-0 boot sector must know up front how much contiguous disk
-# space is reserved for the stage-1 loader, so M2 gives that image a generous
-# fixed slot instead of relying on the old 8-sector layout.
 set(OS1_LOADER16_IMAGE_SECTOR_COUNT 64)
 math(EXPR OS1_KERNEL_IMAGE_START_LBA "${OS1_LOADER16_IMAGE_START_LBA} + ${OS1_LOADER16_IMAGE_SECTOR_COUNT}")
 set(OS1_KERNEL_IMAGE_SECTOR_COUNT 256)
 math(EXPR OS1_INITRD_IMAGE_START_LBA "${OS1_KERNEL_IMAGE_START_LBA} + ${OS1_KERNEL_IMAGE_SECTOR_COUNT}")
 set(OS1_INITRD_IMAGE_SECTOR_COUNT 128)
 
-set(OS1_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(OS1_IMAGE_LAYOUT_INC "${OS1_GENERATED_DIR}/image_layout.inc")
-
 configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/templates/image_layout.inc.in"
   "${OS1_IMAGE_LAYOUT_INC}"
@@ -66,8 +95,88 @@ configure_file(
 find_program(OS1_NASM_EXECUTABLE NAMES nasm REQUIRED)
 find_program(OS1_DD_EXECUTABLE NAMES dd REQUIRED)
 find_program(OS1_CPIO_EXECUTABLE NAMES cpio REQUIRED)
+find_program(OS1_XORRISO_EXECUTABLE NAMES xorriso REQUIRED)
 find_program(OS1_QEMU_EXECUTABLE NAMES qemu-system-x86_64)
 find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
+find_program(OS1_PYTHON_EXECUTABLE NAMES python3 python REQUIRED)
+
+set(OS1_SMOKE_RUNNER "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke.py")
+
+# OVMF/edk2 firmware discovery is centralized here so the kernel build is the
+# single source of truth. CI workflows and developer scripts must not re-implement
+# this candidate list — read the resulting OS1_OVMF_* cache entries instead.
+# Vendor layout notes:
+#   - Ubuntu 'ovmf' apt package: /usr/share/OVMF/OVMF_{CODE,VARS}[_4M].fd
+#   - Fedora 'edk2-ovmf' rpm:    /usr/share/edk2/ovmf/OVMF_{CODE,VARS}[_4M].fd
+#   - Arch 'edk2-ovmf' pkg:      /usr/share/OVMF/x64/OVMF_{CODE,VARS}.4m.fd (not yet listed)
+#   - Homebrew qemu (9+):        $PREFIX/share/qemu/edk2-x86_64-code.fd
+#                                $PREFIX/share/qemu/edk2-i386-vars.fd  (x86_64 build shares i386 VARS)
+set(OS1_OVMF_CODE "${OS1_OVMF_CODE}" CACHE FILEPATH "Path to the OVMF/edk2 code firmware image used for UEFI run and smoke targets")
+set(OS1_OVMF_VARS_TEMPLATE "${OS1_OVMF_VARS_TEMPLATE}" CACHE FILEPATH "Path to the OVMF/edk2 vars template used for UEFI run and smoke targets")
+
+if(OS1_QEMU_EXECUTABLE)
+  get_filename_component(OS1_QEMU_BIN_DIR "${OS1_QEMU_EXECUTABLE}" DIRECTORY)
+  get_filename_component(OS1_QEMU_PREFIX "${OS1_QEMU_BIN_DIR}/.." ABSOLUTE)
+
+  if(NOT OS1_OVMF_CODE)
+    os1_detect_existing_file(OS1_OVMF_CODE_DETECTED
+      "${OS1_QEMU_PREFIX}/share/qemu/edk2-x86_64-code.fd"
+      "${OS1_QEMU_PREFIX}/share/qemu/OVMF_CODE.fd"
+      "/usr/share/OVMF/OVMF_CODE.fd"
+      "/usr/share/OVMF/OVMF_CODE_4M.fd"
+      "/usr/share/edk2/ovmf/OVMF_CODE.fd"
+      "/usr/share/edk2/ovmf/OVMF_CODE_4M.fd"
+      "/usr/share/qemu/OVMF_CODE.fd"
+      "/usr/share/qemu/edk2-x86_64-code.fd"
+    )
+    if(OS1_OVMF_CODE_DETECTED)
+      set(OS1_OVMF_CODE "${OS1_OVMF_CODE_DETECTED}" CACHE FILEPATH "Path to the OVMF/edk2 code firmware image used for UEFI run and smoke targets" FORCE)
+    endif()
+  endif()
+
+  if(NOT OS1_OVMF_VARS_TEMPLATE)
+    os1_detect_existing_file(OS1_OVMF_VARS_TEMPLATE_DETECTED
+      "${OS1_QEMU_PREFIX}/share/qemu/edk2-x86_64-vars.fd"
+      "${OS1_QEMU_PREFIX}/share/qemu/edk2-i386-vars.fd"
+      "${OS1_QEMU_PREFIX}/share/qemu/OVMF_VARS.fd"
+      "/usr/share/OVMF/OVMF_VARS.fd"
+      "/usr/share/OVMF/OVMF_VARS_4M.fd"
+      "/usr/share/edk2/ovmf/OVMF_VARS.fd"
+      "/usr/share/edk2/ovmf/OVMF_VARS_4M.fd"
+      "/usr/share/qemu/OVMF_VARS.fd"
+      "/usr/share/qemu/edk2-x86_64-vars.fd"
+      "/usr/share/qemu/edk2-i386-vars.fd"
+    )
+    if(OS1_OVMF_VARS_TEMPLATE_DETECTED)
+      set(OS1_OVMF_VARS_TEMPLATE "${OS1_OVMF_VARS_TEMPLATE_DETECTED}" CACHE FILEPATH "Path to the OVMF/edk2 vars template used for UEFI run and smoke targets" FORCE)
+    endif()
+  endif()
+endif()
+
+if(OS1_OVMF_CODE)
+  message(STATUS "OVMF code firmware:  ${OS1_OVMF_CODE}")
+else()
+  message(STATUS "OVMF code firmware:  not found (set -DOS1_OVMF_CODE=<path> to override)")
+endif()
+if(OS1_OVMF_VARS_TEMPLATE)
+  message(STATUS "OVMF vars firmware:  ${OS1_OVMF_VARS_TEMPLATE}")
+else()
+  message(STATUS "OVMF vars firmware:  not found (set -DOS1_OVMF_VARS_TEMPLATE=<path> to override)")
+endif()
+
+# Loud, deterministic signal when the default (UEFI) smoke path would silently
+# be skipped. Keeping this as WARNING instead of FATAL_ERROR lets a developer
+# without OVMF still build and exercise the BIOS compatibility path, but CI
+# logs always surface the gap clearly. CI then fails on the missing test count
+# below, not here, so the error stays actionable.
+if(OS1_QEMU_EXECUTABLE AND (NOT OS1_OVMF_CODE OR NOT OS1_OVMF_VARS_TEMPLATE))
+  message(WARNING
+    "UEFI smoke path will be SKIPPED: OVMF firmware not detected. "
+    "Install edk2/ovmf (Homebrew 'qemu', apt 'ovmf', dnf 'edk2-ovmf') "
+    "or set -DOS1_OVMF_CODE=... and -DOS1_OVMF_VARS_TEMPLATE=... "
+    "Only the BIOS compatibility smoke will run; CI will fail on missing UEFI coverage."
+  )
+endif()
 
 add_subdirectory(src/boot)
 add_subdirectory(src/kernel)
@@ -85,17 +194,70 @@ add_custom_command(
     "seek=${OS1_LOADER16_IMAGE_START_LBA}"
     "count=${OS1_LOADER16_IMAGE_SECTOR_COUNT}"
     conv=notrunc,sync
-  COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_KERNEL64_ELF}" "of=${OS1_RAW_IMAGE}" bs=512 "seek=${OS1_KERNEL_IMAGE_START_LBA}" "count=${OS1_KERNEL_IMAGE_SECTOR_COUNT}" conv=notrunc,sync
-  COMMAND "${OS1_DD_EXECUTABLE}" "if=${OS1_INITRD_CPIO}" "of=${OS1_RAW_IMAGE}" bs=512 "seek=${OS1_INITRD_IMAGE_START_LBA}" "count=${OS1_INITRD_IMAGE_SECTOR_COUNT}" conv=notrunc,sync
+  COMMAND
+    "${OS1_DD_EXECUTABLE}"
+    "if=${OS1_KERNEL_BIOS_ELF}"
+    "of=${OS1_RAW_IMAGE}"
+    bs=512
+    "seek=${OS1_KERNEL_IMAGE_START_LBA}"
+    "count=${OS1_KERNEL_IMAGE_SECTOR_COUNT}"
+    conv=notrunc,sync
+  COMMAND
+    "${OS1_DD_EXECUTABLE}"
+    "if=${OS1_INITRD_CPIO}"
+    "of=${OS1_RAW_IMAGE}"
+    bs=512
+    "seek=${OS1_INITRD_IMAGE_START_LBA}"
+    "count=${OS1_INITRD_IMAGE_SECTOR_COUNT}"
+    conv=notrunc,sync
   DEPENDS
     "${OS1_BOOT_BIN}"
     "${OS1_KERNEL16_BIN}"
-    "${OS1_KERNEL64_ELF}"
+    "${OS1_KERNEL_BIOS_ELF}"
     "${OS1_INITRD_CPIO}"
   VERBATIM
 )
 
-add_custom_target(os1_image ALL DEPENDS "${OS1_RAW_IMAGE}")
+add_custom_command(
+  OUTPUT "${OS1_ISO_IMAGE}"
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${OS1_ISO_STAGE_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ISO_STAGE_DIR}/EFI/BOOT"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ISO_STAGE_DIR}/boot/limine"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_BOOTX64}" "${OS1_ISO_STAGE_DIR}/EFI/BOOT/BOOTX64.EFI"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_CONFIG_SOURCE}" "${OS1_ISO_STAGE_DIR}/limine.conf"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_CONFIG_SOURCE}" "${OS1_ISO_STAGE_DIR}/EFI/BOOT/limine.conf"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_UEFI_CD}" "${OS1_ISO_STAGE_DIR}/boot/limine/limine-uefi-cd.bin"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_BIOS_ELF}" "${OS1_ISO_STAGE_DIR}/kernel_bios.elf"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_LIMINE_ELF}" "${OS1_ISO_STAGE_DIR}/kernel_limine.elf"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_INITRD_CPIO}" "${OS1_ISO_STAGE_DIR}/initrd.cpio"
+  COMMAND
+    "${OS1_XORRISO_EXECUTABLE}"
+    -as
+    mkisofs
+    -R
+    -r
+    --efi-boot
+    boot/limine/limine-uefi-cd.bin
+    -efi-boot-part
+    --efi-boot-image
+    --protective-msdos-label
+    -no-emul-boot
+    -o
+    "${OS1_ISO_IMAGE}"
+    "${OS1_ISO_STAGE_DIR}"
+  DEPENDS
+    "${OS1_LIMINE_BOOTX64}"
+    "${OS1_LIMINE_UEFI_CD}"
+    "${OS1_LIMINE_CONFIG_SOURCE}"
+    "${OS1_KERNEL_BIOS_ELF}"
+    "${OS1_KERNEL_LIMINE_ELF}"
+    "${OS1_INITRD_CPIO}"
+  VERBATIM
+)
+
+add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}")
+add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}")
 
 function(os1_add_unavailable_target target_name reason)
   add_custom_target(
@@ -106,59 +268,105 @@ function(os1_add_unavailable_target target_name reason)
   )
 endfunction()
 
-if(OS1_QEMU_EXECUTABLE)
+if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   add_custom_target(
     run
-    BYPRODUCTS "${OS1_SERIAL_LOG}"
+    BYPRODUCTS "${OS1_SERIAL_LOG}" "${OS1_OVMF_VARS_FILE}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-    COMMAND "${OS1_QEMU_EXECUTABLE}"
-            -smp 4
-            "-drive"
-            "format=raw,file=${OS1_RAW_IMAGE}"
-            "-serial"
-            "file:${OS1_SERIAL_LOG}"
-            -d cpu_reset
-            -no-reboot
-            -d int
+    COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_OVMF_VARS_TEMPLATE}" "${OS1_OVMF_VARS_FILE}"
+    COMMAND
+      "${OS1_QEMU_EXECUTABLE}"
+      -machine
+      q35
+      -smp
+      4
+      -drive
+      "if=pflash,format=raw,readonly=on,file=${OS1_OVMF_CODE}"
+      -drive
+      "if=pflash,format=raw,file=${OS1_OVMF_VARS_FILE}"
+      -cdrom
+      "${OS1_ISO_IMAGE}"
+      -serial
+      "file:${OS1_SERIAL_LOG}"
+      -no-reboot
+      -d
+      cpu_reset
+      -d
+      int
     DEPENDS os1_image
     USES_TERMINAL
     VERBATIM
   )
 else()
-  os1_add_unavailable_target(run "run target unavailable: qemu-system-x86_64 was not found")
+  os1_add_unavailable_target(run "run target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
 
-if(OS1_OBJDUMP_EXECUTABLE)
+if(OS1_QEMU_EXECUTABLE)
   add_custom_target(
-    disasm
-    BYPRODUCTS "${OS1_DUMP_ASM}" "${OS1_CPUSTART_DUMP}"
+    run_bios
+    BYPRODUCTS "${OS1_BIOS_SERIAL_LOG}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND
-      "${CMAKE_COMMAND}"
-      "-DOUTPUT_FILE=${OS1_DUMP_ASM}"
-      "-DCOMMAND_ARGS=${OS1_OBJDUMP_EXECUTABLE};-d;-M;intel;${OS1_KERNEL64_ELF}"
-      -P
-      "${PROJECT_SOURCE_DIR}/cmake/scripts/write_stdout_to_file.cmake"
-    COMMAND
-      "${CMAKE_COMMAND}"
-      "-DOUTPUT_FILE=${OS1_CPUSTART_DUMP}"
-      "-DCOMMAND_ARGS=${OS1_OBJDUMP_EXECUTABLE};-D;-b;binary;-m;i8086;-M;intel;${OS1_CPUSTART_BIN}"
-      -P
-      "${PROJECT_SOURCE_DIR}/cmake/scripts/write_stdout_to_file.cmake"
-    DEPENDS "${OS1_KERNEL64_ELF}" "${OS1_CPUSTART_BIN}"
+      "${OS1_QEMU_EXECUTABLE}"
+      -smp
+      4
+      -drive
+      "format=raw,file=${OS1_RAW_IMAGE}"
+      -serial
+      "file:${OS1_BIOS_SERIAL_LOG}"
+      -no-reboot
+      -d
+      cpu_reset
+      -d
+      int
+    DEPENDS os1_bios_image
+    USES_TERMINAL
     VERBATIM
   )
 else()
-  os1_add_unavailable_target(disasm "disasm target unavailable: no compatible objdump was found")
+  os1_add_unavailable_target(run_bios "run_bios target unavailable: qemu-system-x86_64 was not found")
 endif()
 
 include(CTest)
 
-if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
-  set(OS1_SMOKE_MARKERS
+# The smoke runner terminates QEMU as soon as every expected marker has been
+# seen, so these values are safety ceilings for the slowest realistic CI host
+# rather than fixed runtimes. A healthy local run exits in a few seconds. The
+# UEFI ceiling is intentionally larger because OVMF + ISO + Limine do far more
+# I/O than the direct BIOS path, which matters on shared runners without KVM
+# acceleration (GitHub Actions ubuntu-hosted, in particular).
+set(OS1_UEFI_SMOKE_TIMEOUT_SECONDS 120)
+set(OS1_BIOS_SMOKE_TIMEOUT_SECONDS 60)
+
+# Preventive: if CI (or any caller) sets OS1_REQUIRE_UEFI_SMOKE=ON, a missing
+# UEFI smoke becomes a configure-time hard error rather than a silent skip.
+# GitHub Actions + act both set this via the CI workflow, so a missing OVMF
+# firmware cannot regress coverage unnoticed.
+option(OS1_REQUIRE_UEFI_SMOKE "Fail configure if the UEFI smoke test cannot be registered" OFF)
+if(OS1_REQUIRE_UEFI_SMOKE)
+  set(OS1_REQUIRE_UEFI_REASON "")
+  if(NOT OS1_QEMU_EXECUTABLE)
+    set(OS1_REQUIRE_UEFI_REASON "qemu-system-x86_64 not found")
+  elseif(NOT OS1_OVMF_CODE OR NOT EXISTS "${OS1_OVMF_CODE}")
+    set(OS1_REQUIRE_UEFI_REASON "OVMF code firmware missing or unreadable: '${OS1_OVMF_CODE}'")
+  elseif(NOT OS1_OVMF_VARS_TEMPLATE OR NOT EXISTS "${OS1_OVMF_VARS_TEMPLATE}")
+    set(OS1_REQUIRE_UEFI_REASON "OVMF vars template missing or unreadable: '${OS1_OVMF_VARS_TEMPLATE}'")
+  endif()
+  if(OS1_REQUIRE_UEFI_REASON)
+    message(FATAL_ERROR
+      "OS1_REQUIRE_UEFI_SMOKE=ON but the UEFI smoke path is unavailable.\n"
+      "Reason: ${OS1_REQUIRE_UEFI_REASON}\n"
+      "Install edk2/ovmf (Homebrew 'qemu', apt 'ovmf', dnf 'edk2-ovmf') "
+      "or override OS1_OVMF_CODE / OS1_OVMF_VARS_TEMPLATE."
+    )
+  endif()
+endif()
+
+if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
+  set(OS1_UEFI_SMOKE_MARKERS
     "[kernel64] hello!"
-    "initializing page frame allocator"
-    "Interrupts initialization successful"
+    "boot source: limine"
+    "framebuffer console active"
     "initrd module discovered"
     "starting first user process"
     "[user/init] hello"
@@ -172,10 +380,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     COMMAND
       "${CMAKE_COMMAND}"
       "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
-      "-DRAW_IMAGE=${OS1_RAW_IMAGE}"
+      "-DISO_IMAGE=${OS1_ISO_IMAGE}"
+      "-DOVMF_CODE=${OS1_OVMF_CODE}"
+      "-DOVMF_VARS_TEMPLATE=${OS1_OVMF_VARS_TEMPLATE}"
       "-DLOG_FILE=${OS1_SMOKE_LOG}"
-      "-DSMOKE_TIMEOUT_SECONDS=8"
-      "-DEXPECTED_MARKERS=${OS1_SMOKE_MARKERS}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_UEFI_SMOKE_MARKERS}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
@@ -188,7 +400,60 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     VERBATIM
   )
 else()
-  os1_add_unavailable_target(smoke "smoke target unavailable: qemu-system-x86_64 was not found")
+  os1_add_unavailable_target(smoke "smoke target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
+endif()
+
+if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
+  set(OS1_BIOS_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "boot source: bios"
+    "Interrupts initialization successful"
+    "initrd module discovered"
+    "starting first user process"
+    "[user/init] hello"
+    "[user/yield] tick 0"
+    "user page fault killed pid"
+    "idle thread online"
+  )
+
+  add_test(
+    NAME os1_smoke_bios
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DRAW_IMAGE=${OS1_RAW_IMAGE}"
+      "-DLOG_FILE=${OS1_SMOKE_BIOS_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_BIOS_SMOKE_TIMEOUT_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_BIOS_SMOKE_MARKERS}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke_bios
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_bios$"
+    DEPENDS os1_bios_image
+    USES_TERMINAL
+    VERBATIM
+  )
+else()
+  os1_add_unavailable_target(smoke_bios "smoke_bios target unavailable: qemu-system-x86_64 was not found")
+endif()
+
+if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
+  add_custom_target(
+    smoke_all
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_bios)?$"
+    DEPENDS os1_image os1_bios_image
+    USES_TERMINAL
+    VERBATIM
+  )
+else()
+  os1_add_unavailable_target(smoke_all "smoke_all target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
 
 message(STATUS "Artifacts will be written to ${OS1_ARTIFACT_DIR}")
+message(STATUS "Default image: ${OS1_ISO_IMAGE}")
+message(STATUS "Legacy BIOS image: ${OS1_RAW_IMAGE}")
