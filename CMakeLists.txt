@@ -365,6 +365,7 @@ set(OS1_UEFI_SMOKE_TIMEOUT_SECONDS 120)
 set(OS1_BIOS_SMOKE_TIMEOUT_SECONDS 60)
 set(OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS 1)
 set(OS1_SMOKE_REJECT_MARKERS
+  "#GP general protection"
   "#UD invalid opcode"
 )
 
@@ -405,14 +406,20 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "framebuffer console active"
     "initrd module discovered"
     "starting first user process"
-    "shell input ready"
-    "shell input echo: ping"
-    "[user/yield] tick 0"
-    "user page fault killed pid"
+    "shell prompt ready"
+    "os1> help echo pid exit"
+    "os1> echo: hi"
+    "pid: "
+    "os1> echo: done"
     "idle thread online"
   )
+  # The shell prompt does not terminate with a newline, so the line-buffered
+  # smoke runner observes it when the following command output flushes.
   set(OS1_SHELL_INPUT_EVENTS
-    "shell input ready::ping\\n"
+    "shell prompt ready::help\\n"
+    "os1> help echo pid exit::echo hi\\n"
+    "os1> echo: hi::pid\\n"
+    "pid: ::echo done\\n"
   )
 
   add_test(
@@ -460,10 +467,11 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "Interrupts initialization successful"
     "initrd module discovered"
     "starting first user process"
-    "shell input ready"
-    "shell input echo: ping"
-    "[user/yield] tick 0"
-    "user page fault killed pid"
+    "shell prompt ready"
+    "os1> help echo pid exit"
+    "os1> echo: hi"
+    "pid: "
+    "os1> echo: done"
     "idle thread online"
   )
 
