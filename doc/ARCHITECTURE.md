@@ -1,8 +1,8 @@
 # os1 Architecture
 
-> generated-by: Codex (GPT-5) · generated-at: 2026-04-23 · git-state: working tree
+> generated-by: Claude (Opus 4.7) · generated-at: 2026-04-23 · git-state: working tree
 
-This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. The review documents under `doc/` are historical context, not the live system contract.
+This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Review 2026-04-23](2026-04-23-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
 `os1` currently has:
 
@@ -15,15 +15,19 @@ This document is the current-state source of truth for `os1`. It describes what 
 - a first practical modern device path through `virtio-blk`
 - a freestanding `C++20` kernel core with narrow assembly boundaries
 - protected ring-3 user programs loaded from an initrd
+- a terminal-first operator environment that boots directly into a ring-3 shell
+- structured read-only observability snapshots exposed through a shared UAPI
+- initrd-backed `spawn` / `waitpid` / `exec` process control for user commands
 - a terminal model that can render either through VGA text mode or a framebuffer text backend
-- automated smoke coverage for both the UEFI and BIOS paths in CI
+- serial-driven smoke coverage and interactive serial run targets for both the UEFI and BIOS paths
 
 Milestone status:
 
-- Milestone 1: implemented
-- Milestone 2: implemented
-- Milestone 3: implemented
-- Milestone 4: implemented
+- [Milestone 1: Boot Contract And Kernel Stabilization](2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md): implemented
+- [Milestone 2: Process Model And Isolation](2026-04-22-milestone-2-process-model-and-isolation.md): implemented
+- [Milestone 3: Modern Default Boot Path](2026-04-22-milestone-3-modern-default-boot-path.md): implemented
+- [Milestone 4: Modern Platform Support](2026-04-22-milestone-4-modern-platform-support.md): implemented
+- [Milestone 5: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md): implemented
 
 ## Glossary
 
@@ -64,6 +68,222 @@ That naming reflects implementation history rather than long-term intent. `kerne
 
 This split exists for a pragmatic reason: the kernel core is still linked at low identity-mapped addresses around `0x00100000`, while the Limine executable itself must be presented in a form the modern bootloader accepts. The higher-half Limine frontend exists to bridge that difference without teaching the kernel multiple boot ABIs.
 
+## System Diagram
+
+The diagram below is the end-to-end picture of a running `os1` system: the two boot frontends, the shared `BootInfo` contract, the kernel subsystems that come up on top of it, and the user-facing shell plus observability UAPI. Solid arrows are runtime data/control flow; dashed arrows mark per-boot one-shot handoffs.
+
+```text
++---------------------------+                           +---------------------------+
+|  QEMU q35  (BIOS path)    |                           |  QEMU q35  (UEFI path)    |
+|  raw image  os1.raw       |                           |  OVMF  +  os1.iso         |
++-------------+-------------+                           +-------------+-------------+
+              |                                                       |
+              v                                                       v
+     +--------+---------+                                    +--------+---------+
+     | boot.bin (MBR)   |                                    | Limine           |
+     | kernel16.bin     |                                    | (BOOTX64.EFI)    |
+     | 16->long mode    |                                    +--------+---------+
+     | E820, EDD, RSDP  |                                             |
+     +--------+---------+                                             v
+              |                                         +-------------+-------------+
+              |                                         | kernel_limine.elf         |
+              |                                         | (higher-half shim)        |
+              |                                         | HHDM, memmap, fb, RSDP,   |
+              |                                         | SMBIOS, modules, cmdline  |
+              |                                         | virt->phys translate,     |
+              |                                         | load kernel_bios.elf,     |
+              |                                         | install low identity win  |
+              |                                         +-------------+-------------+
+              |                                                       |
+              |  populates BootInfo @ 0x500                            |  mirrors layout
+              |  + memmap @ 0x6000                                     |  builds BootInfo
+              |  + modules @ 0x7000                                    |  in same arena
+              |  + strings @ 0x7200                                    |
+              +---------------------------+   +-------------------------+
+                                          v   v
+                              +-------------+----------------+
+                              |  BootInfo (packed, versioned)|
+                              |  source, magic, rsdp, fb,    |
+                              |  memory_map[], modules[]     |
+                              +--------------+---------------+
+                                             |
+                             KernelMain(BootInfo*, cpu*)  <-- shared entry
+                                             |
+                                             v
++-----------------------------------------------------------------------------+
+|                         kernel_bios.elf   (shared core)                     |
+|                                                                             |
+|  OwnBootInfo --> PFA(bitmap) --> kernel page tables --> CR3 switch          |
+|                                                                             |
+|  platform_init:   RSDP --> XSDT/RSDT --> MADT + MCFG                        |
+|                   | CPUs, IOAPIC, LAPIC, IRQ overrides                      |
+|                   | PCIe ECAM enumeration, BAR sizing                       |
+|                   v virtio-blk modern probe + sector 0/1 smoke              |
+|                                                                             |
+|  PIC+IOAPIC+LAPIC  -->  cpu_bootothers  -->  APs in cpu_idle_loop (cli;hlt) |
+|                                                                             |
+|  Terminals[12]  -->  Display backend: VgaText | FramebufferText | serial    |
+|  console_input:  PS/2 scancodes + serial RX ---> pending line buffer        |
+|                                                                             |
+|  IDT + exception handlers + IRQ0 (timer 1000 Hz) + IRQ1 (keyboard)          |
+|                                                                             |
+|  Task tables (Process, Thread) + idle thread + round-robin scheduler        |
+|                                                                             |
+|  initrd (cpio newc) --> ELF64 load /bin/init --> ring-3 transition          |
++--------------------------------+----------------+---------------------------+
+                                 |                |
+                      int 0x80   |                |   reads from console_input
+                      (vector 48)|                |   and observe buffers
+                                 v                v
+                         +-------+----------------+-------+
+                         |  Ring-3 user processes          |
+                         |                                 |
+                         |  /bin/init  == /bin/sh  (same   |
+                         |                binary, 2 names) |
+                         |  /bin/yield   /bin/fault        |
+                         |                                 |
+                         |  syscalls:  write, read, exit,  |
+                         |    yield, getpid, observe,      |
+                         |    spawn, waitpid, exec         |
+                         |                                 |
+                         |  UAPI: os1/observe.h (versioned |
+                         |    fixed-record snapshots)      |
+                         +---------------------------------+
+```
+
+Key invariants visible in the diagram:
+
+- Two boot frontends, one `BootInfo` at a well-known low-memory address, one `KernelMain` entry.
+- The kernel never reads Limine-virtual pointers; everything is translated to physical before the kernel sees it.
+- ACPI drives both CPU topology (MADT) and PCIe windows (MCFG). Legacy MP tables are a BIOS-only fallback.
+- User space reaches the kernel through a single interrupt gate (vector 48) and reads kernel state through one UAPI header.
+
+## Boot And Runtime Workflow
+
+The lifecycle below is the exact sequence the system follows today. Each phase is phrased in the tense it runs in so the document reads like a timeline rather than a wish list.
+
+### Phase 1 — firmware and frontend (one-shot)
+
+- **BIOS path:** BIOS loads `boot.bin` at `0x7C00`. The MBR chain-loads `kernel16.bin`, which enables A20, probes long-mode support, reads the kernel and initrd through BIOS EDD, captures the text cursor, collects E820 memory regions, scans standard BIOS ranges for the ACPI RSDP, builds temporary page tables, enables `LME`/`NXE`, and jumps to 64-bit code.
+- **UEFI path:** OVMF loads Limine. Limine parses `limine.conf`, loads `kernel_limine.elf` as the executable and publishes `kernel_bios.elf` + `initrd.cpio` as modules. The shim's `_start` switches to its own 16 KiB stack and calls `limine_start_main`.
+
+Both paths finish this phase holding (or able to reach) every piece of bootloader-native data they need for the next step.
+
+### Phase 2 — `BootInfo` build (one-shot, mirrored layout)
+
+On UEFI, `BuildBootInfo()` walks Limine's HHDM to read memmap entries, translates every Limine-virtual pointer (framebuffer, RSDP, SMBIOS, initrd) into physical addresses with `TranslateLimineVirtual()`, and writes the result into a `LowHandoffBootInfoStorage` block placed immediately after the loaded kernel image. On BIOS the 64-bit loader writes the same layout from E820 + EDD + CMOS + the earlier RSDP scan.
+
+Both paths finalize identical low-memory arenas:
+
+- `0x0500` — `BootInfo` header
+- `0x6000` — `BootMemoryRegion[]` memory map
+- `0x7000` — `BootModuleInfo[]` module descriptors
+- `0x7200` — string pool (bootloader name, command line, module names)
+
+The shim then installs a minimum low-identity window (PML4[0] → PML3[0] → 2 MiB PML2 pages covering only the handoff region) and calls `limine_enter_kernel`, which switches to the per-CPU boot stack and jumps to `KernelMain(BootInfo*, cpu*)`.
+
+### Phase 3 — kernel bring-up (`KernelMain`)
+
+The shared entry runs one deterministic sequence:
+
+1. `debug("[kernel64] hello!")` on serial.
+2. `OwnBootInfo()` deep-copies the header, memory map, modules, and all strings into kernel BSS. After this line, bootloader staging memory is no longer referenced.
+3. Boot CPU page (`cpu_boot`) is templated, `cpu_init()` loads the GDT, TSS, kernel CR3, and gs base.
+4. `PageFrameContainer` is initialized from `std::span<const BootMemoryRegion>`: mark all pages busy → free only `Usable` regions → reserve the bitmap → reserve low bootstrap → reserve the kernel image.
+5. `ReserveTrackedPhysicalRange` reserves every initrd module and the framebuffer.
+6. Kernel identity page tables are built for all usable RAM above `kKernelReservedPhysicalStart`, then modules, framebuffer, and the RSDP page are explicitly `MapIdentityRange`d because they may live in non-usable memory on the modern path.
+7. `kvm.Activate()` switches CR3 to the kernel root; `g_kernel_root_cr3` records it.
+8. `platform_init(*g_boot_info, kvm)` runs the ACPI → PCIe → virtio-blk pipeline (see Phase 4).
+9. `pic_init`, `ioapic_init`, `lapic_init`, `cpu_bootothers(g_kernel_root_cr3)` bring up the 8259 in masked mode, program the IOAPIC, activate the LAPIC, and start APs. APs land in `cpu_idle_loop()` (`cli; hlt`).
+10. 12 terminals are allocated (one page each), the display backend is selected from `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints `[kernel64] hello`.
+11. IDT initialization registers every exception handler with `OnKernelException`, the keyboard and console-input subsystems are initialized, and ISA IRQs for timer and keyboard are routed through the IOAPIC when SMP is active.
+12. Task tables (`Process[32]`, `Thread[32]`) are allocated from page frames, a kernel process is created, and a kernel idle thread is created.
+13. `LoadUserProgram("/bin/init")` loads the shell ELF from the initrd (`ET_EXEC`, `PT_LOAD` segments only, SysV-shaped initial stack).
+14. `SetTimer(1000)` sets the 1000 Hz PIT tick, `startMultiTask(init_thread)` enters the first user process via `iretq`.
+
+### Phase 4 — ACPI, PCIe, and storage probe (inside `platform_init`)
+
+```text
+BootInfo.rsdp_physical
+        |
+        v
+ ResolveAcpiTables   ---> XSDT (preferred) or RSDT (fallback)
+        |
+        |-- walk root table entries
+        |     find APIC (MADT) and MCFG signatures
+        v
+ ParseMadt   ---> CpuInfo[], IoApicInfo[], InterruptOverride[]
+ ParseMcfg   ---> PciEcamRegion[]
+        |
+        v
+ AllocateCpusFromTopology  ---> cpu alloc, LAPIC/IOAPIC mapping
+        |
+        v
+ EnumeratePci  ---> ECAM sweep, header type, multi-function,
+        |           BAR sizing with command register IO-disable
+        |           window
+        v
+ ProbeVirtioBlkDevice  ---> vendor-specific cap walk,
+        |                   common_cfg/notify_cfg/device_cfg,
+        |                   feature negotiation (VERSION_1),
+        |                   3-page queue (desc/avail/used),
+        |                   request scratch page
+        v
+ RunVirtioBlkSmoke  ---> read sector 0, verify prefix
+                         read sector 1, verify prefix
+                         -> "virtio-blk smoke ok"
+```
+
+On Limine, missing or malformed ACPI tables are a hard error. On BIOS, the legacy MP-table fallback (`UseLegacyMpFallback`) is still accepted to keep the compatibility path viable.
+
+### Phase 5 — operator-visible runtime
+
+```text
+ PIT IRQ0 (1000 Hz)         PS/2 IRQ1            serial RX (polled)
+        |                        |                      |
+        v                        v                      v
+ HandleIrq            +---- Keyboard::Poll      ConsoleInputPollSerial
+   |   AckLegacy      |          |                      |
+   |   tick++         |          +----->  console_input pending line
+   |   poll serial    |                       |
+   |                  |                       v
+   v                  |                enter key wakes read(0, ...)
+ ScheduleNext(true)  <+
+        |
+        v
+ Thread::frame ---iretq---> ring 3 shell
+```
+
+The shell runs a line-buffered REPL:
+
+1. `write(1, "os1> ")` via `int 0x80`.
+2. `read(0, buf, N)` blocks on `ThreadWaitReason::ConsoleRead` until enter commits a line.
+3. Tokens are dispatched: `help`, `echo`, `pid`, built-in observers (`sys`, `ps`, `cpu`, `pci`, `initrd`) each make one `observe(kind, buf, len)` call and render the resulting fixed-record table; `exec <path>` replaces the shell image in place; unknown tokens resolve via `/bin/<name>` and are run under `spawn` + `waitpid`.
+4. User exceptions (e.g. `/bin/fault`) are caught in `HandleException`, the thread is marked `Dying`, `ScheduleNext(false)` runs, and `reapDeadThreads` reclaims the thread stack and address space from a different stack on a later trap.
+
+### Phase 6 — exec and in-place image replacement
+
+```text
+ SysExec(user_path)
+        |
+        v
+ LoadUserProgramImage(path)  --> new_cr3, entry, user_rsp
+        |
+        v
+ thread->address_space_cr3 = new_cr3
+ thread->process->address_space.cr3 = new_cr3
+ PrepareUserThreadEntry(thread, entry, user_rsp)
+ WriteCr3(new_cr3)
+        |
+        v
+ DestroyUserAddressSpace(old_cr3)
+        |
+        v
+ (return to user via iretq with new frame)
+```
+
+The `exec` smoke enforces that control never returns to the *old* shell: the rejected-marker list includes `shell exec returned` and an `echo after-exec` probe. This is how the tests turn "no return" into a mechanical guarantee.
+
 ## Build Outputs And Boot Artifacts
 
 The CMake build now produces two image families:
@@ -81,7 +301,7 @@ It also produces the boot payloads that feed those images:
 - `kernel_limine.elf`
 - `initrd.cpio`
 - `virtio-test-disk.raw`
-- `user/init.elf`, `user/yield.elf`, `user/fault.elf`
+- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`
 
 The ISO stages these files:
 
@@ -331,6 +551,17 @@ Milestone 3 introduced a real split between the logical terminal model and the p
 
 The terminal remains fixed-size on both boot paths. That is intentional. It keeps the user-visible shell model stable while the display layer changes under it.
 
+### Console Input Path
+
+`src/kernel/console_input.cpp` owns the shared canonical input path used by the shell.
+
+- decoded keyboard input and serial RX feed the same pending line buffer
+- backspace edits the pending line locally before it is committed
+- enter commits a complete line and wakes a blocking `read(0, ...)`
+- serial echo stays enabled so local scripted runs and CI smoke transcripts exercise the same prompt/command flow
+
+This keeps manual keyboard sessions and serial-driven automation on one kernel-visible console path instead of two separate control planes.
+
 ### Display Backends
 
 `src/kernel/display.cpp` adds two presentation backends:
@@ -434,16 +665,35 @@ That means the C++ dispatch logic receives one coherent view of machine state, a
 
 ### Syscalls
 
-The first syscall ABI uses `int 0x80` on vector `48`, configured as a user-callable interrupt gate.
+The current syscall ABI uses `int 0x80` on vector `48`, configured as a user-callable interrupt gate.
 
 Current syscalls:
 
 - `write`
+- `read`
+- `observe`
+- `spawn`
+- `waitpid`
+- `exec`
 - `exit`
 - `yield`
 - `getpid`
 
-This is intentionally small. The milestone goal was to establish protection boundaries and process lifecycle, not a large syscall surface.
+This ABI is still intentionally small. It now covers console I/O, observability, and initrd-backed process control, but it is not yet a general POSIX-like descriptor model.
+
+### Observability ABI
+
+The shell does not parse serial boot logs to inspect kernel state. Instead, `observe(kind, buffer, size)` copies versioned fixed-record snapshots described by [`src/uapi/os1/observe.h`](../src/uapi/os1/observe.h) out of the kernel.
+
+Current observe kinds include:
+
+- system summary
+- process / thread table snapshot
+- discovered CPUs
+- enumerated PCI devices
+- packaged initrd files
+
+The ring-3 shell consumes those records through built-ins such as `sys`, `ps`, `cpu`, `pci`, and `initrd`, which keeps the user-facing observability contract explicit.
 
 ## Process And Userland Architecture
 
@@ -476,13 +726,14 @@ The initrd is a `cpio newc` archive built from `src/user`.
 
 Current user programs:
 
-- `/bin/init`
-- `/bin/yield`
-- `/bin/fault`
+- `/bin/init` — same binary as `/bin/sh` (the shell)
+- `/bin/sh` — the ring-3 shell built from [`src/user/programs/sh.cpp`](../src/user/programs/sh.cpp)
+- `/bin/yield` — cooperative yield probe built from [`src/user/programs/yield.c`](../src/user/programs/yield.c)
+- `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.c`](../src/user/programs/fault.c)
 
-The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
+The shell ELF is staged into the initrd as both `/bin/init` and `/bin/sh` (see [`src/user/CMakeLists.txt`](../src/user/CMakeLists.txt)), so the kernel keeps its fixed `/bin/init` boot contract while still exposing a normal shell path for later `exec` or child launch. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
 
-This first userland is intentionally a vertical slice, not a general process-launch environment. There is no filesystem-backed `exec`, no `fork`, no arguments/environment, and no shell yet.
+This userland is still intentionally a vertical slice, not a general Unix process-launch environment. The kernel can boot the shell, `spawn(path)` a child initrd program for foreground commands, `waitpid(pid)` for child completion, and `exec(path)` to replace the current image in place. There is still no filesystem-backed `exec`, no `fork`, and no arguments/environment yet.
 
 ### Process Fault Handling And Teardown
 
@@ -522,35 +773,48 @@ The main CMake targets are:
 - `os1_image`
 - `os1_bios_image`
 - `run`
+- `run_serial`
 - `run_bios`
+- `run_bios_serial`
 - `smoke`
+- `smoke_observe`
+- `smoke_spawn`
+- `smoke_exec`
 - `smoke_bios`
+- `smoke_observe_bios`
+- `smoke_spawn_bios`
+- `smoke_exec_bios`
 - `smoke_all`
 
-`run` boots the default UEFI ISO under OVMF on `q35` and attaches the generated `virtio-blk` test disk. `run_bios` boots the raw image under BIOS on `q35` with the same secondary `virtio-blk` test disk attached.
+`run` boots the default UEFI ISO under OVMF on `q35` and attaches the generated `virtio-blk` test disk. `run_serial` uses the same guest image but attaches the shell to serial stdio in the terminal. `run_bios` boots the raw image under BIOS on `q35` with the same secondary `virtio-blk` test disk attached, while `run_bios_serial` keeps that boot path but routes the guest shell through serial stdio.
 
 ### Smoke Tests
 
-`CTest` registers two boot-path tests:
+`CTest` now registers an eight-test shell matrix:
 
 - `os1_smoke`
+- `os1_smoke_observe`
+- `os1_smoke_spawn`
+- `os1_smoke_exec`
 - `os1_smoke_bios`
+- `os1_smoke_observe_bios`
+- `os1_smoke_spawn_bios`
+- `os1_smoke_exec_bios`
 
-The modern smoke test verifies markers including:
+The baseline smoke tests cover the common boot and shell transcript on each frontend, including:
 
-- bootloader-provided RSDP handoff
+- boot-source identification and stable prompt reachability
 - ACPI `MADT` topology discovery
 - ACPI `MCFG` discovery
-- PCIe enumeration
-- successful `virtio-blk` sector reads
-- `boot source: limine`
-- `framebuffer console active`
-- initrd discovery
-- user-process startup
-- clean user fault handling
-- idle-thread fallback
+- PCIe enumeration and successful `virtio-blk` sector reads
+- initrd discovery and first user-process startup
+- stable shell built-ins such as `help`, `echo`, and `pid`
 
-The BIOS smoke test verifies the same ACPI / PCIe / `virtio-blk` markers on the BIOS compatibility frontend, then the equivalent userland markers.
+The dedicated observe, spawn, and exec smokes then exercise the operator-facing behavior that Milestone 5 added:
+
+- structured `sys` / `ps` / `cpu` / `pci` / `initrd` output
+- child-process launch, user-fault containment, and prompt recovery
+- in-place `exec` replacement without the old shell prompt returning
 
 ### CI
 
@@ -561,7 +825,7 @@ GitHub Actions runs on `ubuntu-24.04` and does all of the following on every pus
 - configure the project
 - build the default modern artifact
 - explicitly build the BIOS compatibility artifact
-- run both smoke tests through `ctest`
+- run the full eight-test shell smoke matrix through `ctest`
 
 The same single CI job name is kept for local `act` compatibility.
 
@@ -573,12 +837,12 @@ Major constraints that remain:
 
 - the shared kernel core is still low identity-linked rather than higher-half
 - the framebuffer path is a text presenter, not a graphics stack
-- userland is still initrd-demo oriented rather than shell/filesystem oriented
+- userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
 - syscalls still use `int 0x80`, not `SYSCALL`/`SYSRET`
 - the first `virtio-blk` path is polling-only and smoke-oriented rather than a general block layer
 - MSI / MSI-X, `virtio-net`, NVMe, and real filesystem-backed storage are still follow-on work
 
-The next milestone is therefore not another boot refactor. It is storage, networking, and richer userland on top of the new platform base:
+The next major work is therefore not another boot or shell bring-up refactor. It is storage, networking, and richer filesystem-backed userland on top of the current platform and operator shell base:
 
 - block-device abstraction beyond the current `virtio-blk` smoke path
 - filesystem-backed loading instead of initrd-only demos

@@ -1,8 +1,8 @@
 # os1
 
-`os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status described in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) and the longer-term direction in [GOALS.md](GOALS.md).
+`os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status and a full system diagram in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md), the longer-term direction in [GOALS.md](GOALS.md), a code-grounded project review in [doc/2026-04-23-review.md](doc/2026-04-23-review.md), and the completed shell/operator milestone captured in [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md).
 
-Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, exposes `write`/`exit`/`yield`/`getpid` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 4 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` device, validates raw-sector reads from a generated test disk, and boots the default `q35` targets with ACPI-discovered AP startup.
+Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, boots directly into a ring-3 shell, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` device, validates raw-sector reads from a generated test disk, and lands at a serial-drivable interactive shell with structured observability and initrd-backed command execution.
 
 ## Prerequisites
 
@@ -65,8 +65,10 @@ This repo ships CMake presets for the supported workflows. In VS Code with the C
 - configure with the `default` preset
 - build with the `default` preset
 - use the `run` preset or target for the default UEFI path
+- use the `run_serial` target for a serial-first UEFI shell session in the terminal
 - use the `run_bios` preset or target for the legacy BIOS path
-- use the `smoke`, `smoke_bios`, or `smoke_all` presets for tests
+- use the `run_bios_serial` target for a serial-first BIOS shell session in the terminal
+- use the `smoke`, `smoke_observe`, `smoke_spawn`, `smoke_exec`, `smoke_bios`, `smoke_observe_bios`, `smoke_spawn_bios`, `smoke_exec_bios`, or `smoke_all` targets for tests
 
 If the extension still has stale cache or generator state from an older setup, run `CMake: Delete Cache and Reconfigure` once.
 
@@ -80,6 +82,14 @@ cmake --build build --target run
 
 This boots OVMF on `q35` and attaches the generated `virtio-blk` test disk used by the modern-platform smoke.
 
+Serial-first UEFI shell session:
+
+```sh
+cmake --build build --target run_serial
+```
+
+This uses the same OVMF + ISO path but attaches the guest serial console directly to your terminal and disables the graphical display, which is the closest local analogue to the CI-driven shell smokes.
+
 Legacy BIOS compatibility path:
 
 ```sh
@@ -88,18 +98,62 @@ cmake --build build --target run_bios
 
 This boots the raw image on BIOS under `q35` with the same secondary `virtio-blk` test disk attached.
 
+Serial-first BIOS shell session:
+
+```sh
+cmake --build build --target run_bios_serial
+```
+
+This keeps the BIOS boot path but routes the shell through serial stdio instead of the display-first run target.
+
 ## Smoke Tests
 
-Modern UEFI smoke test:
+Modern UEFI shell baseline smoke:
 
 ```sh
 cmake --build build --target smoke
 ```
 
-Legacy BIOS smoke test:
+Modern UEFI observability smoke:
+
+```sh
+cmake --build build --target smoke_observe
+```
+
+Modern UEFI child-launch smoke:
+
+```sh
+cmake --build build --target smoke_spawn
+```
+
+Modern UEFI exec smoke:
+
+```sh
+cmake --build build --target smoke_exec
+```
+
+Legacy BIOS shell baseline smoke:
 
 ```sh
 cmake --build build --target smoke_bios
+```
+
+Legacy BIOS observability smoke:
+
+```sh
+cmake --build build --target smoke_observe_bios
+```
+
+Legacy BIOS child-launch smoke:
+
+```sh
+cmake --build build --target smoke_spawn_bios
+```
+
+Legacy BIOS exec smoke:
+
+```sh
+cmake --build build --target smoke_exec_bios
 ```
 
 Run both:
@@ -114,7 +168,7 @@ Or run the registered CTest suite directly:
 ctest --test-dir build --output-on-failure
 ```
 
-The smoke tests capture serial logs and assert stable boot markers for both boot paths, including ACPI `MADT`/`MCFG` discovery, PCIe enumeration, `virtio-blk` read success, and the existing userland markers. CI runs both tests on every push and pull request.
+The smoke tests capture serial logs and assert stable boot, shell, observability, child-launch, and exec markers for both boot paths. CI drives the shell through serial input rather than relying on display-only interaction, so local smoke transcripts closely match the automated coverage.
 
 ## Local CI With `act`
 
@@ -148,14 +202,17 @@ The build writes outputs under `build/artifacts/`:
 - `kernel_bios.elf` — shared low-half kernel core used by the BIOS path and loaded as a module by the Limine path
 - `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state and enters the shared kernel
 - `cpustart.bin` — AP trampoline blob used for debugging / disassembly
-- `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/yield`, and `/bin/fault`
+- `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/sh`, `/bin/yield`, and `/bin/fault`
 - `virtio-test-disk.raw` — generated raw disk image used to validate the `virtio-blk` path during boot and smoke tests
 - `user/*.elf` — statically linked user-space ELF inputs used to build the initrd
 - `os1.iso` — default UEFI-only Limine ISO
 - `os1.raw` — legacy BIOS raw disk image
-- `os1.log` — serial log from the last UEFI `run`
-- `os1-bios.log` — serial log from the last BIOS `run_bios`
-- `smoke.log` / `smoke-bios.log` — captured smoke-test serial logs
+- `os1.log` — serial log from the last display-first UEFI `run`
+- `os1-bios.log` — serial log from the last display-first BIOS `run_bios`
+- `smoke.log` / `smoke-bios.log` — captured baseline shell smoke serial logs
+- `smoke-observe.log` / `smoke-observe-bios.log` — captured observability smoke serial logs
+- `smoke-spawn.log` / `smoke-spawn-bios.log` — captured child-launch smoke serial logs
+- `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
 - `dump.asm` / `cpustart.asm` — disassembly outputs
 
 The helper wrapper scripts remain available as thin CMake frontends:
@@ -167,10 +224,12 @@ The helper wrapper scripts remain available as thin CMake frontends:
 ## Documentation
 
 - [Goals](GOALS.md) — project direction and design principles
-- [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture
+- [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture; includes a system diagram and end-to-end workflow
+- [Review 2026-04-23](doc/2026-04-23-review.md) — current code-grounded project review (recommended entry point for readers)
 - [Review 2026-04-19](doc/2026-04-19-review.md) — historical review
 - [Review 2026-04-21](doc/2026-04-21-review.md) — historical review
 - [Milestone 1 Design: Boot Contract And Kernel Stabilization](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) — implemented
 - [Milestone 2 Design: Process Model And Isolation](doc/2026-04-22-milestone-2-process-model-and-isolation.md) — implemented
 - [Milestone 3 Design: Modern Default Boot Path](doc/2026-04-22-milestone-3-modern-default-boot-path.md) — implemented
 - [Milestone 4 Design: Modern Platform Support](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented
+- [Milestone 5 Design: Interactive Shell And Observability](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md) — implemented
