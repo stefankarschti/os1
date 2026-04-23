@@ -84,7 +84,7 @@ struct BootStringArena
 	size_t used;
 };
 
-struct ShimBootInfoStorage
+struct LowHandoffBootInfoStorage
 {
 	BootInfo info{};
 	BootMemoryRegion memory_map[kBootInfoMaxMemoryRegions]{};
@@ -98,7 +98,6 @@ struct ShimBootInfoStorage
 
 alignas(kPageSize) constinit uint64_t g_low_identity_pml3[512]{};
 alignas(kPageSize) constinit uint64_t g_low_identity_pml2[512]{};
-constinit ShimBootInfoStorage g_shim_boot_info{};
 
 __attribute__((used, section(".limine_requests_start")))
 volatile uint64_t g_limine_requests_start[4] = LIMINE_REQUESTS_START_MARKER;
@@ -179,11 +178,6 @@ volatile uint64_t g_limine_requests_end[2] = LIMINE_REQUESTS_END_MARKER;
 [[nodiscard]] uint64_t AlignUp(uint64_t value, uint64_t alignment)
 {
 	return (value + alignment - 1) & ~(alignment - 1);
-}
-
-[[nodiscard]] uint64_t MaxU64(uint64_t left, uint64_t right)
-{
-	return (left > right) ? left : right;
 }
 
 [[nodiscard]] uint64_t ReadCr3()
@@ -526,6 +520,18 @@ void ReloadCr3()
 	return true;
 }
 
+template <typename T>
+[[nodiscard]] bool LiminePointerMapped(const T *pointer)
+{
+	if(nullptr == pointer)
+	{
+		return false;
+	}
+
+	uint64_t physical_address = 0;
+	return TranslateShimPointer(pointer, physical_address);
+}
+
 [[nodiscard]] BootMemoryType TranslateMemoryType(uint64_t limine_type)
 {
 	switch(limine_type)
@@ -577,7 +583,7 @@ void ReloadCr3()
 [[nodiscard]] const limine_file *FindModule(const char *name)
 {
 	const auto *response = g_module_request.response;
-	if(nullptr == response)
+	if(!LiminePointerMapped(response) || !LiminePointerMapped(response->modules))
 	{
 		return nullptr;
 	}
@@ -585,15 +591,20 @@ void ReloadCr3()
 	for(uint64_t i = 0; i < response->module_count; ++i)
 	{
 		const limine_file *module = response->modules[i];
-		if((nullptr == module)
-			|| (nullptr == module->path && nullptr == module->string))
+		if(!LiminePointerMapped(module))
+		{
+			continue;
+		}
+		const char *path = LiminePointerMapped(module->path) ? module->path : nullptr;
+		const char *string = LiminePointerMapped(module->string) ? module->string : nullptr;
+		if((nullptr == path) && (nullptr == string))
 		{
 			continue;
 		}
 
-		if(PathEndsWith(module->path, name)
-			|| StringsEqual(module->string, name)
-			|| PathEndsWith(module->string, name))
+		if(PathEndsWith(path, name)
+			|| StringsEqual(string, name)
+			|| PathEndsWith(string, name))
 		{
 			return module;
 		}
@@ -606,7 +617,8 @@ void ReloadCr3()
 		uint64_t &entry_point,
 		uint64_t &kernel_physical_start,
 		uint64_t &kernel_physical_end,
-		cpu *&cpu_boot)
+		cpu *&cpu_boot,
+		uint64_t &boot_info_storage_physical)
 {
 	if((nullptr == kernel_file.address) || (kernel_file.size < sizeof(Elf64Header)))
 	{
@@ -696,10 +708,15 @@ void ReloadCr3()
 		return false;
 	}
 	ZeroBytes(cpu_boot_page, kPageSize);
-	const uint64_t low_handoff_end = AlignUp(
-			MaxU64(AlignUp((uint64_t)cpu_boot + kPageSize, kPageSize),
-				kBootStringBufferAddress + kBootStringBufferSizeBytes),
+	boot_info_storage_physical = AlignUp((uint64_t)cpu_boot + kPageSize, kPageSize);
+	const uint64_t boot_info_storage_end = AlignUp(
+			boot_info_storage_physical + sizeof(LowHandoffBootInfoStorage),
 			kPageSize);
+	if(boot_info_storage_end > kKernelReservedPhysicalEnd)
+	{
+		return false;
+	}
+	const uint64_t low_handoff_end = AlignUp((uint64_t)cpu_boot + kPageSize, kPageSize);
 	if(!EnsureLowIdentityWindow(low_handoff_end))
 	{
 		return false;
@@ -708,26 +725,35 @@ void ReloadCr3()
 	return true;
 }
 
-[[nodiscard]] BootInfo *BootInfoStorage()
+[[nodiscard]] LowHandoffBootInfoStorage *MapBootInfoStorage(uint64_t physical_address)
 {
-	return &g_shim_boot_info.info;
+	return MapPhysicalPointer<LowHandoffBootInfoStorage>(physical_address);
 }
 
-[[nodiscard]] BootMemoryRegion *BootMemoryMapStorage()
+[[nodiscard]] BootInfo *BootInfoStorage(LowHandoffBootInfoStorage *storage)
 {
-	return g_shim_boot_info.memory_map;
+	return storage ? &storage->info : nullptr;
 }
 
-[[nodiscard]] BootModuleInfo *BootModuleStorage()
+[[nodiscard]] BootMemoryRegion *BootMemoryMapStorage(LowHandoffBootInfoStorage *storage)
 {
-	return g_shim_boot_info.modules;
+	return storage ? storage->memory_map : nullptr;
 }
 
-[[nodiscard]] BootStringArena CreateBootStringArena()
+[[nodiscard]] BootModuleInfo *BootModuleStorage(LowHandoffBootInfoStorage *storage)
+{
+	return storage ? storage->modules : nullptr;
+}
+
+[[nodiscard]] BootStringArena CreateBootStringArena(LowHandoffBootInfoStorage *storage)
 {
 	BootStringArena arena{};
-	arena.base = g_shim_boot_info.string_pool;
-	arena.capacity = sizeof(g_shim_boot_info.string_pool);
+	if(nullptr == storage)
+	{
+		return arena;
+	}
+	arena.base = storage->string_pool;
+	arena.capacity = sizeof(storage->string_pool);
 	arena.used = 0;
 	return arena;
 }
@@ -766,9 +792,18 @@ void ReloadCr3()
 [[nodiscard]] bool PopulateBootloaderInfo(BootInfo &boot_info, BootStringArena &arena)
 {
 	const auto *response = g_bootloader_info_request.response;
-	if(nullptr == response)
+	const char *name = "limine";
+	const char *version = nullptr;
+	if(LiminePointerMapped(response))
 	{
-		return false;
+		if(LiminePointerMapped(response->name))
+		{
+			name = response->name;
+		}
+		if(LiminePointerMapped(response->version))
+		{
+			version = response->version;
+		}
 	}
 
 	char *storage = ReserveBootString(arena, kBootInfoMaxBootloaderNameBytes);
@@ -776,11 +811,11 @@ void ReloadCr3()
 	{
 		return false;
 	}
-	CopyString(storage, kBootInfoMaxBootloaderNameBytes, response->name ? response->name : "limine");
-	if(response->version && response->version[0])
+	CopyString(storage, kBootInfoMaxBootloaderNameBytes, name);
+	if((nullptr != version) && version[0])
 	{
 		AppendString(storage, kBootInfoMaxBootloaderNameBytes, " ");
-		AppendString(storage, kBootInfoMaxBootloaderNameBytes, response->version);
+		AppendString(storage, kBootInfoMaxBootloaderNameBytes, version);
 	}
 	boot_info.bootloader_name = storage;
 	return true;
@@ -789,7 +824,9 @@ void ReloadCr3()
 bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 {
 	const auto *response = g_cmdline_request.response;
-	if((nullptr == response) || (nullptr == response->cmdline) || (0 == response->cmdline[0]))
+	if(!LiminePointerMapped(response)
+		|| !LiminePointerMapped(response->cmdline)
+		|| (0 == response->cmdline[0]))
 	{
 		return true;
 	}
@@ -800,20 +837,24 @@ bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 	return nullptr != boot_info.command_line;
 }
 
-[[nodiscard]] bool PopulateMemoryMap(BootInfo &boot_info)
+[[nodiscard]] bool PopulateMemoryMap(BootInfo &boot_info, BootMemoryRegion *memory_map)
 {
 	const auto *response = g_memmap_request.response;
-	BootMemoryRegion *memory_map = BootMemoryMapStorage();
-	if((nullptr == response) || (nullptr == memory_map) || (response->entry_count > kBootInfoMaxMemoryRegions))
+	if((nullptr == memory_map)
+		|| !LiminePointerMapped(response)
+		|| (response->entry_count > kBootInfoMaxMemoryRegions))
+	{
+		return false;
+	}
+	if(!LiminePointerMapped(response->entries))
 	{
 		return false;
 	}
 
-	ZeroBytes(memory_map, sizeof(BootMemoryRegion) * kBootInfoMaxMemoryRegions);
 	for(uint64_t i = 0; i < response->entry_count; ++i)
 	{
 		const auto *entry = response->entries[i];
-		if(nullptr == entry)
+		if(!LiminePointerMapped(entry))
 		{
 			return false;
 		}
@@ -831,9 +872,9 @@ bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 
 [[nodiscard]] bool PopulateInitrdModule(BootInfo &boot_info,
 		BootStringArena &arena,
-		const limine_file &initrd_module)
+		const limine_file &initrd_module,
+		BootModuleInfo *modules)
 {
-	BootModuleInfo *modules = BootModuleStorage();
 	if(nullptr == modules)
 	{
 		return false;
@@ -862,16 +903,17 @@ bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 void PopulateFirmwarePointers(BootInfo &boot_info)
 {
 	uint64_t translated = 0;
+	const auto *rsdp = g_rsdp_request.response;
 
-	if((nullptr != g_rsdp_request.response)
-		&& (nullptr != g_rsdp_request.response->address)
-		&& TranslateLimineVirtual((uint64_t)g_rsdp_request.response->address, translated))
+	if(LiminePointerMapped(rsdp)
+			&& (nullptr != rsdp->address)
+			&& TranslateLimineVirtual((uint64_t)rsdp->address, translated))
 	{
 		boot_info.rsdp_physical = translated;
 	}
 
 	const auto *smbios = g_smbios_request.response;
-	if(nullptr == smbios)
+	if(!LiminePointerMapped(smbios))
 	{
 		return;
 	}
@@ -892,21 +934,25 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 [[nodiscard]] bool PopulateFramebuffer(BootInfo &boot_info)
 {
 	const auto *response = g_framebuffer_request.response;
-	if((nullptr == response) || (0 == response->framebuffer_count))
+	if(!LiminePointerMapped(response) || (0 == response->framebuffer_count))
+	{
+		return true;
+	}
+	if(!LiminePointerMapped(response->framebuffers))
 	{
 		return true;
 	}
 
 	const auto *framebuffer = response->framebuffers[0];
-	if(nullptr == framebuffer)
+	if(!LiminePointerMapped(framebuffer))
 	{
-		return false;
+		return true;
 	}
 
 	uint64_t framebuffer_physical = 0;
 	if(!TranslateLimineVirtual((uint64_t)framebuffer->address, framebuffer_physical))
 	{
-		return false;
+		return true;
 	}
 
 	boot_info.framebuffer.physical_address = framebuffer_physical;
@@ -920,22 +966,23 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 
 [[nodiscard]] BootInfo *BuildBootInfo(const limine_file &initrd_module,
 		uint64_t kernel_physical_start,
-		uint64_t kernel_physical_end)
+		uint64_t kernel_physical_end,
+		uint64_t boot_info_storage_physical)
 {
-	BootInfo *boot_info = BootInfoStorage();
-	BootMemoryRegion *memory_map = BootMemoryMapStorage();
-	BootModuleInfo *modules = BootModuleStorage();
-	BootStringArena arena = CreateBootStringArena();
+	LowHandoffBootInfoStorage *storage = MapBootInfoStorage(boot_info_storage_physical);
+	BootInfo *boot_info = BootInfoStorage(storage);
+	BootMemoryRegion *memory_map = BootMemoryMapStorage(storage);
+	BootModuleInfo *modules = BootModuleStorage(storage);
+	BootStringArena arena = CreateBootStringArena(storage);
 	if((nullptr == boot_info) || (nullptr == memory_map) || (nullptr == modules) || (nullptr == arena.base))
 	{
 		WriteSerialLn("[limine-shim] handoff storage unavailable");
 		return nullptr;
 	}
 
-	// The shared kernel copies BootInfo immediately on entry, so the handoff
-	// storage only needs to remain valid under the current Limine page tables
-	// until KernelMain starts. Keeping it in shim-owned .bss avoids clobbering
-	// firmware/bootloader low-memory scratch space.
+	// The shared low-half kernel copies BootInfo immediately on entry, so a
+	// small staging area carved out of the already-reserved kernel low-memory
+	// window is sufficient and avoids depending on shim-owned higher-half .bss.
 	ZeroBytes(boot_info, sizeof(BootInfo));
 	ZeroBytes(memory_map, sizeof(BootMemoryRegion) * kBootInfoMaxMemoryRegions);
 	ZeroBytes(modules, sizeof(BootModuleInfo) * kBootInfoMaxModules);
@@ -962,12 +1009,12 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 		WriteSerialLn("[limine-shim] command line handoff failed");
 		return nullptr;
 	}
-	if(!PopulateMemoryMap(boot))
+	if(!PopulateMemoryMap(boot, memory_map))
 	{
 		WriteSerialLn("[limine-shim] memory map handoff failed");
 		return nullptr;
 	}
-	if(!PopulateInitrdModule(boot, arena, initrd_module))
+	if(!PopulateInitrdModule(boot, arena, initrd_module, modules))
 	{
 		WriteSerialLn("[limine-shim] initrd handoff failed");
 		return nullptr;
@@ -1004,12 +1051,14 @@ extern "C" [[noreturn]] void _start()
 	uint64_t entry_point = 0;
 	uint64_t kernel_physical_start = 0;
 	uint64_t kernel_physical_end = 0;
+	uint64_t boot_info_storage_physical = 0;
 	cpu *cpu_boot = nullptr;
 	if(!LoadKernelImage(*kernel_file,
 			entry_point,
 			kernel_physical_start,
 			kernel_physical_end,
-			cpu_boot))
+			cpu_boot,
+			boot_info_storage_physical))
 	{
 		WriteSerialLn("[limine-shim] low kernel load failed");
 		HaltForever();
@@ -1020,7 +1069,10 @@ extern "C" [[noreturn]] void _start()
 	WriteSerialHex((uint64_t)cpu_boot);
 	WriteSerialLn("");
 
-	BootInfo *boot_info = BuildBootInfo(*initrd_file, kernel_physical_start, kernel_physical_end);
+	BootInfo *boot_info = BuildBootInfo(*initrd_file,
+			kernel_physical_start,
+			kernel_physical_end,
+			boot_info_storage_physical);
 	if(nullptr == boot_info)
 	{
 		WriteSerialLn("[limine-shim] BootInfo build failed");

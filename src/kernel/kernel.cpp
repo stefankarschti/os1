@@ -277,10 +277,9 @@ void KernelIdleThread()
 	for(;;)
 	{
 		// M2 has no wakeup-driven kernel work once the initrd self-tests finish,
-		// so the BSP can park in the same terminal idle state as the APs until a
-		// later milestone adds a richer always-on idle loop.
-		asm volatile("cli");
-		asm volatile("hlt");
+		// so the BSP can sleep until the next interrupt hands control back to the
+		// scheduler.
+		asm volatile("sti; hlt");
 	}
 }
 
@@ -305,7 +304,8 @@ void KernelIdleThread()
 			(" mode ")(next->user_mode ? "user" : "kernel")
 			(" cs 0x")(next->frame.cs, 16)
 			(" rip 0x")(next->frame.rip, 16)();
-		setCurrentThread(next);
+		// `restore_thread` owns the actual current-thread flip; publishing it here
+		// lets an in-flight trap save the wrong CPU context into `next->frame`.
 	}
 	return next;
 }
@@ -1009,7 +1009,6 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 	debug("start multitasking")();
 	WriteConsoleLine("starting first user process");
 	SetTimer(1000);
-	setCurrentThread(init_thread);
 	startMultiTask(init_thread);
 	HaltForever();
 }
