@@ -132,6 +132,11 @@ struct Elf64ProgramHeader
 	return value;
 }
 
+void WriteCr3(uint64_t value)
+{
+	asm volatile("mov %0, %%cr3" : : "r"(value) : "memory");
+}
+
 [[noreturn]] void HaltForever()
 {
 	for(;;)
@@ -714,22 +719,53 @@ bool LoadUserElf(const uint8_t *image, uint64_t image_size, uint64_t &cr3, uint6
 	return true;
 }
 
-Thread *LoadUserProgram(const char *path, Process *parent = nullptr)
+bool LoadUserProgramImage(const char *path, uint64_t &user_cr3, uint64_t &entry, uint64_t &user_rsp)
 {
 	const uint8_t *file_data = nullptr;
 	uint64_t file_size = 0;
 	if(!FindInitrdFile(path, file_data, file_size))
 	{
 		debug("initrd missing ")(path)();
-		return nullptr;
+		return false;
 	}
 
-	uint64_t user_cr3 = 0;
-	uint64_t entry = 0;
-	uint64_t user_rsp = 0;
 	if(!LoadUserElf(file_data, file_size, user_cr3, entry, user_rsp))
 	{
 		debug("user ELF load failed for ")(path)();
+		return false;
+	}
+
+	return true;
+}
+
+void PrepareUserThreadEntry(Thread *thread, uint64_t entry, uint64_t user_rsp)
+{
+	if(nullptr == thread)
+	{
+		return;
+	}
+
+	thread->exit_status = 0;
+	clearThreadWait(thread);
+	thread->frame = {};
+	thread->frame.rip = entry;
+	thread->frame.cs = kUserCodeSegment;
+	thread->frame.rflags = 0x202;
+	thread->frame.rsp = user_rsp;
+	thread->frame.ss = kUserDataSegment;
+	if(thread->process)
+	{
+		thread->process->exit_status = 0;
+	}
+}
+
+Thread *LoadUserProgram(const char *path, Process *parent = nullptr)
+{
+	uint64_t user_cr3 = 0;
+	uint64_t entry = 0;
+	uint64_t user_rsp = 0;
+	if(!LoadUserProgramImage(path, user_cr3, entry, user_rsp))
+	{
 		return nullptr;
 	}
 
@@ -747,6 +783,7 @@ Thread *LoadUserProgram(const char *path, Process *parent = nullptr)
 		reapProcess(process, page_frames);
 		return nullptr;
 	}
+	PrepareUserThreadEntry(thread, entry, user_rsp);
 
 	debug("user thread ready pid ")(process->pid)(" tid ")(thread->tid)(" entry 0x")(entry, 16)(" rsp 0x")(user_rsp, 16)();
 	return thread;
@@ -1390,6 +1427,47 @@ long SysSpawn(uint64_t user_path)
 	return static_cast<long>(child->process->pid);
 }
 
+long SysExec(uint64_t user_path)
+{
+	Thread *thread = currentThread();
+	if((nullptr == thread) || (nullptr == thread->process) || !thread->user_mode)
+	{
+		return -1;
+	}
+
+	char path[OS1_OBSERVE_INITRD_PATH_BYTES];
+	if(!CopyUserString(thread, user_path, path, sizeof(path)))
+	{
+		return -1;
+	}
+
+	uint64_t new_cr3 = 0;
+	uint64_t entry = 0;
+	uint64_t user_rsp = 0;
+	if(!LoadUserProgramImage(path, new_cr3, entry, user_rsp))
+	{
+		return -1;
+	}
+
+	const uint64_t old_cr3 = thread->address_space_cr3;
+	thread->address_space_cr3 = new_cr3;
+	if(thread->process)
+	{
+		thread->process->address_space.cr3 = new_cr3;
+		thread->process->state = ProcessState::Running;
+		CopyFixedString(thread->process->name, sizeof(thread->process->name), path);
+	}
+	PrepareUserThreadEntry(thread, entry, user_rsp);
+	WriteCr3(new_cr3);
+
+	if((0 != old_cr3) && (old_cr3 != new_cr3) && !DestroyUserAddressSpace(old_cr3))
+	{
+		debug("exec old address-space teardown failed for ")(path)();
+	}
+
+	return 0;
+}
+
 Thread *HandleSyscall(TrapFrame *frame)
 {
 	Thread *thread = currentThread();
@@ -1431,21 +1509,24 @@ Thread *HandleSyscall(TrapFrame *frame)
 	case SYS_observe:
 		frame->rax = static_cast<uint64_t>(SysObserve(frame->rdi, frame->rsi, static_cast<size_t>(frame->rdx)));
 		return thread;
-		case SYS_spawn:
-			frame->rax = static_cast<uint64_t>(SysSpawn(frame->rdi));
-			return thread;
-		case SYS_waitpid:
+	case SYS_spawn:
+		frame->rax = static_cast<uint64_t>(SysSpawn(frame->rdi));
+		return thread;
+	case SYS_waitpid:
+	{
+		long wait_result = -1;
+		if(TryCompleteWaitPid(thread, frame->rdi, frame->rsi, wait_result))
 		{
-			long wait_result = -1;
-			if(TryCompleteWaitPid(thread, frame->rdi, frame->rsi, wait_result))
-			{
-				frame->rax = static_cast<uint64_t>(wait_result);
-				return thread;
-			}
-
-			blockCurrentThread(ThreadWaitReason::ChildExit, frame->rsi, frame->rdi);
-			return ScheduleNext(false);
+			frame->rax = static_cast<uint64_t>(wait_result);
+			return thread;
 		}
+
+		blockCurrentThread(ThreadWaitReason::ChildExit, frame->rsi, frame->rdi);
+		return ScheduleNext(false);
+	}
+	case SYS_exec:
+		frame->rax = static_cast<uint64_t>(SysExec(frame->rdi));
+		return thread;
 	default:
 		frame->rax = (uint64_t)-1;
 		return thread;

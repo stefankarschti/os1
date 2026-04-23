@@ -261,7 +261,7 @@ bool Observe(uint32_t kind, const Record *&records, uint32_t &record_count)
 
 void RunHelp()
 {
-	WriteString("help echo pid sys ps cpu pci initrd exit\n");
+	WriteString("help echo pid sys ps cpu pci initrd exec exit\n");
 }
 
 void RunEcho(size_t argc, char *argv[kShellMaxTokens])
@@ -544,6 +544,32 @@ void WriteSpawnOutcome(const char *command, long pid, int status)
 	WriteString("shell prompt resumed\n");
 }
 
+void RunExec(size_t argc, char *argv[kShellMaxTokens])
+{
+	if(argc != 2)
+	{
+		WriteString("usage: exec <path>\n");
+		return;
+	}
+
+	char path[OS1_OBSERVE_INITRD_PATH_BYTES];
+	if(!ResolveCommandPath(argv[1], path, sizeof(path)))
+	{
+		WriteString("exec failed: ");
+		WriteString(argv[1]);
+		WriteChar('\n');
+		return;
+	}
+
+	WriteString("shell exec start ");
+	WriteString(path);
+	WriteChar('\n');
+	const long result = os1_exec(path);
+	WriteString("shell exec returned ");
+	WriteSigned(result);
+	WriteChar('\n');
+}
+
 void RunExternal(const char *command)
 {
 	char path[OS1_OBSERVE_INITRD_PATH_BYTES];
@@ -633,6 +659,10 @@ int main(void)
 		else if(StringsEqual(tokens[0], "initrd"))
 		{
 			RunInitrd();
+		}
+		else if(StringsEqual(tokens[0], "exec"))
+		{
+			RunExec(argc, tokens);
 		}
 		else if(StringsEqual(tokens[0], "exit"))
 		{

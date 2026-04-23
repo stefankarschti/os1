@@ -13,6 +13,7 @@ enum {
 	SYS_observe = 6,
 	SYS_spawn = 7,
 	SYS_waitpid = 8,
+	SYS_exec = 9,
 };
 
 #ifdef __cplusplus
@@ -51,6 +52,11 @@ static inline long os1_spawn(const char *path)
 static inline long os1_waitpid(uint64_t pid, int *status)
 {
 	return os1_syscall2(SYS_waitpid, pid, (uint64_t)status);
+}
+
+static inline long os1_exec(const char *path)
+{
+	return os1_syscall1(SYS_exec, (uint64_t)path);
 }
 
 static inline void os1_exit(int status)
