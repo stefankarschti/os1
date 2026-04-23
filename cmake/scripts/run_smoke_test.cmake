@@ -67,6 +67,9 @@ else()
 endif()
 
 if(DEFINED VIRTIO_TEST_DISK)
+  if(NOT EXISTS "${VIRTIO_TEST_DISK}")
+    message(FATAL_ERROR "VIRTIO_TEST_DISK was set but does not exist: ${VIRTIO_TEST_DISK}")
+  endif()
   list(APPEND qemu_command
     -drive
     "if=none,id=virtio_test,format=raw,file=${VIRTIO_TEST_DISK}"

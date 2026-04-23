@@ -196,6 +196,8 @@ add_custom_command(
   VERBATIM
 )
 
+add_custom_target(os1_virtio_test_disk DEPENDS "${OS1_VIRTIO_TEST_DISK}")
+
 add_custom_command(
   OUTPUT "${OS1_RAW_IMAGE}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
@@ -270,8 +272,8 @@ add_custom_command(
   VERBATIM
 )
 
-add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}")
-add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}")
+add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}" os1_virtio_test_disk)
+add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}" os1_virtio_test_disk)
 
 function(os1_add_unavailable_target target_name reason)
   add_custom_target(
