@@ -12,7 +12,6 @@
 
 %define CODE_SEG     0x0008
 %define DATA_SEG     0x0010
-GDTT			equ 0x0
 P_CPU_PAGE		equ AP_STARTUP_CPU_PAGE_ADDRESS
 P_RIP			equ AP_STARTUP_RIP_ADDRESS
 P_CR3			equ AP_STARTUP_CR3_ADDRESS
@@ -55,8 +54,9 @@ cpustart_begin:
 	or ebx,0x80000001                 ; - by enabling paging and protection simultaneously.
 	mov cr0, ebx
 
-	; load GDT
-	lgdt [GDTT + 3 * 8 + 2]
+	; Load the trampoline-local GDT so AP startup does not depend on whatever
+	; low-memory bootstrap state the active boot frontend happened to leave at 0.
+	lgdt [AP_TRAMPOLINE_ADDRESS + GdtPointer - cpustart_begin]
 	jmp CODE_SEG:(AP_TRAMPOLINE_ADDRESS + LongMode - cpustart_begin)         ; Load CS with 64 bit segment and flush the instruction cache
 
 [BITS 64]
@@ -79,6 +79,17 @@ LongMode:
 .die:
 	hlt
 	jmp .die
+
+align 8
+GdtTable:
+	dq 0x0000000000000000
+	dq 0x00209A0000000000
+	dq 0x0000920000000000
+
+align 4
+GdtPointer:
+	dw GdtPointer - GdtTable - 1
+	dd AP_TRAMPOLINE_ADDRESS + GdtTable - cpustart_begin
 
 global cpustart_end
 cpustart_end:

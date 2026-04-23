@@ -1,6 +1,6 @@
 # os1 Architecture
 
-> generated-by: Codex (GPT-5) · generated-at: 2026-04-22 · git-commit: `ccf881c8170e9645d51d6d734431bed836935c6f`
+> generated-by: Codex (GPT-5) · generated-at: 2026-04-23 · git-state: working tree
 
 This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. The review documents under `doc/` are historical context, not the live system contract.
 
@@ -10,6 +10,9 @@ This document is the current-state source of truth for `os1`. It describes what 
 - a default modern UEFI boot path based on Limine
 - an explicit legacy BIOS compatibility path
 - one kernel-facing boot contract: `BootInfo`
+- an ACPI-first platform-discovery layer on both boot frontends
+- PCIe enumeration through ACPI `MCFG` and ECAM
+- a first practical modern device path through `virtio-blk`
 - a freestanding `C++20` kernel core with narrow assembly boundaries
 - protected ring-3 user programs loaded from an initrd
 - a terminal model that can render either through VGA text mode or a framebuffer text backend
@@ -20,7 +23,7 @@ Milestone status:
 - Milestone 1: implemented
 - Milestone 2: implemented
 - Milestone 3: implemented
-- Milestone 4: planned
+- Milestone 4: implemented
 
 ## Glossary
 
@@ -77,6 +80,7 @@ It also produces the boot payloads that feed those images:
 - `kernel_bios.elf`
 - `kernel_limine.elf`
 - `initrd.cpio`
+- `virtio-test-disk.raw`
 - `user/init.elf`, `user/yield.elf`, `user/fault.elf`
 
 The ISO stages these files:
@@ -273,7 +277,7 @@ Flow:
 1. BIOS loads `boot.bin` at `0x7C00`.
 2. The MBR stage loads the first sector of `kernel16.bin`.
 3. `kernel16.bin` finishes loading itself through CHS reads.
-4. The loader enables A20, checks long-mode support, reads the kernel and initrd through EDD packet reads, captures the BIOS cursor, and collects the E820 memory map.
+4. The loader enables A20, checks long-mode support, reads the kernel and initrd through EDD packet reads, captures the BIOS cursor, collects the E820 memory map, and scans the standard BIOS ACPI search ranges for a valid RSDP.
 5. `src/boot/long64.asm` builds temporary page tables, enables `LME` and `NXE`, and jumps into long mode.
 6. The 64-bit loader expands `kernel_bios.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `KernelMain`.
 
@@ -296,10 +300,10 @@ The high-level sequence is:
 3. boot CPU initialization
 4. physical page-frame allocator initialization
 5. reserve boot modules and framebuffer ranges
-6. CPU discovery
-7. build kernel-owned identity-mapped page tables
-8. map boot-critical non-usable ranges such as initrd and framebuffer
-9. switch to the kernel's `CR3`
+6. build kernel-owned identity-mapped page tables
+7. map boot-critical non-usable ranges such as initrd, framebuffer, and the initial RSDP page
+8. switch to the kernel's `CR3`
+9. run `platform_init()` to parse ACPI, normalize topology, enumerate PCIe, and probe `virtio-blk`
 10. initialize PIC, IOAPIC, LAPIC
 11. start APs when available
 12. allocate terminals
@@ -492,18 +496,22 @@ If a user process faults:
 
 This deferred teardown is important. The kernel does not free the current thread's stack or address space while it is still executing on it.
 
-## SMP And Current Limits
+## Modern Platform Support
 
-CPU discovery and AP bring-up are still based on legacy Intel MP tables, not ACPI MADT.
+Milestone 4 replaces legacy MP-table discovery as the primary platform path.
 
-That has a visible consequence:
+The kernel now:
 
-- the modern UEFI `q35` path boots successfully and reaches userland
-- but current automated UEFI runs often remain effectively BSP-only because modern ACPI-based topology discovery is not implemented yet
+- consumes `BootInfo.rsdp_physical` on both Limine and BIOS boots
+- parses `XSDT` first and falls back to `RSDT` when needed
+- uses `MADT` as the primary source of CPU, LAPIC, IOAPIC, and IRQ-override topology
+- uses `MCFG` to discover PCIe ECAM ranges
+- enumerates PCIe devices and records BAR information
+- probes a modern `virtio-blk` PCI device and validates raw sector reads during boot
 
-That is not a Milestone 3 regression. It is the expected boundary between Milestone 3 and Milestone 4. The boot path is modernized; platform discovery is not yet.
+On the default `q35` targets, both boot paths now discover four CPUs from ACPI and successfully bring up the APs.
 
-APs that do start enter `cpu_idle_loop()`, an explicit interrupt-disabled `cli; hlt` loop. They are not yet part of full multi-CPU user scheduling.
+APs still enter `cpu_idle_loop()`, an explicit interrupt-disabled `cli; hlt` loop, after their local initialization. Full multi-CPU user scheduling is still a later milestone.
 
 ## Test And CI Architecture
 
@@ -519,7 +527,7 @@ The main CMake targets are:
 - `smoke_bios`
 - `smoke_all`
 
-`run` boots the default UEFI ISO under OVMF on `q35`. `run_bios` boots the raw image directly.
+`run` boots the default UEFI ISO under OVMF on `q35` and attaches the generated `virtio-blk` test disk. `run_bios` boots the raw image under BIOS on `q35` with the same secondary `virtio-blk` test disk attached.
 
 ### Smoke Tests
 
@@ -530,6 +538,11 @@ The main CMake targets are:
 
 The modern smoke test verifies markers including:
 
+- bootloader-provided RSDP handoff
+- ACPI `MADT` topology discovery
+- ACPI `MCFG` discovery
+- PCIe enumeration
+- successful `virtio-blk` sector reads
 - `boot source: limine`
 - `framebuffer console active`
 - initrd discovery
@@ -537,7 +550,7 @@ The modern smoke test verifies markers including:
 - clean user fault handling
 - idle-thread fallback
 
-The BIOS smoke test verifies the equivalent legacy path markers.
+The BIOS smoke test verifies the same ACPI / PCIe / `virtio-blk` markers on the BIOS compatibility frontend, then the equivalent userland markers.
 
 ### CI
 
@@ -559,16 +572,17 @@ The current architecture is coherent, but intentionally incomplete.
 Major constraints that remain:
 
 - the shared kernel core is still low identity-linked rather than higher-half
-- modern CPU discovery still depends on Milestone 4 ACPI work
 - the framebuffer path is a text presenter, not a graphics stack
 - userland is still initrd-demo oriented rather than shell/filesystem oriented
 - syscalls still use `int 0x80`, not `SYSCALL`/`SYSRET`
+- the first `virtio-blk` path is polling-only and smoke-oriented rather than a general block layer
+- MSI / MSI-X, `virtio-net`, NVMe, and real filesystem-backed storage are still follow-on work
 
-The next milestone is therefore not another boot refactor. It is modern platform support:
+The next milestone is therefore not another boot refactor. It is storage, networking, and richer userland on top of the new platform base:
 
-- ACPI MADT parsing
-- modern timer/controller discovery
-- PCI / PCIe discovery
-- virtio-first device bring-up
+- block-device abstraction beyond the current `virtio-blk` smoke path
+- filesystem-backed loading instead of initrd-only demos
+- `virtio-net` and later NIC work
+- timer / interrupt refinements such as MSI / MSI-X and HPET follow-on support
 
-At this point the architecture is intentionally in a good place for that work: the boot path is modernized, the kernel entry contract is shared, and both modern and legacy boot paths remain continuously testable.
+At this point the architecture is intentionally in a good place for that work: the boot path is modernized, the kernel entry contract is shared, ACPI and PCIe discovery are in place, and both modern and legacy boot paths remain continuously testable on the same `q35` virtual platform.

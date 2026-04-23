@@ -14,6 +14,7 @@ set(KERNEL_CXX_SOURCES
   mp.cpp
   pageframe.cpp
   pic.cpp
+  platform.cpp
   string.cpp
   task.cpp
   terminal.cpp

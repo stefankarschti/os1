@@ -2,7 +2,7 @@
 
 `os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status described in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) and the longer-term direction in [GOALS.md](GOALS.md).
 
-Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, exposes `write`/`exit`/`yield`/`getpid` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestones 1, 2, and 3 are implemented; Milestone 4 is the next planned step.
+Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, exposes `write`/`exit`/`yield`/`getpid` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 4 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` device, validates raw-sector reads from a generated test disk, and boots the default `q35` targets with ACPI-discovered AP startup.
 
 ## Prerequisites
 
@@ -78,11 +78,15 @@ Default modern UEFI path:
 cmake --build build --target run
 ```
 
+This boots OVMF on `q35` and attaches the generated `virtio-blk` test disk used by the modern-platform smoke.
+
 Legacy BIOS compatibility path:
 
 ```sh
 cmake --build build --target run_bios
 ```
+
+This boots the raw image on BIOS under `q35` with the same secondary `virtio-blk` test disk attached.
 
 ## Smoke Tests
 
@@ -110,7 +114,7 @@ Or run the registered CTest suite directly:
 ctest --test-dir build --output-on-failure
 ```
 
-The smoke tests capture serial logs and assert stable boot markers for both boot paths. CI runs both tests on every push and pull request.
+The smoke tests capture serial logs and assert stable boot markers for both boot paths, including ACPI `MADT`/`MCFG` discovery, PCIe enumeration, `virtio-blk` read success, and the existing userland markers. CI runs both tests on every push and pull request.
 
 ## Local CI With `act`
 
@@ -145,6 +149,7 @@ The build writes outputs under `build/artifacts/`:
 - `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state and enters the shared kernel
 - `cpustart.bin` — AP trampoline blob used for debugging / disassembly
 - `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/yield`, and `/bin/fault`
+- `virtio-test-disk.raw` — generated raw disk image used to validate the `virtio-blk` path during boot and smoke tests
 - `user/*.elf` — statically linked user-space ELF inputs used to build the initrd
 - `os1.iso` — default UEFI-only Limine ISO
 - `os1.raw` — legacy BIOS raw disk image
@@ -168,4 +173,4 @@ The helper wrapper scripts remain available as thin CMake frontends:
 - [Milestone 1 Design: Boot Contract And Kernel Stabilization](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) — implemented
 - [Milestone 2 Design: Process Model And Isolation](doc/2026-04-22-milestone-2-process-model-and-isolation.md) — implemented
 - [Milestone 3 Design: Modern Default Boot Path](doc/2026-04-22-milestone-3-modern-default-boot-path.md) — implemented
-- [Milestone 4 Design: Modern Platform Support](doc/2026-04-22-milestone-4-modern-platform-support.md) — planned
+- [Milestone 4 Design: Modern Platform Support](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented

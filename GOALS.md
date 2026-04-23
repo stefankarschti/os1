@@ -127,7 +127,8 @@ The project should support modern machine discovery on `x86_64`, including:
 - ACPI discovery and parsing
 - interrupt-controller discovery
 - timer discovery
-- eventual PCI/PCIe enumeration
+- PCI/PCIe enumeration
+- virtio-first VM devices, with `virtio-blk` as the first practical storage path
 
 ### Development target environments
 
@@ -387,9 +388,10 @@ The in-repo milestone designs (M1–M4) refine the coarser A–G map below into 
 - common boot information handoff structure (*`BootInfo` — implemented*)
 - UEFI path ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md))
 - framebuffer support (M3 handoff; compositor later)
-- ACPI discovery ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md))
-- improved platform abstraction (M4)
-- early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, and AP bring-up are implemented; SMP scheduling is still a follow-on)
+- ACPI discovery ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented)
+- improved platform abstraction (M4 — implemented)
+- PCIe enumeration and first `virtio-blk` transport ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented)
+- early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, ACPI-derived AP bring-up, and AP idle state are implemented; SMP scheduling is still a follow-on)
 - early accelerator / GPU device discovery path where feasible
 
 ### Milestone C: Real userland foundation *(implemented — see [M2 design](doc/2026-04-22-milestone-2-process-model-and-isolation.md))*

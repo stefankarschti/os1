@@ -350,6 +350,8 @@ loader_main64:
 	mov [boot_info + boot_info_struct.magic], rax
 	mov rax, str_bootloader_name
 	mov [boot_info + boot_info_struct.bootloader_name], rax
+	call find_rsdp64
+	mov [boot_info + boot_info_struct.rsdp_physical], rax
 	mov rax, boot_memory_map
 	mov [boot_info + boot_info_struct.memory_map], rax
 	mov rax, [p_vaddr]
@@ -410,6 +412,136 @@ loader_main64:
 ; Data
 str_loader_hello	db "[loader64] hello", 10, 0
 hexdigit			db "0123456789ABCDEF",0
+
+find_rsdp64:
+	push rbx
+	push rcx
+	push rdx
+	push rsi
+	push rdi
+
+	xor eax, eax
+	movzx ebx, word [0x40E]
+	shl rbx, 4
+	test rbx, rbx
+	jz .search_base_memory
+
+	mov rdi, rbx
+	mov ecx, 1024
+	call scan_rsdp_range64
+	test rax, rax
+	jnz .done
+
+.search_base_memory:
+	movzx ebx, word [0x413]
+	shl rbx, 10
+	cmp rbx, 1024
+	jb .search_bios_rom
+	sub rbx, 1024
+	mov rdi, rbx
+	mov ecx, 1024
+	call scan_rsdp_range64
+	test rax, rax
+	jnz .done
+
+.search_bios_rom:
+	mov rdi, 0xE0000
+	mov ecx, 0x20000
+	call scan_rsdp_range64
+
+.done:
+	pop rdi
+	pop rsi
+	pop rdx
+	pop rcx
+	pop rbx
+	ret
+
+scan_rsdp_range64:
+	lea rsi, [rdi + rcx]
+.loop:
+	cmp rdi, rsi
+	jae .not_found
+
+	cmp byte [rdi + 0], 'R'
+	jne .next
+	cmp byte [rdi + 1], 'S'
+	jne .next
+	cmp byte [rdi + 2], 'D'
+	jne .next
+	cmp byte [rdi + 3], ' '
+	jne .next
+	cmp byte [rdi + 4], 'P'
+	jne .next
+	cmp byte [rdi + 5], 'T'
+	jne .next
+	cmp byte [rdi + 6], 'R'
+	jne .next
+	cmp byte [rdi + 7], ' '
+	jne .next
+
+	push rsi
+	call validate_rsdp64
+	pop rsi
+	test al, al
+	jnz .found
+
+.next:
+	add rdi, 16
+	jmp .loop
+
+.found:
+	mov rax, rdi
+	ret
+
+.not_found:
+	xor eax, eax
+	ret
+
+validate_rsdp64:
+	push rcx
+	push rdx
+	push rsi
+
+	mov ecx, 20
+	xor edx, edx
+	xor esi, esi
+.sum20:
+	add dl, [rdi + rsi]
+	inc rsi
+	loop .sum20
+	test dl, dl
+	jne .invalid
+
+	mov al, [rdi + 15]
+	cmp al, 2
+	jb .valid
+
+	mov ecx, [rdi + 20]
+	cmp ecx, 36
+	jb .invalid
+	xor edx, edx
+	xor esi, esi
+.sumext:
+	add dl, [rdi + rsi]
+	inc rsi
+	loop .sumext
+	test dl, dl
+	jne .invalid
+
+.valid:
+	mov al, 1
+	pop rsi
+	pop rdx
+	pop rcx
+	ret
+
+.invalid:
+	xor eax, eax
+	pop rsi
+	pop rdx
+	pop rcx
+	ret
 
 ; Tail
 times 4096-($-$$) db 0xCC                ; Fill sectors
