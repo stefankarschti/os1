@@ -42,8 +42,11 @@ target_compile_options(
   PRIVATE
     # Kernel code runs with asynchronous IRQs on the current stack, so the
     # SysV red zone is unsafe and must stay disabled across both boot paths.
-    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
-    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    # The kernel does not enable or context-switch SIMD/FPU state yet. Force
+    # integer-register-only codegen so newer cross-compilers cannot introduce
+    # XMM/AVX instructions that trap as #UD on the CI runner's virtual CPU.
+    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
 )
 
 add_library(kernel_limine_frontend OBJECT "${PROJECT_SOURCE_DIR}/src/boot/limine/entry.cpp")
@@ -64,6 +67,9 @@ target_compile_options(
   PRIVATE
     -ffreestanding
     -mno-red-zone
+    -march=x86-64
+    -mtune=generic
+    -mgeneral-regs-only
     -mcmodel=large
     -O0
     -Wall
