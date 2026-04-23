@@ -21,6 +21,7 @@
 #include "ioapic.h"
 #include "lapic.h"
 #include "pic.h"
+#include "platform.h"
 
 Interrupts interrupts;
 PageFrameContainer page_frames;
@@ -861,10 +862,6 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 				BootFramebufferLengthBytes(g_boot_info->framebuffer));
 	}
 
-	mp_init();
-	debug("muliprocessor: ")(ismp ? "yes" : "no")();
-	debug("ncpu: ")(ncpu)();
-
 	VirtualMemory kvm(page_frames);
 	debug("create kernel identity page tables")();
 	result = kvm.Allocate(0x0, kKernelReservedPhysicalStart / kPageSize, true);
@@ -904,10 +901,19 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 	{
 		return;
 	}
-	kvm.Allocate((uint64_t)lapic, 1, true);
-	kvm.Allocate((uint64_t)ioapic, 1, true);
+	if(!MapIdentityRange(kvm, g_boot_info->rsdp_physical, 64))
+	{
+		return;
+	}
 	kvm.Activate();
 	g_kernel_root_cr3 = kvm.Root();
+
+	if(!platform_init(*g_boot_info, kvm))
+	{
+		return;
+	}
+	debug("muliprocessor: ")(ismp ? "yes" : "no")();
+	debug("ncpu: ")(ncpu)();
 
 	pic_init();
 	ioapic_init();
@@ -968,8 +974,11 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 	keyboard.SetActiveTerminal(active_terminal);
 	if(ismp)
 	{
-		ioapic_enable(2, IRQ_TIMER);
-		ioapic_enable(IRQ_KBD);
+		if(!platform_enable_isa_irq(IRQ_TIMER, IRQ_TIMER)
+			|| !platform_enable_isa_irq(IRQ_KBD))
+		{
+			return;
+		}
 	}
 
 	if(!initTasks(page_frames))

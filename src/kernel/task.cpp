@@ -244,6 +244,10 @@ Thread *createKernelThread(Process *process, void (*entry)(void), PageFrameConta
 
 	if(nullptr == g_idle_thread)
 	{
+		// The idle thread enables interrupts explicitly once it reaches its
+		// steady-state `sti; hlt` loop. Starting it with IF clear avoids taking a
+		// timer interrupt in the middle of its first console write.
+		thread->frame.rflags = 0x2;
 		g_idle_thread = thread;
 	}
 

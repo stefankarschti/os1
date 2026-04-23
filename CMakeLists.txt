@@ -54,6 +54,7 @@ set(OS1_KERNEL_LIMINE_ELF "${OS1_ARTIFACT_DIR}/kernel_limine.elf")
 set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
 set(OS1_ISO_IMAGE "${OS1_ARTIFACT_DIR}/os1.iso")
+set(OS1_VIRTIO_TEST_DISK "${OS1_ARTIFACT_DIR}/virtio-test-disk.raw")
 set(OS1_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1.log")
 set(OS1_BIOS_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1-bios.log")
 set(OS1_OVMF_VARS_FILE "${OS1_ARTIFACT_DIR}/ovmf-vars.fd")
@@ -101,6 +102,7 @@ find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
 find_program(OS1_PYTHON_EXECUTABLE NAMES python3 python REQUIRED)
 
 set(OS1_SMOKE_RUNNER "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke.py")
+set(OS1_VIRTIO_TEST_DISK_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/create_virtio_test_disk.cmake")
 
 # OVMF/edk2 firmware discovery is centralized here so the kernel build is the
 # single source of truth. CI workflows and developer scripts must not re-implement
@@ -183,6 +185,20 @@ add_subdirectory(src/kernel)
 add_subdirectory(src/user)
 
 add_custom_command(
+  OUTPUT "${OS1_VIRTIO_TEST_DISK}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    "-DOUTPUT_FILE=${OS1_VIRTIO_TEST_DISK}"
+    -P
+    "${OS1_VIRTIO_TEST_DISK_SCRIPT}"
+  DEPENDS "${OS1_VIRTIO_TEST_DISK_SCRIPT}"
+  VERBATIM
+)
+
+add_custom_target(os1_virtio_test_disk DEPENDS "${OS1_VIRTIO_TEST_DISK}")
+
+add_custom_command(
   OUTPUT "${OS1_RAW_IMAGE}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_DD_EXECUTABLE}" if=/dev/zero "of=${OS1_RAW_IMAGE}" bs=1048576 count=1
@@ -256,8 +272,8 @@ add_custom_command(
   VERBATIM
 )
 
-add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}")
-add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}")
+add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}" os1_virtio_test_disk)
+add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}" os1_virtio_test_disk)
 
 function(os1_add_unavailable_target target_name reason)
   add_custom_target(
@@ -286,6 +302,10 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
       "if=pflash,format=raw,file=${OS1_OVMF_VARS_FILE}"
       -cdrom
       "${OS1_ISO_IMAGE}"
+      -drive
+      "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
+      -device
+      "virtio-blk-pci,drive=virtio_test,disable-legacy=on"
       -serial
       "file:${OS1_SERIAL_LOG}"
       -no-reboot
@@ -293,7 +313,7 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
       cpu_reset
       -d
       int
-    DEPENDS os1_image
+    DEPENDS os1_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM
   )
@@ -308,10 +328,16 @@ if(OS1_QEMU_EXECUTABLE)
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND
       "${OS1_QEMU_EXECUTABLE}"
+      -machine
+      q35
       -smp
       4
       -drive
       "format=raw,file=${OS1_RAW_IMAGE}"
+      -drive
+      "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
+      -device
+      "virtio-blk-pci,drive=virtio_test,disable-legacy=on"
       -serial
       "file:${OS1_BIOS_SERIAL_LOG}"
       -no-reboot
@@ -319,7 +345,7 @@ if(OS1_QEMU_EXECUTABLE)
       cpu_reset
       -d
       int
-    DEPENDS os1_bios_image
+    DEPENDS os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM
   )
@@ -366,6 +392,12 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    "boot rsdp physical=0x"
+    "acpi: MADT ready"
+    "acpi: MCFG ready"
+    "pci: enumerated devices="
+    "virtio-blk smoke ok"
+    "ncpu: 4"
     "framebuffer console active"
     "initrd module discovered"
     "starting first user process"
@@ -386,6 +418,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       "-DLOG_FILE=${OS1_SMOKE_LOG}"
       "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
       "-DEXPECTED_MARKERS=${OS1_UEFI_SMOKE_MARKERS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
       "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
       "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
       -P
@@ -395,7 +428,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   add_custom_target(
     smoke
     COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke$"
-    DEPENDS os1_image
+    DEPENDS os1_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM
   )
@@ -407,6 +440,12 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    "boot rsdp physical=0x"
+    "acpi: MADT ready"
+    "acpi: MCFG ready"
+    "pci: enumerated devices="
+    "virtio-blk smoke ok"
+    "ncpu: 4"
     "Interrupts initialization successful"
     "initrd module discovered"
     "starting first user process"
@@ -425,6 +464,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       "-DLOG_FILE=${OS1_SMOKE_BIOS_LOG}"
       "-DSMOKE_TIMEOUT_SECONDS=${OS1_BIOS_SMOKE_TIMEOUT_SECONDS}"
       "-DEXPECTED_MARKERS=${OS1_BIOS_SMOKE_MARKERS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
       "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
       "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
       -P
@@ -434,7 +474,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   add_custom_target(
     smoke_bios
     COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_bios$"
-    DEPENDS os1_bios_image
+    DEPENDS os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM
   )
@@ -446,7 +486,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   add_custom_target(
     smoke_all
     COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_bios)?$"
-    DEPENDS os1_image os1_bios_image
+    DEPENDS os1_image os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM
   )

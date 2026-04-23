@@ -24,6 +24,8 @@ endif()
 
 set(qemu_command
   "${QEMU_EXECUTABLE}"
+  -machine
+  q35
   -smp
   4
   -serial
@@ -48,8 +50,6 @@ if(DEFINED ISO_IMAGE)
   file(COPY_FILE "${OVMF_VARS_TEMPLATE}" "${ovmf_vars_copy}" ONLY_IF_DIFFERENT)
 
   list(APPEND qemu_command
-    -machine
-    q35
     -drive
     "if=pflash,format=raw,readonly=on,file=${OVMF_CODE}"
     -drive
@@ -64,6 +64,18 @@ elseif(DEFINED RAW_IMAGE)
   )
 else()
   message(FATAL_ERROR "Either ISO_IMAGE or RAW_IMAGE must be set")
+endif()
+
+if(DEFINED VIRTIO_TEST_DISK)
+  if(NOT EXISTS "${VIRTIO_TEST_DISK}")
+    message(FATAL_ERROR "VIRTIO_TEST_DISK was set but does not exist: ${VIRTIO_TEST_DISK}")
+  endif()
+  list(APPEND qemu_command
+    -drive
+    "if=none,id=virtio_test,format=raw,file=${VIRTIO_TEST_DISK}"
+    -device
+    "virtio-blk-pci,drive=virtio_test,disable-legacy=on"
+  )
 endif()
 
 # Build the runner argv. The runner streams QEMU stdout/stderr, matches markers

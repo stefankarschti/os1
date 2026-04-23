@@ -13,6 +13,7 @@
 #include "interrupt.h"
 #include "stdint.h"
 #include "assert.h"
+#include "debug.h"
 #include "mp.h"
 #include "ioapic.h"
 
@@ -58,6 +59,41 @@ ioapic_write(int reg, uint32_t data)
 	ioapic->data = data;
 }
 
+namespace
+{
+uint32_t g_ioapic_gsi_base = 0;
+int g_ioapic_maxintr = -1;
+
+[[nodiscard]] bool decode_interrupt_flags(uint16_t flags, uint32_t &bits)
+{
+	bits = 0;
+
+	const uint16_t polarity = flags & 0x3u;
+	if(3u == polarity)
+	{
+		bits |= INT_ACTIVELOW;
+	}
+	else if((0u != polarity) && (1u != polarity))
+	{
+		debug("ioapic: unsupported polarity flags 0x")(flags, 16)();
+		return false;
+	}
+
+	const uint16_t trigger = (flags >> 2) & 0x3u;
+	if(3u == trigger)
+	{
+		bits |= INT_LEVEL;
+	}
+	else if((0u != trigger) && (1u != trigger))
+	{
+		debug("ioapic: unsupported trigger flags 0x")(flags, 16)();
+		return false;
+	}
+
+	return true;
+}
+}
+
 void
 ioapic_init(void)
 {
@@ -70,6 +106,7 @@ ioapic_init(void)
 		ioapic = (struct ioapic*)(IOAPIC);	// assume default address
 
 	maxintr = (ioapic_read(REG_VER) >> 16) & 0xFF;
+	g_ioapic_maxintr = maxintr;
 	id = ioapic_read(REG_ID) >> 24;
 	if (id == 0) {
 		// I/O APIC ID not initialized yet - have to do it ourselves.
@@ -88,16 +125,44 @@ ioapic_init(void)
 }
 
 void
-ioapic_enable(int intin, int irq)
+ioapic_set_primary(uint32_t gsi_base)
+{
+	g_ioapic_gsi_base = gsi_base;
+}
+
+bool
+ioapic_enable_gsi(uint32_t gsi, int irq, uint16_t flags)
 {
 	if (!ismp)
-		return;
+		return false;
+	if (ioapic == NULL)
+		return false;
 	if(irq < 0)
-		irq = intin;
+		irq = static_cast<int>(gsi);
+	if(gsi < g_ioapic_gsi_base)
+		return false;
 
-	// Mark interrupt edge-triggered, active high,
-	// enabled, and routed to any CPU.
-	ioapic_write(REG_TABLE+2*intin,
-			INT_LOGICAL | INT_LOWEST | (T_IRQ0 + irq));
-	ioapic_write(REG_TABLE+2*intin+1, 0xff << 24);
+	const uint32_t intin = gsi - g_ioapic_gsi_base;
+	if((g_ioapic_maxintr >= 0) && (intin > static_cast<uint32_t>(g_ioapic_maxintr)))
+	{
+		debug("ioapic: GSI out of range ")(gsi)();
+		return false;
+	}
+
+	uint32_t mode_bits = 0;
+	if(!decode_interrupt_flags(flags, mode_bits))
+	{
+		return false;
+	}
+
+	ioapic_write(REG_TABLE + 2 * intin,
+			INT_LOGICAL | INT_LOWEST | mode_bits | (T_IRQ0 + irq));
+	ioapic_write(REG_TABLE + 2 * intin + 1, 0xff << 24);
+	return true;
+}
+
+void
+ioapic_enable(int intin, int irq)
+{
+	(void)ioapic_enable_gsi(g_ioapic_gsi_base + static_cast<uint32_t>(intin), irq, 0);
 }
