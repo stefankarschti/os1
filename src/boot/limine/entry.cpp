@@ -100,6 +100,8 @@ struct LowHandoffBootInfoStorage
 
 alignas(kPageSize) constinit uint64_t g_low_identity_pml3[512]{};
 alignas(kPageSize) constinit uint64_t g_low_identity_pml2[512]{};
+constinit uint64_t g_hhdm_offset = 0;
+constinit bool g_hhdm_offset_valid = false;
 
 __attribute__((used, section(".limine_requests_start")))
 volatile uint64_t g_limine_requests_start[4] = LIMINE_REQUESTS_START_MARKER;
@@ -351,21 +353,21 @@ void AppendString(char *destination, size_t capacity, const char *suffix)
 
 [[nodiscard]] const uint64_t *MapPhysicalTable(uint64_t physical_address)
 {
-	if(nullptr == g_hhdm_request.response)
+	if(!g_hhdm_offset_valid)
 	{
 		return nullptr;
 	}
-	return (const uint64_t*)(physical_address + g_hhdm_request.response->offset);
+	return (const uint64_t*)(physical_address + g_hhdm_offset);
 }
 
 template <typename T>
 [[nodiscard]] T *MapPhysicalPointer(uint64_t physical_address)
 {
-	if(nullptr == g_hhdm_request.response)
+	if(!g_hhdm_offset_valid)
 	{
 		return nullptr;
 	}
-	return (T*)(physical_address + g_hhdm_request.response->offset);
+	return (T*)(physical_address + g_hhdm_offset);
 }
 
 [[nodiscard]] bool TranslateLimineVirtual(uint64_t virtual_address, uint64_t &physical_address)
@@ -615,20 +617,29 @@ template <typename T>
 	return nullptr;
 }
 
-[[nodiscard]] bool LoadKernelImage(const limine_file &kernel_file,
-		uint64_t &entry_point,
-		uint64_t &kernel_physical_start,
-		uint64_t &kernel_physical_end,
-		cpu *&cpu_boot,
-		uint64_t &boot_info_storage_physical)
+[[nodiscard]] const Elf64Header *ValidateKernelFile(const limine_file &kernel_file)
 {
 	if((nullptr == kernel_file.address) || (kernel_file.size < sizeof(Elf64Header)))
 	{
-		return false;
+		return nullptr;
 	}
 
 	const auto *header = (const Elf64Header*)kernel_file.address;
 	if((header->magic != kElfMagic) || (header->phentsize != sizeof(Elf64ProgramHeader)))
+	{
+		return nullptr;
+	}
+
+	return header;
+}
+
+[[nodiscard]] bool InspectKernelImage(const limine_file &kernel_file,
+		uint64_t &entry_point,
+		uint64_t &kernel_physical_start,
+		uint64_t &kernel_physical_end)
+{
+	const auto *header = ValidateKernelFile(kernel_file);
+	if(nullptr == header)
 	{
 		return false;
 	}
@@ -668,20 +679,6 @@ template <typename T>
 		WriteSerialHex(program->memsz);
 		WriteSerialLn("");
 
-		// Limine module pointers are virtual addresses in the bootloader's page
-		// tables. The shared kernel image is still low-linked, so the shim writes
-		// it by physical address through the HHDM mapping instead of assuming an
-		// identity map already exists.
-		uint8_t *segment = MapPhysicalPointer<uint8_t>(program->vaddr);
-		if(nullptr == segment)
-		{
-			return false;
-		}
-		ZeroBytes(segment, (size_t)program->memsz);
-		CopyBytes(segment,
-				(const uint8_t*)kernel_file.address + program->offset,
-				(size_t)program->filesz);
-
 		if(program->vaddr < kernel_physical_start)
 		{
 			kernel_physical_start = program->vaddr;
@@ -703,6 +700,59 @@ template <typename T>
 		return false;
 	}
 
+	entry_point = header->entry;
+	return true;
+}
+
+[[nodiscard]] bool LoadKernelSegments(const limine_file &kernel_file)
+{
+	const auto *header = ValidateKernelFile(kernel_file);
+	if(nullptr == header)
+	{
+		return false;
+	}
+
+	for(uint16_t i = 0; i < header->phnum; ++i)
+	{
+		const uint64_t program_offset = header->phoff + (uint64_t)i * header->phentsize;
+		if((program_offset + sizeof(Elf64ProgramHeader)) > kernel_file.size)
+		{
+			return false;
+		}
+
+		const auto *program = (const Elf64ProgramHeader*)((const uint8_t*)kernel_file.address + program_offset);
+		if(kElfProgramTypeLoad != program->type)
+		{
+			continue;
+		}
+		if((program->memsz < program->filesz)
+			|| ((program->offset + program->filesz) > kernel_file.size))
+		{
+			return false;
+		}
+
+		// Limine module pointers are virtual addresses in the bootloader's page
+		// tables. The shared kernel image is still low-linked, so the shim writes
+		// it by physical address through the HHDM mapping instead of assuming an
+		// identity map already exists.
+		uint8_t *segment = MapPhysicalPointer<uint8_t>(program->vaddr);
+		if(nullptr == segment)
+		{
+			return false;
+		}
+		ZeroBytes(segment, (size_t)program->memsz);
+		CopyBytes(segment,
+				(const uint8_t*)kernel_file.address + program->offset,
+				(size_t)program->filesz);
+	}
+
+	return true;
+}
+
+[[nodiscard]] bool PrepareKernelHandoff(uint64_t kernel_physical_end,
+		cpu *&cpu_boot,
+		uint64_t &boot_info_storage_physical)
+{
 	cpu_boot = (cpu*)AlignUp(kernel_physical_end, kPageSize);
 	uint8_t *cpu_boot_page = MapPhysicalPointer<uint8_t>((uint64_t)cpu_boot);
 	if(nullptr == cpu_boot_page)
@@ -710,21 +760,12 @@ template <typename T>
 		return false;
 	}
 	ZeroBytes(cpu_boot_page, kPageSize);
+
 	boot_info_storage_physical = AlignUp((uint64_t)cpu_boot + kPageSize, kPageSize);
 	const uint64_t boot_info_storage_end = AlignUp(
 			boot_info_storage_physical + sizeof(LowHandoffBootInfoStorage),
 			kPageSize);
-	if(boot_info_storage_end > kKernelReservedPhysicalEnd)
-	{
-		return false;
-	}
-	const uint64_t low_handoff_end = AlignUp((uint64_t)cpu_boot + kPageSize, kPageSize);
-	if(!EnsureLowIdentityWindow(low_handoff_end))
-	{
-		return false;
-	}
-	entry_point = header->entry;
-	return true;
+	return boot_info_storage_end <= kKernelReservedPhysicalEnd;
 }
 
 [[nodiscard]] char *ReserveBootString(BootStringArena &arena,
@@ -939,15 +980,14 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 		uint64_t boot_info_storage_physical)
 {
 	WriteSerialLn("[limine-shim] BuildBootInfo start");
-	const auto *hhdm = g_hhdm_request.response;
 	LowHandoffBootInfoStorage *storage = nullptr;
 	BootInfo *boot_info = nullptr;
 	BootMemoryRegion *memory_map = nullptr;
 	BootModuleInfo *modules = nullptr;
 	BootStringArena arena{};
-	if(LiminePointerMapped(hhdm))
+	if(g_hhdm_offset_valid)
 	{
-		storage = (LowHandoffBootInfoStorage*)(boot_info_storage_physical + hhdm->offset);
+		storage = (LowHandoffBootInfoStorage*)(boot_info_storage_physical + g_hhdm_offset);
 		boot_info = &storage->info;
 		memory_map = storage->memory_map;
 		modules = storage->modules;
@@ -1030,6 +1070,15 @@ extern "C" [[noreturn]] void _start()
 		HaltForever();
 	}
 
+	const auto *hhdm = g_hhdm_request.response;
+	if(nullptr == hhdm)
+	{
+		WriteSerialLn("[limine-shim] missing HHDM response");
+		HaltForever();
+	}
+	g_hhdm_offset = hhdm->offset;
+	g_hhdm_offset_valid = true;
+
 	const limine_file *kernel_file = FindModule(kKernelModuleName);
 	const limine_file *initrd_file = FindModule(kInitrdModuleName);
 	if((nullptr == kernel_file) || (nullptr == initrd_file))
@@ -1038,30 +1087,32 @@ extern "C" [[noreturn]] void _start()
 		HaltForever();
 	}
 	WriteSerialLn("[limine-shim] modules discovered");
+	const limine_file kernel_module = *kernel_file;
+	const limine_file initrd_module = *initrd_file;
 
 	uint64_t entry_point = 0;
 	uint64_t kernel_physical_start = 0;
 	uint64_t kernel_physical_end = 0;
 	uint64_t boot_info_storage_physical = 0;
 	cpu *cpu_boot = nullptr;
-	if(!LoadKernelImage(*kernel_file,
+	if(!InspectKernelImage(kernel_module,
 			entry_point,
 			kernel_physical_start,
-			kernel_physical_end,
+			kernel_physical_end))
+	{
+		WriteSerialLn("[limine-shim] low kernel inspect failed");
+		HaltForever();
+	}
+	if(!PrepareKernelHandoff(kernel_physical_end,
 			cpu_boot,
 			boot_info_storage_physical))
 	{
-		WriteSerialLn("[limine-shim] low kernel load failed");
+		WriteSerialLn("[limine-shim] low kernel handoff prep failed");
 		HaltForever();
 	}
-	WriteSerial("[limine-shim] loaded low kernel entry=0x");
-	WriteSerialHex(entry_point);
-	WriteSerial(" cpu=0x");
-	WriteSerialHex((uint64_t)cpu_boot);
-	WriteSerialLn("");
 
 	WriteSerialLn("[limine-shim] building BootInfo");
-	BootInfo *boot_info = BuildBootInfo(*initrd_file,
+	BootInfo *boot_info = BuildBootInfo(initrd_module,
 			kernel_physical_start,
 			kernel_physical_end,
 			boot_info_storage_physical);
@@ -1070,6 +1121,22 @@ extern "C" [[noreturn]] void _start()
 		WriteSerialLn("[limine-shim] BootInfo build failed");
 		HaltForever();
 	}
+	if(!LoadKernelSegments(kernel_module))
+	{
+		WriteSerialLn("[limine-shim] low kernel load failed");
+		HaltForever();
+	}
+	const uint64_t low_handoff_end = AlignUp((uint64_t)cpu_boot + ::kPageSize, ::kPageSize);
+	if(!EnsureLowIdentityWindow(low_handoff_end))
+	{
+		WriteSerialLn("[limine-shim] low identity map failed");
+		HaltForever();
+	}
+	WriteSerial("[limine-shim] loaded low kernel entry=0x");
+	WriteSerialHex(entry_point);
+	WriteSerial(" cpu=0x");
+	WriteSerialHex((uint64_t)cpu_boot);
+	WriteSerialLn("");
 	WriteSerialLn("[limine-shim] entering KernelMain");
 
 	limine_enter_kernel((void (*)(BootInfo *, cpu *))entry_point, boot_info, cpu_boot);
