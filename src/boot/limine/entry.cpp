@@ -11,10 +11,14 @@
 // Keep this as a real assembler symbol rather than a naked C++ function:
 // GCC's naked-function semantics are compiler-sensitive, and the GitHub runner
 // uses a newer cross compiler than local `act` runs.
+constexpr size_t kLimineShimStackBytes = 16 * 1024;
+
 extern "C" [[noreturn]] void limine_enter_kernel(void (*)(BootInfo *, cpu *), BootInfo *, cpu *);
 extern "C" [[noreturn]] void limine_start_main(void);
+extern "C" alignas(16) constinit uint8_t g_limine_shim_stack[kLimineShimStackBytes]{};
 
 asm(R"ASM(
+.section .text
 .global limine_enter_kernel
 .type limine_enter_kernel, @function
 limine_enter_kernel:
@@ -43,7 +47,6 @@ constexpr uint64_t kHugePageBit = 1ull << 7;
 constexpr uint64_t kPageEntryAddressMask = 0x000FFFFFFFFFF000ull;
 constexpr uint64_t kOneGiBPageAddressMask = 0x000FFFFFC0000000ull;
 constexpr uint64_t kTwoMiBPageAddressMask = 0x000FFFFFFFE00000ull;
-constexpr size_t kShimStackBytes = 16 * 1024;
 constexpr uint64_t kLimineBaseRevisionRequested = 6;
 constexpr uint32_t kElfMagic = 0x464C457Fu;
 constexpr uint32_t kElfProgramTypeLoad = 1;
@@ -102,9 +105,6 @@ struct LowHandoffBootInfoStorage
 
 alignas(kPageSize) constinit uint64_t g_low_identity_pml3[512]{};
 alignas(kPageSize) constinit uint64_t g_low_identity_pml2[512]{};
-extern "C" {
-alignas(16) constinit uint8_t g_limine_shim_stack[kShimStackBytes]{};
-}
 constinit uint64_t g_hhdm_offset = 0;
 constinit bool g_hhdm_offset_valid = false;
 
@@ -1064,10 +1064,12 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 }
 
 asm(R"ASM(
+.section .text
 .global _start
 .type _start, @function
 _start:
-	lea g_limine_shim_stack+16384(%rip), %rsp
+	movabs $g_limine_shim_stack + 16384, %rax
+	mov %rax, %rsp
 	and $-16, %rsp
 	call limine_start_main
 1:
