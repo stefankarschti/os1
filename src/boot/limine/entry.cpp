@@ -80,13 +80,25 @@ struct Elf64ProgramHeader
 struct BootStringArena
 {
 	char *base;
-	uint64_t physical_base;
 	size_t capacity;
 	size_t used;
 };
 
+struct ShimBootInfoStorage
+{
+	BootInfo info{};
+	BootMemoryRegion memory_map[kBootInfoMaxMemoryRegions]{};
+	BootModuleInfo modules[kBootInfoMaxModules]{};
+	char string_pool[
+		kBootInfoMaxBootloaderNameBytes
+		+ kBootInfoMaxCommandLineBytes
+		+ (kBootInfoMaxModules * kBootInfoMaxModuleNameBytes)
+	]{};
+};
+
 alignas(kPageSize) constinit uint64_t g_low_identity_pml3[512]{};
 alignas(kPageSize) constinit uint64_t g_low_identity_pml2[512]{};
+constinit ShimBootInfoStorage g_shim_boot_info{};
 
 __attribute__((used, section(".limine_requests_start")))
 volatile uint64_t g_limine_requests_start[4] = LIMINE_REQUESTS_START_MARKER;
@@ -696,34 +708,32 @@ void ReloadCr3()
 	return true;
 }
 
-[[nodiscard]] BootInfo *LowBootInfoStorage()
+[[nodiscard]] BootInfo *BootInfoStorage()
 {
-	return MapPhysicalPointer<BootInfo>(kBootInfoAddress);
+	return &g_shim_boot_info.info;
 }
 
-[[nodiscard]] BootMemoryRegion *LowBootMemoryMapStorage()
+[[nodiscard]] BootMemoryRegion *BootMemoryMapStorage()
 {
-	return MapPhysicalPointer<BootMemoryRegion>(kBootMemoryRegionBufferAddress);
+	return g_shim_boot_info.memory_map;
 }
 
-[[nodiscard]] BootModuleInfo *LowBootModuleStorage()
+[[nodiscard]] BootModuleInfo *BootModuleStorage()
 {
-	return MapPhysicalPointer<BootModuleInfo>(kBootModuleInfoBufferAddress);
+	return g_shim_boot_info.modules;
 }
 
 [[nodiscard]] BootStringArena CreateBootStringArena()
 {
 	BootStringArena arena{};
-	arena.base = MapPhysicalPointer<char>(kBootStringBufferAddress);
-	arena.physical_base = kBootStringBufferAddress;
-	arena.capacity = kBootStringBufferSizeBytes;
+	arena.base = g_shim_boot_info.string_pool;
+	arena.capacity = sizeof(g_shim_boot_info.string_pool);
 	arena.used = 0;
 	return arena;
 }
 
 [[nodiscard]] char *ReserveBootString(BootStringArena &arena,
-		size_t capacity,
-		uint64_t &physical_address)
+		size_t capacity)
 {
 	if((nullptr == arena.base) || (0 == capacity))
 	{
@@ -735,7 +745,6 @@ void ReloadCr3()
 	}
 
 	char *storage = arena.base + arena.used;
-	physical_address = arena.physical_base + arena.used;
 	ZeroBytes(storage, capacity);
 	arena.used += capacity;
 	return storage;
@@ -745,14 +754,13 @@ void ReloadCr3()
 		size_t capacity,
 		const char *source)
 {
-	uint64_t physical_address = 0;
-	char *storage = ReserveBootString(arena, capacity, physical_address);
+	char *storage = ReserveBootString(arena, capacity);
 	if(nullptr == storage)
 	{
 		return nullptr;
 	}
 	CopyString(storage, capacity, source);
-	return (const char*)physical_address;
+	return storage;
 }
 
 [[nodiscard]] bool PopulateBootloaderInfo(BootInfo &boot_info, BootStringArena &arena)
@@ -763,8 +771,7 @@ void ReloadCr3()
 		return false;
 	}
 
-	uint64_t physical_address = 0;
-	char *storage = ReserveBootString(arena, kBootInfoMaxBootloaderNameBytes, physical_address);
+	char *storage = ReserveBootString(arena, kBootInfoMaxBootloaderNameBytes);
 	if(nullptr == storage)
 	{
 		return false;
@@ -775,7 +782,7 @@ void ReloadCr3()
 		AppendString(storage, kBootInfoMaxBootloaderNameBytes, " ");
 		AppendString(storage, kBootInfoMaxBootloaderNameBytes, response->version);
 	}
-	boot_info.bootloader_name = (const char*)physical_address;
+	boot_info.bootloader_name = storage;
 	return true;
 }
 
@@ -796,7 +803,7 @@ bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 [[nodiscard]] bool PopulateMemoryMap(BootInfo &boot_info)
 {
 	const auto *response = g_memmap_request.response;
-	BootMemoryRegion *memory_map = LowBootMemoryMapStorage();
+	BootMemoryRegion *memory_map = BootMemoryMapStorage();
 	if((nullptr == response) || (nullptr == memory_map) || (response->entry_count > kBootInfoMaxMemoryRegions))
 	{
 		return false;
@@ -817,7 +824,7 @@ bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 		memory_map[i].attributes = 0;
 	}
 
-	boot_info.memory_map = (const BootMemoryRegion*)kBootMemoryRegionBufferAddress;
+	boot_info.memory_map = memory_map;
 	boot_info.memory_map_count = (uint32_t)response->entry_count;
 	return true;
 }
@@ -826,7 +833,7 @@ bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 		BootStringArena &arena,
 		const limine_file &initrd_module)
 {
-	BootModuleInfo *modules = LowBootModuleStorage();
+	BootModuleInfo *modules = BootModuleStorage();
 	if(nullptr == modules)
 	{
 		return false;
@@ -847,7 +854,7 @@ bool PopulateCommandLine(BootInfo &boot_info, BootStringArena &arena)
 		return false;
 	}
 
-	boot_info.modules = (const BootModuleInfo*)kBootModuleInfoBufferAddress;
+	boot_info.modules = modules;
 	boot_info.module_count = 1;
 	return true;
 }
@@ -915,18 +922,20 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 		uint64_t kernel_physical_start,
 		uint64_t kernel_physical_end)
 {
-	BootInfo *boot_info = LowBootInfoStorage();
-	BootMemoryRegion *memory_map = LowBootMemoryMapStorage();
-	BootModuleInfo *modules = LowBootModuleStorage();
+	BootInfo *boot_info = BootInfoStorage();
+	BootMemoryRegion *memory_map = BootMemoryMapStorage();
+	BootModuleInfo *modules = BootModuleStorage();
 	BootStringArena arena = CreateBootStringArena();
 	if((nullptr == boot_info) || (nullptr == memory_map) || (nullptr == modules) || (nullptr == arena.base))
 	{
+		WriteSerialLn("[limine-shim] handoff storage unavailable");
 		return nullptr;
 	}
 
-	// The shim mirrors the BIOS low-memory handoff so the shared kernel can stay
-	// bootloader-agnostic. All pointers published in BootInfo are low physical
-	// addresses that remain valid after the initial identity window is enabled.
+	// The shared kernel copies BootInfo immediately on entry, so the handoff
+	// storage only needs to remain valid under the current Limine page tables
+	// until KernelMain starts. Keeping it in shim-owned .bss avoids clobbering
+	// firmware/bootloader low-memory scratch space.
 	ZeroBytes(boot_info, sizeof(BootInfo));
 	ZeroBytes(memory_map, sizeof(BootMemoryRegion) * kBootInfoMaxMemoryRegions);
 	ZeroBytes(modules, sizeof(BootModuleInfo) * kBootInfoMaxModules);
@@ -945,26 +954,31 @@ void PopulateFirmwarePointers(BootInfo &boot_info)
 
 	if(!PopulateBootloaderInfo(boot, arena))
 	{
+		WriteSerialLn("[limine-shim] bootloader info handoff failed");
 		return nullptr;
 	}
 	if(!PopulateCommandLine(boot, arena))
 	{
+		WriteSerialLn("[limine-shim] command line handoff failed");
 		return nullptr;
 	}
 	if(!PopulateMemoryMap(boot))
 	{
+		WriteSerialLn("[limine-shim] memory map handoff failed");
 		return nullptr;
 	}
 	if(!PopulateInitrdModule(boot, arena, initrd_module))
 	{
+		WriteSerialLn("[limine-shim] initrd handoff failed");
 		return nullptr;
 	}
 	if(!PopulateFramebuffer(boot))
 	{
+		WriteSerialLn("[limine-shim] framebuffer handoff failed");
 		return nullptr;
 	}
 	PopulateFirmwarePointers(boot);
-	return (BootInfo*)kBootInfoAddress;
+	return boot_info;
 }
 }
 
