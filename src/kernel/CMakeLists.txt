@@ -37,8 +37,10 @@ set_target_properties(
 target_compile_options(
   kernel_core_objects
   PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
-    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    # Kernel code runs with asynchronous IRQs on the current stack, so the
+    # SysV red zone is unsafe and must stay disabled across both boot paths.
+    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
 )
 
 add_library(kernel_limine_frontend OBJECT "${PROJECT_SOURCE_DIR}/src/boot/limine/entry.cpp")
@@ -57,6 +59,7 @@ target_compile_options(
   kernel_limine_frontend
   PRIVATE
     -ffreestanding
+    -mno-red-zone
     -mcmodel=large
     -O0
     -Wall
