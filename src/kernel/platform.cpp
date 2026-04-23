@@ -1357,3 +1357,13 @@ const VirtioBlkDevice *platform_virtio_blk()
 {
 	return g_platform.virtio_blk_public.present ? &g_platform.virtio_blk_public : nullptr;
 }
+
+size_t platform_pci_device_count()
+{
+	return g_platform.device_count;
+}
+
+const PciDevice *platform_pci_devices()
+{
+	return g_platform.devices;
+}

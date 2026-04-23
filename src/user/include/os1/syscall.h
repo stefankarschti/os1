@@ -9,7 +9,8 @@ enum {
 	SYS_exit = 2,
 	SYS_yield = 3,
 	SYS_getpid = 4,
-	SYS_read = 5
+	SYS_read = 5,
+	SYS_observe = 6
 };
 
 #ifdef __cplusplus
@@ -33,6 +34,11 @@ static inline long os1_write(int fd, const void *buffer, size_t length)
 static inline long os1_read(int fd, void *buffer, size_t length)
 {
 	return os1_syscall3(SYS_read, (uint64_t)fd, (uint64_t)buffer, (uint64_t)length);
+}
+
+static inline long os1_observe(uint64_t kind, void *buffer, size_t length)
+{
+	return os1_syscall3(SYS_observe, kind, (uint64_t)buffer, (uint64_t)length);
 }
 
 static inline void os1_exit(int status)

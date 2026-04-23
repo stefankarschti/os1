@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <span>
 
+#include <os1/observe.h>
+
 #include "bootinfo.h"
 #include "display.h"
 #include "console_input.h"
@@ -36,6 +38,7 @@ namespace
 {
 const BootInfo *g_boot_info = nullptr;
 uint64_t g_kernel_root_cr3 = 0;
+uint64_t g_timer_ticks = 0;
 VgaTextDisplay g_vga_text_display;
 FramebufferTextDisplay g_framebuffer_text_display;
 TextDisplayBackend g_vga_backend{TextDisplayBackendKind::VgaText, &g_vga_text_display};
@@ -48,6 +51,8 @@ constexpr uint16_t kElfMachineX86_64 = 62;
 constexpr uint32_t kProgramTypeLoad = 1;
 constexpr uint32_t kProgramFlagExecute = 0x1;
 constexpr uint32_t kProgramFlagWrite = 0x2;
+constexpr uint32_t kCpioModeTypeMask = 0170000u;
+constexpr uint32_t kCpioModeRegular = 0100000u;
 
 struct CpioNewcHeader
 {
@@ -268,6 +273,28 @@ uint16_t SetTimer(uint16_t frequency)
 	return 1193180 / divisor;
 }
 
+void CopyFixedString(char *destination, size_t destination_size, const char *source)
+{
+	if((nullptr == destination) || (0 == destination_size))
+	{
+		return;
+	}
+
+	size_t index = 0;
+	if(nullptr != source)
+	{
+		while(((index + 1) < destination_size) && source[index])
+		{
+			destination[index] = source[index];
+			++index;
+		}
+	}
+	while(index < destination_size)
+	{
+		destination[index++] = 0;
+	}
+}
+
 void KernelIdleThread()
 {
 	static bool announced = false;
@@ -380,6 +407,38 @@ bool PathsEqual(const char *archive_name, const char *wanted)
 	}
 }
 
+[[nodiscard]] bool IsRegularInitrdEntry(uint32_t mode)
+{
+	return (mode & kCpioModeTypeMask) == kCpioModeRegular;
+}
+
+void CopyInitrdPath(char *destination, size_t destination_size, const char *archive_name)
+{
+	if((nullptr == destination) || (0 == destination_size))
+	{
+		return;
+	}
+
+	const char *normalized = NormalizeArchivePath(archive_name);
+	size_t index = 0;
+	if((nullptr != normalized) && (0 != normalized[0]))
+	{
+		if(index < (destination_size - 1))
+		{
+			destination[index++] = '/';
+		}
+		size_t source_index = 0;
+		while(((index + 1) < destination_size) && normalized[source_index])
+		{
+			destination[index++] = normalized[source_index++];
+		}
+	}
+	while(index < destination_size)
+	{
+		destination[index++] = 0;
+	}
+}
+
 uint32_t ParseHex(const char *text, size_t digits)
 {
 	uint32_t value = 0;
@@ -402,21 +461,21 @@ uint32_t ParseHex(const char *text, size_t digits)
 	return value;
 }
 
-bool FindInitrdFile(const char *path, const uint8_t *&data, uint64_t &size)
+using InitrdFileVisitor = bool (*)(const char *archive_name, const uint8_t *file_data, uint64_t file_size, void *context);
+
+bool ForEachInitrdFile(InitrdFileVisitor visitor, void *context)
 {
-	data = nullptr;
-	size = 0;
-	if((nullptr == g_boot_info) || (0 == g_boot_info->module_count))
+	if((nullptr == visitor) || (nullptr == g_boot_info) || (0 == g_boot_info->module_count))
 	{
 		return false;
 	}
 
 	const BootModuleInfo &module = g_boot_info->modules[0];
-	const uint8_t *cursor = (const uint8_t*)module.physical_start;
+	const uint8_t *cursor = reinterpret_cast<const uint8_t *>(module.physical_start);
 	const uint8_t *end = cursor + module.length;
 	while((cursor + sizeof(CpioNewcHeader)) <= end)
 	{
-		const CpioNewcHeader *header = (const CpioNewcHeader*)cursor;
+		const CpioNewcHeader *header = reinterpret_cast<const CpioNewcHeader *>(cursor);
 		bool magic_ok = true;
 		for(size_t i = 0; i < 6; ++i)
 		{
@@ -431,31 +490,60 @@ bool FindInitrdFile(const char *path, const uint8_t *&data, uint64_t &size)
 			return false;
 		}
 
+		const uint32_t mode = ParseHex(header->mode, 8);
 		const uint32_t name_size = ParseHex(header->namesize, 8);
 		const uint32_t file_size = ParseHex(header->filesize, 8);
-		const char *name = (const char*)(cursor + sizeof(CpioNewcHeader));
-		const uint8_t *file_data = (const uint8_t*)AlignUp(
-			(uint64_t)(cursor + sizeof(CpioNewcHeader) + name_size), 4);
-		if((const uint8_t*)name > end || (file_data + file_size) > end)
+		const char *name = reinterpret_cast<const char *>(cursor + sizeof(CpioNewcHeader));
+		const uint8_t *file_data = reinterpret_cast<const uint8_t *>(AlignUp(
+			reinterpret_cast<uint64_t>(cursor + sizeof(CpioNewcHeader) + name_size), 4));
+		if((reinterpret_cast<const uint8_t *>(name) > end) || ((file_data + file_size) > end))
 		{
 			return false;
 		}
 
 		if(PathsEqual(name, "TRAILER!!!"))
 		{
-			return false;
-		}
-
-		if(PathsEqual(name, path))
-		{
-			data = file_data;
-			size = file_size;
 			return true;
 		}
 
-		cursor = (const uint8_t*)AlignUp((uint64_t)(file_data + file_size), 4);
+		if(IsRegularInitrdEntry(mode) && !visitor(name, file_data, file_size, context))
+		{
+			return false;
+		}
+
+		cursor = reinterpret_cast<const uint8_t *>(AlignUp(reinterpret_cast<uint64_t>(file_data + file_size), 4));
 	}
+
 	return false;
+}
+
+struct InitrdLookupContext
+{
+	const char *path;
+	const uint8_t *data;
+	uint64_t size;
+};
+
+bool MatchInitrdFile(const char *archive_name, const uint8_t *file_data, uint64_t file_size, void *context)
+{
+	auto *lookup = static_cast<InitrdLookupContext *>(context);
+	if((nullptr == lookup) || !PathsEqual(archive_name, lookup->path))
+	{
+		return true;
+	}
+
+	lookup->data = file_data;
+	lookup->size = file_size;
+	return false;
+}
+
+bool FindInitrdFile(const char *path, const uint8_t *&data, uint64_t &size)
+{
+	InitrdLookupContext lookup{path, nullptr, 0};
+	(void)ForEachInitrdFile(MatchInitrdFile, &lookup);
+	data = lookup.data;
+	size = lookup.size;
+	return (nullptr != data);
 }
 
 bool CopyIntoAddressSpace(VirtualMemory &vm, uint64_t virtual_address, const uint8_t *source, uint64_t length)
@@ -741,6 +829,381 @@ void WakeConsoleReaders()
 	}
 }
 
+[[nodiscard]] size_t CountActiveProcesses()
+{
+	size_t count = 0;
+	for(size_t i = 0; i < kMaxProcesses; ++i)
+	{
+		if(ProcessState::Free != processTable[i].state)
+		{
+			++count;
+		}
+	}
+	return count;
+}
+
+[[nodiscard]] uint32_t ObserveConsoleKind()
+{
+	if(nullptr == g_text_display)
+	{
+		return OS1_OBSERVE_CONSOLE_SERIAL;
+	}
+
+	switch(g_text_display->kind)
+	{
+	case TextDisplayBackendKind::VgaText:
+		return OS1_OBSERVE_CONSOLE_VGA;
+	case TextDisplayBackendKind::FramebufferText:
+		return OS1_OBSERVE_CONSOLE_FRAMEBUFFER;
+	default:
+		return OS1_OBSERVE_CONSOLE_NONE;
+	}
+}
+
+bool BeginObserveTransfer(Thread *thread,
+		uint64_t user_buffer,
+		size_t user_length,
+		uint32_t kind,
+		uint32_t record_size,
+		uint32_t record_count,
+		size_t &offset,
+		long &result)
+{
+	offset = 0;
+	result = -1;
+	if((nullptr == thread) || (0 == user_buffer) || (0 == user_length))
+	{
+		return false;
+	}
+
+	const size_t payload_bytes = static_cast<size_t>(record_size) * static_cast<size_t>(record_count);
+	if((0 != record_count) && ((payload_bytes / record_count) != record_size))
+	{
+		return false;
+	}
+	const size_t total_bytes = sizeof(Os1ObserveHeader) + payload_bytes;
+	if(total_bytes < sizeof(Os1ObserveHeader) || (user_length < total_bytes))
+	{
+		return false;
+	}
+
+	const Os1ObserveHeader header{
+		.abi_version = OS1_OBSERVE_ABI_VERSION,
+		.kind = kind,
+		.record_size = record_size,
+		.record_count = record_count,
+	};
+	if(!CopyToUser(thread, user_buffer, &header, sizeof(header)))
+	{
+		return false;
+	}
+
+	offset = sizeof(header);
+	result = static_cast<long>(total_bytes);
+	return true;
+}
+
+bool WriteObserveRecord(Thread *thread, uint64_t user_buffer, size_t &offset, const void *record, size_t record_size)
+{
+	if((nullptr == thread) || (nullptr == record))
+	{
+		return false;
+	}
+	if(!CopyToUser(thread, user_buffer + offset, record, record_size))
+	{
+		return false;
+	}
+	offset += record_size;
+	return true;
+}
+
+long SysObserveSystem(Thread *thread, uint64_t user_buffer, size_t length)
+{
+	size_t offset = 0;
+	long result = -1;
+	if(!BeginObserveTransfer(thread,
+			user_buffer,
+			length,
+			OS1_OBSERVE_SYSTEM,
+			sizeof(Os1ObserveSystemRecord),
+			1,
+			offset,
+			result))
+	{
+		return -1;
+	}
+
+	Os1ObserveSystemRecord record{};
+	record.boot_source = g_boot_info ? static_cast<uint32_t>(g_boot_info->source) : 0;
+	record.console_kind = ObserveConsoleKind();
+	record.tick_count = g_timer_ticks;
+	record.total_pages = page_frames.PageCount();
+	record.free_pages = page_frames.FreePageCount();
+	record.process_count = static_cast<uint32_t>(CountActiveProcesses());
+	record.runnable_thread_count = static_cast<uint32_t>(runnableThreadCount());
+	record.cpu_count = static_cast<uint32_t>(ncpu);
+	record.pci_device_count = static_cast<uint32_t>(platform_pci_device_count());
+	const VirtioBlkDevice *virtio_blk = platform_virtio_blk();
+	record.virtio_blk_present = (nullptr != virtio_blk) ? 1u : 0u;
+	record.virtio_blk_capacity_sectors = (nullptr != virtio_blk) ? virtio_blk->capacity_sectors : 0;
+	CopyFixedString(record.bootloader_name,
+		sizeof(record.bootloader_name),
+		(g_boot_info && g_boot_info->bootloader_name) ? g_boot_info->bootloader_name : "");
+	return WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)) ? result : -1;
+}
+
+long SysObserveProcesses(Thread *thread, uint64_t user_buffer, size_t length)
+{
+	uint32_t record_count = 0;
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		if((ThreadState::Free != threadTable[i].state) && (nullptr != threadTable[i].process))
+		{
+			++record_count;
+		}
+	}
+
+	size_t offset = 0;
+	long result = -1;
+	if(!BeginObserveTransfer(thread,
+			user_buffer,
+			length,
+			OS1_OBSERVE_PROCESSES,
+			sizeof(Os1ObserveProcessRecord),
+			record_count,
+			offset,
+			result))
+	{
+		return -1;
+	}
+
+	for(size_t i = 0; i < kMaxThreads; ++i)
+	{
+		const Thread &entry = threadTable[i];
+		if((ThreadState::Free == entry.state) || (nullptr == entry.process))
+		{
+			continue;
+		}
+
+		Os1ObserveProcessRecord record{};
+		record.pid = entry.process->pid;
+		record.tid = entry.tid;
+		record.cr3 = entry.address_space_cr3;
+		record.process_state = static_cast<uint32_t>(entry.process->state);
+		record.thread_state = static_cast<uint32_t>(entry.state);
+		record.flags = entry.user_mode ? static_cast<uint32_t>(OS1_OBSERVE_PROCESS_FLAG_USER_MODE) : 0u;
+		CopyFixedString(record.name, sizeof(record.name), entry.process->name);
+		if(!WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)))
+		{
+			return -1;
+		}
+	}
+
+	return result;
+}
+
+long SysObserveCpus(Thread *thread, uint64_t user_buffer, size_t length)
+{
+	uint32_t record_count = 0;
+	for(cpu *entry = g_cpu_boot; nullptr != entry; entry = entry->next)
+	{
+		++record_count;
+	}
+
+	size_t offset = 0;
+	long result = -1;
+	if(!BeginObserveTransfer(thread,
+			user_buffer,
+			length,
+			OS1_OBSERVE_CPUS,
+			sizeof(Os1ObserveCpuRecord),
+			record_count,
+			offset,
+			result))
+	{
+		return -1;
+	}
+
+	uint32_t logical_index = 0;
+	for(cpu *entry = g_cpu_boot; nullptr != entry; entry = entry->next, ++logical_index)
+	{
+		Os1ObserveCpuRecord record{};
+		record.logical_index = logical_index;
+		record.apic_id = entry->id;
+		record.flags = (entry == g_cpu_boot) ? static_cast<uint32_t>(OS1_OBSERVE_CPU_FLAG_BSP) : 0u;
+		if((entry == g_cpu_boot) || (0 != entry->booted))
+		{
+			record.flags |= static_cast<uint32_t>(OS1_OBSERVE_CPU_FLAG_BOOTED);
+		}
+		if((nullptr != entry->current_thread) && (nullptr != entry->current_thread->process))
+		{
+			record.current_pid = entry->current_thread->process->pid;
+			record.current_tid = entry->current_thread->tid;
+		}
+		if(!WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)))
+		{
+			return -1;
+		}
+	}
+
+	return result;
+}
+
+long SysObservePci(Thread *thread, uint64_t user_buffer, size_t length)
+{
+	const size_t device_count = platform_pci_device_count();
+	const PciDevice *devices = platform_pci_devices();
+
+	size_t offset = 0;
+	long result = -1;
+	if(!BeginObserveTransfer(thread,
+			user_buffer,
+			length,
+			OS1_OBSERVE_PCI,
+			sizeof(Os1ObservePciRecord),
+			static_cast<uint32_t>(device_count),
+			offset,
+			result))
+	{
+		return -1;
+	}
+
+	for(size_t i = 0; i < device_count; ++i)
+	{
+		Os1ObservePciRecord record{};
+		record.segment_group = devices[i].segment_group;
+		record.bus = devices[i].bus;
+		record.slot = devices[i].slot;
+		record.function = devices[i].function;
+		record.vendor_id = devices[i].vendor_id;
+		record.device_id = devices[i].device_id;
+		record.class_code = devices[i].class_code;
+		record.subclass = devices[i].subclass;
+		record.prog_if = devices[i].prog_if;
+		record.revision = devices[i].revision;
+		record.interrupt_line = devices[i].interrupt_line;
+		record.interrupt_pin = devices[i].interrupt_pin;
+		record.capability_pointer = devices[i].capability_pointer;
+		record.bar_count = devices[i].bar_count;
+		for(size_t bar_index = 0; bar_index < 6; ++bar_index)
+		{
+			record.bars[bar_index].base = devices[i].bars[bar_index].base;
+			record.bars[bar_index].size = devices[i].bars[bar_index].size;
+			record.bars[bar_index].type = static_cast<uint8_t>(devices[i].bars[bar_index].type);
+		}
+		if(!WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)))
+		{
+			return -1;
+		}
+	}
+
+	return result;
+}
+
+struct InitrdCountContext
+{
+	uint32_t count = 0;
+};
+
+bool CountInitrdRecord(const char *, const uint8_t *, uint64_t, void *context)
+{
+	auto *count = static_cast<InitrdCountContext *>(context);
+	if(nullptr == count)
+	{
+		return false;
+	}
+	++count->count;
+	return true;
+}
+
+struct InitrdWriteContext
+{
+	Thread *thread = nullptr;
+	uint64_t user_buffer = 0;
+	size_t offset = 0;
+};
+
+bool WriteInitrdRecordCallback(const char *archive_name, const uint8_t *, uint64_t file_size, void *context)
+{
+	auto *write = static_cast<InitrdWriteContext *>(context);
+	if(nullptr == write)
+	{
+		return false;
+	}
+
+	Os1ObserveInitrdRecord record{};
+	CopyInitrdPath(record.path, sizeof(record.path), archive_name);
+	record.size = file_size;
+	return WriteObserveRecord(write->thread, write->user_buffer, write->offset, &record, sizeof(record));
+}
+
+long SysObserveInitrd(Thread *thread, uint64_t user_buffer, size_t length)
+{
+	InitrdCountContext count{};
+	if((nullptr != g_boot_info) && (g_boot_info->module_count > 0))
+	{
+		if(!ForEachInitrdFile(CountInitrdRecord, &count))
+		{
+			return -1;
+		}
+	}
+
+	size_t offset = 0;
+	long result = -1;
+	if(!BeginObserveTransfer(thread,
+			user_buffer,
+			length,
+			OS1_OBSERVE_INITRD,
+			sizeof(Os1ObserveInitrdRecord),
+			count.count,
+			offset,
+			result))
+	{
+		return -1;
+	}
+
+	if(0 == count.count)
+	{
+		return result;
+	}
+
+	InitrdWriteContext write{
+		.thread = thread,
+		.user_buffer = user_buffer,
+		.offset = offset,
+	};
+	if(!ForEachInitrdFile(WriteInitrdRecordCallback, &write))
+	{
+		return -1;
+	}
+	return result;
+}
+
+long SysObserve(uint64_t kind, uint64_t user_buffer, size_t length)
+{
+	Thread *thread = currentThread();
+	if(nullptr == thread)
+	{
+		return -1;
+	}
+
+	switch(kind)
+	{
+	case OS1_OBSERVE_SYSTEM:
+		return SysObserveSystem(thread, user_buffer, length);
+	case OS1_OBSERVE_PROCESSES:
+		return SysObserveProcesses(thread, user_buffer, length);
+	case OS1_OBSERVE_CPUS:
+		return SysObserveCpus(thread, user_buffer, length);
+	case OS1_OBSERVE_PCI:
+		return SysObservePci(thread, user_buffer, length);
+	case OS1_OBSERVE_INITRD:
+		return SysObserveInitrd(thread, user_buffer, length);
+	default:
+		return -1;
+	}
+}
+
 long SysWrite(int fd, uint64_t user_buffer, size_t length)
 {
 	if((fd != 1) && (fd != 2))
@@ -809,6 +1272,9 @@ Thread *HandleSyscall(TrapFrame *frame)
 	case SYS_getpid:
 		frame->rax = thread->process ? thread->process->pid : 0;
 		return thread;
+	case SYS_observe:
+		frame->rax = static_cast<uint64_t>(SysObserve(frame->rdi, frame->rsi, static_cast<size_t>(frame->rdx)));
+		return thread;
 	default:
 		frame->rax = (uint64_t)-1;
 		return thread;
@@ -825,6 +1291,7 @@ Thread *HandleIrq(TrapFrame *frame)
 	else if(IRQ_TIMER == irq)
 	{
 		ConsoleInputPollSerial();
+		++g_timer_ticks;
 	}
 
 	AcknowledgeLegacyIrq(irq);

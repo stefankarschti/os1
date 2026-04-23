@@ -19,6 +19,9 @@ function(os1_add_user_program program_name source_file output_var)
       -fno-stack-protector
       -fno-asynchronous-unwind-tables
       -fno-pic
+      -march=x86-64
+      -mtune=generic
+      -mgeneral-regs-only
       # User ELFs live in the dedicated high-half userspace slot, so they
       # cannot rely on the small code model's 32-bit absolute relocations.
       -mcmodel=large
@@ -26,6 +29,7 @@ function(os1_add_user_program program_name source_file output_var)
       -Wall
       -Wextra
       "-I${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "-I${PROJECT_SOURCE_DIR}/src/uapi"
       -nostdlib
       -nostartfiles
       -nodefaultlibs
@@ -68,11 +72,15 @@ function(os1_add_user_cxx_program program_name source_file output_var)
       -fno-use-cxa-atexit
       -fno-pic
       -nostdinc++
+      -march=x86-64
+      -mtune=generic
+      -mgeneral-regs-only
       -mcmodel=large
       -O1
       -Wall
       -Wextra
       "-I${CMAKE_CURRENT_SOURCE_DIR}/include"
+      "-I${PROJECT_SOURCE_DIR}/src/uapi"
       -nostdlib
       -nostartfiles
       -nodefaultlibs
