@@ -3,17 +3,21 @@
 #include <stdint.h>
 #include <span>
 
-#include <os1/observe.h>
-
 #include "bootinfo.h"
 #include "display.h"
 #include "console_input.h"
 #include "terminal.h"
 #include "interrupt.h"
+#include "fs/initrd.h"
 #include "memory.h"
 #include "memory_layout.h"
 #include "task.h"
 #include "pageframe.h"
+#include "proc/user_program.h"
+#include "syscall/observe.h"
+#include "syscall/process.h"
+#include "syscall/console_read.h"
+#include "syscall/wait.h"
 #include "virtualmemory.h"
 #include "keyboard.h"
 #include "debug.h"
@@ -44,64 +48,6 @@ FramebufferTextDisplay g_framebuffer_text_display;
 TextDisplayBackend g_vga_backend{TextDisplayBackendKind::VgaText, &g_vga_text_display};
 TextDisplayBackend g_framebuffer_backend{TextDisplayBackendKind::FramebufferText, &g_framebuffer_text_display};
 TextDisplayBackend *g_text_display = nullptr;
-
-constexpr uint32_t kElfMagic = 0x464C457F;
-constexpr uint16_t kElfTypeExec = 2;
-constexpr uint16_t kElfMachineX86_64 = 62;
-constexpr uint32_t kProgramTypeLoad = 1;
-constexpr uint32_t kProgramFlagExecute = 0x1;
-constexpr uint32_t kProgramFlagWrite = 0x2;
-constexpr uint32_t kCpioModeTypeMask = 0170000u;
-constexpr uint32_t kCpioModeRegular = 0100000u;
-
-struct CpioNewcHeader
-{
-	char magic[6];
-	char inode[8];
-	char mode[8];
-	char uid[8];
-	char gid[8];
-	char nlink[8];
-	char mtime[8];
-	char filesize[8];
-	char devmajor[8];
-	char devminor[8];
-	char rdevmajor[8];
-	char rdevminor[8];
-	char namesize[8];
-	char check[8];
-} __attribute__((packed));
-
-struct Elf64Header
-{
-	uint32_t magic;
-	uint8_t ident[12];
-	uint16_t type;
-	uint16_t machine;
-	uint32_t version;
-	uint64_t entry;
-	uint64_t phoff;
-	uint64_t shoff;
-	uint32_t flags;
-	uint16_t ehsize;
-	uint16_t phentsize;
-	uint16_t phnum;
-	uint16_t shentsize;
-	uint16_t shnum;
-	uint16_t shstrndx;
-} __attribute__((packed));
-
-struct Elf64ProgramHeader
-{
-	uint32_t type;
-	uint32_t flags;
-	uint64_t offset;
-	uint64_t vaddr;
-	uint64_t paddr;
-	uint64_t filesz;
-	uint64_t memsz;
-	uint64_t align;
-} __attribute__((packed));
 
 [[nodiscard]] uint64_t AlignDown(uint64_t value, uint64_t alignment)
 {
@@ -278,28 +224,6 @@ uint16_t SetTimer(uint16_t frequency)
 	return 1193180 / divisor;
 }
 
-void CopyFixedString(char *destination, size_t destination_size, const char *source)
-{
-	if((nullptr == destination) || (0 == destination_size))
-	{
-		return;
-	}
-
-	size_t index = 0;
-	if(nullptr != source)
-	{
-		while(((index + 1) < destination_size) && source[index])
-		{
-			destination[index] = source[index];
-			++index;
-		}
-	}
-	while(index < destination_size)
-	{
-		destination[index++] = 0;
-	}
-}
-
 void KernelIdleThread()
 {
 	static bool announced = false;
@@ -317,12 +241,10 @@ void KernelIdleThread()
 	}
 }
 
-void WakeChildWaiters();
-
 [[nodiscard]] Thread *ScheduleNext(bool keep_current)
 {
 	reapDeadThreads(page_frames);
-	WakeChildWaiters();
+	WakeChildWaiters(page_frames);
 	Thread *current = currentThread();
 	if(keep_current && current)
 	{
@@ -376,1098 +298,6 @@ void OnKernelException(TrapFrame *frame)
 	HaltForever();
 }
 
-const char *NormalizeArchivePath(const char *path)
-{
-	if(nullptr == path)
-	{
-		return nullptr;
-	}
-	while('.' == path[0] && '/' == path[1])
-	{
-		path += 2;
-	}
-	while('/' == *path)
-	{
-		++path;
-	}
-	return path;
-}
-
-bool PathsEqual(const char *archive_name, const char *wanted)
-{
-	const char *normalized_archive = NormalizeArchivePath(archive_name);
-	const char *normalized_wanted = NormalizeArchivePath(wanted);
-	if((nullptr == normalized_archive) || (nullptr == normalized_wanted))
-	{
-		return false;
-	}
-	size_t index = 0;
-	for(;; ++index)
-	{
-		if(normalized_archive[index] != normalized_wanted[index])
-		{
-			return false;
-		}
-		if(0 == normalized_archive[index])
-		{
-			return true;
-		}
-	}
-}
-
-[[nodiscard]] bool IsRegularInitrdEntry(uint32_t mode)
-{
-	return (mode & kCpioModeTypeMask) == kCpioModeRegular;
-}
-
-void CopyInitrdPath(char *destination, size_t destination_size, const char *archive_name)
-{
-	if((nullptr == destination) || (0 == destination_size))
-	{
-		return;
-	}
-
-	const char *normalized = NormalizeArchivePath(archive_name);
-	size_t index = 0;
-	if((nullptr != normalized) && (0 != normalized[0]))
-	{
-		if(index < (destination_size - 1))
-		{
-			destination[index++] = '/';
-		}
-		size_t source_index = 0;
-		while(((index + 1) < destination_size) && normalized[source_index])
-		{
-			destination[index++] = normalized[source_index++];
-		}
-	}
-	while(index < destination_size)
-	{
-		destination[index++] = 0;
-	}
-}
-
-uint32_t ParseHex(const char *text, size_t digits)
-{
-	uint32_t value = 0;
-	for(size_t i = 0; i < digits; ++i)
-	{
-		value <<= 4;
-		if((text[i] >= '0') && (text[i] <= '9'))
-		{
-			value |= (uint32_t)(text[i] - '0');
-		}
-		else if((text[i] >= 'a') && (text[i] <= 'f'))
-		{
-			value |= (uint32_t)(text[i] - 'a' + 10);
-		}
-		else if((text[i] >= 'A') && (text[i] <= 'F'))
-		{
-			value |= (uint32_t)(text[i] - 'A' + 10);
-		}
-	}
-	return value;
-}
-
-using InitrdFileVisitor = bool (*)(const char *archive_name, const uint8_t *file_data, uint64_t file_size, void *context);
-
-bool ForEachInitrdFile(InitrdFileVisitor visitor, void *context)
-{
-	if((nullptr == visitor) || (nullptr == g_boot_info) || (0 == g_boot_info->module_count))
-	{
-		return false;
-	}
-
-	const BootModuleInfo &module = g_boot_info->modules[0];
-	const uint8_t *cursor = reinterpret_cast<const uint8_t *>(module.physical_start);
-	const uint8_t *end = cursor + module.length;
-	while((cursor + sizeof(CpioNewcHeader)) <= end)
-	{
-		const CpioNewcHeader *header = reinterpret_cast<const CpioNewcHeader *>(cursor);
-		bool magic_ok = true;
-		for(size_t i = 0; i < 6; ++i)
-		{
-			if(header->magic[i] != "070701"[i])
-			{
-				magic_ok = false;
-				break;
-			}
-		}
-		if(!magic_ok)
-		{
-			return false;
-		}
-
-		const uint32_t mode = ParseHex(header->mode, 8);
-		const uint32_t name_size = ParseHex(header->namesize, 8);
-		const uint32_t file_size = ParseHex(header->filesize, 8);
-		const char *name = reinterpret_cast<const char *>(cursor + sizeof(CpioNewcHeader));
-		const uint8_t *file_data = reinterpret_cast<const uint8_t *>(AlignUp(
-			reinterpret_cast<uint64_t>(cursor + sizeof(CpioNewcHeader) + name_size), 4));
-		if((reinterpret_cast<const uint8_t *>(name) > end) || ((file_data + file_size) > end))
-		{
-			return false;
-		}
-
-		if(PathsEqual(name, "TRAILER!!!"))
-		{
-			return true;
-		}
-
-		if(IsRegularInitrdEntry(mode) && !visitor(name, file_data, file_size, context))
-		{
-			return false;
-		}
-
-		cursor = reinterpret_cast<const uint8_t *>(AlignUp(reinterpret_cast<uint64_t>(file_data + file_size), 4));
-	}
-
-	return false;
-}
-
-struct InitrdLookupContext
-{
-	const char *path;
-	const uint8_t *data;
-	uint64_t size;
-};
-
-bool MatchInitrdFile(const char *archive_name, const uint8_t *file_data, uint64_t file_size, void *context)
-{
-	auto *lookup = static_cast<InitrdLookupContext *>(context);
-	if((nullptr == lookup) || !PathsEqual(archive_name, lookup->path))
-	{
-		return true;
-	}
-
-	lookup->data = file_data;
-	lookup->size = file_size;
-	return false;
-}
-
-bool FindInitrdFile(const char *path, const uint8_t *&data, uint64_t &size)
-{
-	InitrdLookupContext lookup{path, nullptr, 0};
-	(void)ForEachInitrdFile(MatchInitrdFile, &lookup);
-	data = lookup.data;
-	size = lookup.size;
-	return (nullptr != data);
-}
-
-bool CopyIntoAddressSpace(VirtualMemory &vm, uint64_t virtual_address, const uint8_t *source, uint64_t length)
-{
-	uint64_t copied = 0;
-	while(copied < length)
-	{
-		uint64_t physical = 0;
-		uint64_t flags = 0;
-		if(!vm.Translate(virtual_address + copied, physical, flags))
-		{
-			return false;
-		}
-
-		const uint64_t page_offset = (virtual_address + copied) & (kPageSize - 1);
-		const uint64_t chunk = ((length - copied) < (kPageSize - page_offset))
-			? (length - copied)
-			: (kPageSize - page_offset);
-		memcpy((void*)physical, source + copied, chunk);
-		copied += chunk;
-	}
-	return true;
-}
-
-bool CopyToUser(const Thread *thread, uint64_t user_pointer, const void *source, size_t length)
-{
-	if((nullptr == thread) || (nullptr == source))
-	{
-		return false;
-	}
-
-	VirtualMemory vm(page_frames, thread->address_space_cr3);
-	const uint8_t *src = (const uint8_t*)source;
-	size_t copied = 0;
-	while(copied < length)
-	{
-		uint64_t physical = 0;
-		uint64_t flags = 0;
-		if(!vm.Translate(user_pointer + copied, physical, flags))
-		{
-			return false;
-		}
-		const size_t page_offset = (user_pointer + copied) & (kPageSize - 1);
-		const size_t chunk = ((length - copied) < (kPageSize - page_offset))
-			? (length - copied)
-			: (kPageSize - page_offset);
-		memcpy((void*)physical, src + copied, chunk);
-		copied += chunk;
-	}
-	return true;
-}
-
-bool DestroyUserAddressSpace(uint64_t cr3)
-{
-	if(0 == cr3)
-	{
-		return false;
-	}
-	VirtualMemory vm(page_frames, cr3);
-	vm.DestroyUserSlot(kUserPml4Index);
-	uint64_t *pml4 = (uint64_t*)cr3;
-	pml4[0] = 0;
-	return page_frames.Free(cr3);
-}
-
-bool LoadUserElf(const uint8_t *image, uint64_t image_size, uint64_t &cr3, uint64_t &entry, uint64_t &user_rsp)
-{
-	if((nullptr == image) || (image_size < sizeof(Elf64Header)))
-	{
-		return false;
-	}
-
-	const Elf64Header *header = (const Elf64Header*)image;
-	if((header->magic != kElfMagic)
-		|| (header->type != kElfTypeExec)
-		|| (header->machine != kElfMachineX86_64)
-		|| (header->phoff >= image_size)
-		|| (header->phentsize != sizeof(Elf64ProgramHeader)))
-	{
-		return false;
-	}
-
-	VirtualMemory vm(page_frames);
-	if(!vm.CloneKernelPml4Entry(0, g_kernel_root_cr3))
-	{
-		return false;
-	}
-
-	const uint64_t stack_guard_base = kUserStackTop - (kUserStackPages + 1) * kPageSize;
-	for(uint16_t i = 0; i < header->phnum; ++i)
-	{
-		const uint64_t ph_offset = header->phoff + i * sizeof(Elf64ProgramHeader);
-		if((ph_offset + sizeof(Elf64ProgramHeader)) > image_size)
-		{
-			DestroyUserAddressSpace(vm.Root());
-			return false;
-		}
-
-		const Elf64ProgramHeader *program = (const Elf64ProgramHeader*)(image + ph_offset);
-		if(kProgramTypeLoad != program->type)
-		{
-			continue;
-		}
-		if((program->memsz < program->filesz)
-			|| ((program->offset + program->filesz) > image_size))
-		{
-			DestroyUserAddressSpace(vm.Root());
-			return false;
-		}
-
-		const uint64_t segment_start = AlignDown(program->vaddr, kPageSize);
-		const uint64_t segment_end = AlignUp(program->vaddr + program->memsz, kPageSize);
-		if((segment_start < kUserSpaceBase)
-			|| (segment_end > stack_guard_base)
-			|| ((segment_start >> 39) & 0x1FFull) != kUserPml4Index)
-		{
-			DestroyUserAddressSpace(vm.Root());
-			return false;
-		}
-
-		PageFlags page_flags = PageFlags::Present | PageFlags::User;
-		if(program->flags & kProgramFlagWrite)
-		{
-			page_flags |= PageFlags::Write;
-		}
-		if(0 == (program->flags & kProgramFlagExecute))
-		{
-			page_flags |= PageFlags::NoExecute;
-		}
-
-		if(!vm.AllocateAndMap(segment_start, (segment_end - segment_start) / kPageSize, page_flags))
-		{
-			DestroyUserAddressSpace(vm.Root());
-			return false;
-		}
-
-		if(!CopyIntoAddressSpace(vm, program->vaddr, image + program->offset, program->filesz))
-		{
-			DestroyUserAddressSpace(vm.Root());
-			return false;
-		}
-	}
-
-	const uint64_t user_stack_base = kUserStackTop - kUserStackPages * kPageSize;
-	if(!vm.AllocateAndMap(user_stack_base, kUserStackPages,
-		PageFlags::Present | PageFlags::Write | PageFlags::User | PageFlags::NoExecute))
-	{
-		DestroyUserAddressSpace(vm.Root());
-		return false;
-	}
-
-	uint64_t stack_physical = 0;
-	uint64_t stack_flags = 0;
-	if(!vm.Translate(kUserStackTop - 8, stack_physical, stack_flags))
-	{
-		debug("user stack translation missing at 0x")(kUserStackTop - 8, 16)();
-		DestroyUserAddressSpace(vm.Root());
-		return false;
-	}
-	cr3 = vm.Root();
-	entry = header->entry;
-	// Like kernel threads, first user entry reaches `_start` via `iretq`, so we
-	// reserve one dummy slot to match the SysV function-entry stack shape.
-	user_rsp = AlignDown(kUserStackTop, 16) - sizeof(uint64_t);
-	return true;
-}
-
-bool LoadUserProgramImage(const char *path, uint64_t &user_cr3, uint64_t &entry, uint64_t &user_rsp)
-{
-	const uint8_t *file_data = nullptr;
-	uint64_t file_size = 0;
-	if(!FindInitrdFile(path, file_data, file_size))
-	{
-		debug("initrd missing ")(path)();
-		return false;
-	}
-
-	if(!LoadUserElf(file_data, file_size, user_cr3, entry, user_rsp))
-	{
-		debug("user ELF load failed for ")(path)();
-		return false;
-	}
-
-	return true;
-}
-
-void PrepareUserThreadEntry(Thread *thread, uint64_t entry, uint64_t user_rsp)
-{
-	if(nullptr == thread)
-	{
-		return;
-	}
-
-	thread->exit_status = 0;
-	clearThreadWait(thread);
-	thread->frame = {};
-	thread->frame.rip = entry;
-	thread->frame.cs = kUserCodeSegment;
-	thread->frame.rflags = 0x202;
-	thread->frame.rsp = user_rsp;
-	thread->frame.ss = kUserDataSegment;
-	if(thread->process)
-	{
-		thread->process->exit_status = 0;
-	}
-}
-
-Thread *LoadUserProgram(const char *path, Process *parent = nullptr)
-{
-	uint64_t user_cr3 = 0;
-	uint64_t entry = 0;
-	uint64_t user_rsp = 0;
-	if(!LoadUserProgramImage(path, user_cr3, entry, user_rsp))
-	{
-		return nullptr;
-	}
-
-	Process *process = createUserProcess(path, user_cr3);
-	if(nullptr == process)
-	{
-		DestroyUserAddressSpace(user_cr3);
-		return nullptr;
-	}
-	process->parent = parent;
-
-	Thread *thread = createUserThread(process, entry, user_rsp, page_frames);
-	if(nullptr == thread)
-	{
-		reapProcess(process, page_frames);
-		return nullptr;
-	}
-	PrepareUserThreadEntry(thread, entry, user_rsp);
-
-	debug("user thread ready pid ")(process->pid)(" tid ")(thread->tid)(" entry 0x")(entry, 16)(" rsp 0x")(user_rsp, 16)();
-	return thread;
-}
-
-bool CopyFromUser(const Thread *thread, uint64_t user_pointer, void *destination, size_t length)
-{
-	if((nullptr == thread) || (nullptr == destination))
-	{
-		return false;
-	}
-
-	VirtualMemory vm(page_frames, thread->address_space_cr3);
-	uint8_t *dest = (uint8_t*)destination;
-	size_t copied = 0;
-	while(copied < length)
-	{
-		uint64_t physical = 0;
-		uint64_t flags = 0;
-		if(!vm.Translate(user_pointer + copied, physical, flags))
-		{
-			return false;
-		}
-		const size_t page_offset = (user_pointer + copied) & (kPageSize - 1);
-		const size_t chunk = ((length - copied) < (kPageSize - page_offset))
-			? (length - copied)
-			: (kPageSize - page_offset);
-		memcpy(dest + copied, (const void*)physical, chunk);
-		copied += chunk;
-	}
-	return true;
-}
-
-bool CopyUserString(const Thread *thread, uint64_t user_pointer, char *destination, size_t destination_size)
-{
-	if((nullptr == thread) || (nullptr == destination) || (0 == destination_size) || (0 == user_pointer))
-	{
-		return false;
-	}
-
-	for(size_t index = 0; index < destination_size; ++index)
-	{
-		char ch = 0;
-		if(!CopyFromUser(thread, user_pointer + index, &ch, sizeof(ch)))
-		{
-			return false;
-		}
-		destination[index] = ch;
-		if(0 == ch)
-		{
-			return true;
-		}
-	}
-
-	destination[destination_size - 1] = 0;
-	return false;
-}
-
-Process *FindChildProcess(Process *parent, uint64_t pid, bool zombie_only)
-{
-	if(nullptr == parent)
-	{
-		return nullptr;
-	}
-
-	for(size_t i = 0; i < kMaxProcesses; ++i)
-	{
-		Process *candidate = processTable + i;
-		if((candidate->parent != parent) || (ProcessState::Free == candidate->state))
-		{
-			continue;
-		}
-		if(zombie_only && (ProcessState::Zombie != candidate->state))
-		{
-			continue;
-		}
-		if((0 == pid) || (candidate->pid == pid))
-		{
-			return candidate;
-		}
-	}
-	return nullptr;
-}
-
-bool ProcessHasAnyThreads(const Process *process)
-{
-	if(nullptr == process)
-	{
-		return false;
-	}
-
-	for(size_t i = 0; i < kMaxThreads; ++i)
-	{
-		if((threadTable[i].process == process) && (ThreadState::Free != threadTable[i].state))
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
-bool TryCompleteWaitPid(Thread *thread, uint64_t pid, uint64_t user_status_pointer, long &result)
-{
-	result = -1;
-	if((nullptr == thread) || (nullptr == thread->process) || ((pid >> 63) != 0))
-	{
-		return true;
-	}
-
-	Process *child = FindChildProcess(thread->process, pid, true);
-	if(nullptr != child)
-	{
-		if(ProcessHasAnyThreads(child))
-		{
-			return false;
-		}
-
-		const int exit_status = child->exit_status;
-		if((0 != user_status_pointer)
-			&& !CopyToUser(thread, user_status_pointer, &exit_status, sizeof(exit_status)))
-		{
-			return true;
-		}
-
-		result = static_cast<long>(child->pid);
-		if(!reapProcess(child, page_frames))
-		{
-			result = -1;
-		}
-		return true;
-	}
-
-	if(nullptr != FindChildProcess(thread->process, pid, false))
-	{
-		return false;
-	}
-
-	return true;
-}
-
-void WakeChildWaiters()
-{
-	for(size_t i = 0; i < kMaxThreads; ++i)
-	{
-		Thread *thread = threadTable + i;
-		if((ThreadState::Blocked != thread->state)
-			|| (ThreadWaitReason::ChildExit != thread->wait_reason))
-		{
-			continue;
-		}
-
-		long result = -1;
-		if(!TryCompleteWaitPid(thread, thread->wait_length, thread->wait_address, result))
-		{
-			continue;
-		}
-
-		clearThreadWait(thread);
-		thread->frame.rax = static_cast<uint64_t>(result);
-		markThreadReady(thread);
-	}
-}
-
-bool TryCompleteConsoleRead(Thread *thread, uint64_t user_buffer, size_t length, long &result)
-{
-	result = -1;
-	if(nullptr == thread)
-	{
-		return true;
-	}
-	if((0 == user_buffer) || (0 == length))
-	{
-		return true;
-	}
-	if(!ConsoleInputHasLine())
-	{
-		return false;
-	}
-
-	char line[kConsoleInputMaxLineBytes];
-	size_t line_length = 0;
-	if(!ConsoleInputPopLine(line, sizeof(line), line_length))
-	{
-		return false;
-	}
-	if((line_length > length) || !CopyToUser(thread, user_buffer, line, line_length))
-	{
-		return true;
-	}
-
-	result = (long)line_length;
-	return true;
-}
-
-void WakeConsoleReaders()
-{
-	while(ConsoleInputHasLine())
-	{
-		Thread *thread = firstBlockedThread(ThreadWaitReason::ConsoleRead);
-		if(nullptr == thread)
-		{
-			return;
-		}
-
-		long result = -1;
-		if(!TryCompleteConsoleRead(thread, thread->wait_address, (size_t)thread->wait_length, result))
-		{
-			return;
-		}
-
-		clearThreadWait(thread);
-		thread->frame.rax = (uint64_t)result;
-		markThreadReady(thread);
-	}
-}
-
-[[nodiscard]] size_t CountActiveProcesses()
-{
-	size_t count = 0;
-	for(size_t i = 0; i < kMaxProcesses; ++i)
-	{
-		if(ProcessState::Free != processTable[i].state)
-		{
-			++count;
-		}
-	}
-	return count;
-}
-
-[[nodiscard]] uint32_t ObserveConsoleKind()
-{
-	if(nullptr == g_text_display)
-	{
-		return OS1_OBSERVE_CONSOLE_SERIAL;
-	}
-
-	switch(g_text_display->kind)
-	{
-	case TextDisplayBackendKind::VgaText:
-		return OS1_OBSERVE_CONSOLE_VGA;
-	case TextDisplayBackendKind::FramebufferText:
-		return OS1_OBSERVE_CONSOLE_FRAMEBUFFER;
-	default:
-		return OS1_OBSERVE_CONSOLE_NONE;
-	}
-}
-
-bool BeginObserveTransfer(Thread *thread,
-		uint64_t user_buffer,
-		size_t user_length,
-		uint32_t kind,
-		uint32_t record_size,
-		uint32_t record_count,
-		size_t &offset,
-		long &result)
-{
-	offset = 0;
-	result = -1;
-	if((nullptr == thread) || (0 == user_buffer) || (0 == user_length))
-	{
-		return false;
-	}
-
-	const size_t payload_bytes = static_cast<size_t>(record_size) * static_cast<size_t>(record_count);
-	if((0 != record_count) && ((payload_bytes / record_count) != record_size))
-	{
-		return false;
-	}
-	const size_t total_bytes = sizeof(Os1ObserveHeader) + payload_bytes;
-	if(total_bytes < sizeof(Os1ObserveHeader) || (user_length < total_bytes))
-	{
-		return false;
-	}
-
-	const Os1ObserveHeader header{
-		.abi_version = OS1_OBSERVE_ABI_VERSION,
-		.kind = kind,
-		.record_size = record_size,
-		.record_count = record_count,
-	};
-	if(!CopyToUser(thread, user_buffer, &header, sizeof(header)))
-	{
-		return false;
-	}
-
-	offset = sizeof(header);
-	result = static_cast<long>(total_bytes);
-	return true;
-}
-
-bool WriteObserveRecord(Thread *thread, uint64_t user_buffer, size_t &offset, const void *record, size_t record_size)
-{
-	if((nullptr == thread) || (nullptr == record))
-	{
-		return false;
-	}
-	if(!CopyToUser(thread, user_buffer + offset, record, record_size))
-	{
-		return false;
-	}
-	offset += record_size;
-	return true;
-}
-
-long SysObserveSystem(Thread *thread, uint64_t user_buffer, size_t length)
-{
-	size_t offset = 0;
-	long result = -1;
-	if(!BeginObserveTransfer(thread,
-			user_buffer,
-			length,
-			OS1_OBSERVE_SYSTEM,
-			sizeof(Os1ObserveSystemRecord),
-			1,
-			offset,
-			result))
-	{
-		return -1;
-	}
-
-	Os1ObserveSystemRecord record{};
-	record.boot_source = g_boot_info ? static_cast<uint32_t>(g_boot_info->source) : 0;
-	record.console_kind = ObserveConsoleKind();
-	record.tick_count = g_timer_ticks;
-	record.total_pages = page_frames.PageCount();
-	record.free_pages = page_frames.FreePageCount();
-	record.process_count = static_cast<uint32_t>(CountActiveProcesses());
-	record.runnable_thread_count = static_cast<uint32_t>(runnableThreadCount());
-	record.cpu_count = static_cast<uint32_t>(ncpu);
-	record.pci_device_count = static_cast<uint32_t>(platform_pci_device_count());
-	const VirtioBlkDevice *virtio_blk = platform_virtio_blk();
-	record.virtio_blk_present = (nullptr != virtio_blk) ? 1u : 0u;
-	record.virtio_blk_capacity_sectors = (nullptr != virtio_blk) ? virtio_blk->capacity_sectors : 0;
-	CopyFixedString(record.bootloader_name,
-		sizeof(record.bootloader_name),
-		(g_boot_info && g_boot_info->bootloader_name) ? g_boot_info->bootloader_name : "");
-	return WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)) ? result : -1;
-}
-
-long SysObserveProcesses(Thread *thread, uint64_t user_buffer, size_t length)
-{
-	uint32_t record_count = 0;
-	for(size_t i = 0; i < kMaxThreads; ++i)
-	{
-		if((ThreadState::Free != threadTable[i].state) && (nullptr != threadTable[i].process))
-		{
-			++record_count;
-		}
-	}
-
-	size_t offset = 0;
-	long result = -1;
-	if(!BeginObserveTransfer(thread,
-			user_buffer,
-			length,
-			OS1_OBSERVE_PROCESSES,
-			sizeof(Os1ObserveProcessRecord),
-			record_count,
-			offset,
-			result))
-	{
-		return -1;
-	}
-
-	for(size_t i = 0; i < kMaxThreads; ++i)
-	{
-		const Thread &entry = threadTable[i];
-		if((ThreadState::Free == entry.state) || (nullptr == entry.process))
-		{
-			continue;
-		}
-
-		Os1ObserveProcessRecord record{};
-		record.pid = entry.process->pid;
-		record.tid = entry.tid;
-		record.cr3 = entry.address_space_cr3;
-		record.process_state = static_cast<uint32_t>(entry.process->state);
-		record.thread_state = static_cast<uint32_t>(entry.state);
-		record.flags = entry.user_mode ? static_cast<uint32_t>(OS1_OBSERVE_PROCESS_FLAG_USER_MODE) : 0u;
-		CopyFixedString(record.name, sizeof(record.name), entry.process->name);
-		if(!WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)))
-		{
-			return -1;
-		}
-	}
-
-	return result;
-}
-
-long SysObserveCpus(Thread *thread, uint64_t user_buffer, size_t length)
-{
-	uint32_t record_count = 0;
-	for(cpu *entry = g_cpu_boot; nullptr != entry; entry = entry->next)
-	{
-		++record_count;
-	}
-
-	size_t offset = 0;
-	long result = -1;
-	if(!BeginObserveTransfer(thread,
-			user_buffer,
-			length,
-			OS1_OBSERVE_CPUS,
-			sizeof(Os1ObserveCpuRecord),
-			record_count,
-			offset,
-			result))
-	{
-		return -1;
-	}
-
-	uint32_t logical_index = 0;
-	for(cpu *entry = g_cpu_boot; nullptr != entry; entry = entry->next, ++logical_index)
-	{
-		Os1ObserveCpuRecord record{};
-		record.logical_index = logical_index;
-		record.apic_id = entry->id;
-		record.flags = (entry == g_cpu_boot) ? static_cast<uint32_t>(OS1_OBSERVE_CPU_FLAG_BSP) : 0u;
-		if((entry == g_cpu_boot) || (0 != entry->booted))
-		{
-			record.flags |= static_cast<uint32_t>(OS1_OBSERVE_CPU_FLAG_BOOTED);
-		}
-		if((nullptr != entry->current_thread) && (nullptr != entry->current_thread->process))
-		{
-			record.current_pid = entry->current_thread->process->pid;
-			record.current_tid = entry->current_thread->tid;
-		}
-		if(!WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)))
-		{
-			return -1;
-		}
-	}
-
-	return result;
-}
-
-long SysObservePci(Thread *thread, uint64_t user_buffer, size_t length)
-{
-	const size_t device_count = platform_pci_device_count();
-	const PciDevice *devices = platform_pci_devices();
-
-	size_t offset = 0;
-	long result = -1;
-	if(!BeginObserveTransfer(thread,
-			user_buffer,
-			length,
-			OS1_OBSERVE_PCI,
-			sizeof(Os1ObservePciRecord),
-			static_cast<uint32_t>(device_count),
-			offset,
-			result))
-	{
-		return -1;
-	}
-
-	for(size_t i = 0; i < device_count; ++i)
-	{
-		Os1ObservePciRecord record{};
-		record.segment_group = devices[i].segment_group;
-		record.bus = devices[i].bus;
-		record.slot = devices[i].slot;
-		record.function = devices[i].function;
-		record.vendor_id = devices[i].vendor_id;
-		record.device_id = devices[i].device_id;
-		record.class_code = devices[i].class_code;
-		record.subclass = devices[i].subclass;
-		record.prog_if = devices[i].prog_if;
-		record.revision = devices[i].revision;
-		record.interrupt_line = devices[i].interrupt_line;
-		record.interrupt_pin = devices[i].interrupt_pin;
-		record.capability_pointer = devices[i].capability_pointer;
-		record.bar_count = devices[i].bar_count;
-		for(size_t bar_index = 0; bar_index < 6; ++bar_index)
-		{
-			record.bars[bar_index].base = devices[i].bars[bar_index].base;
-			record.bars[bar_index].size = devices[i].bars[bar_index].size;
-			record.bars[bar_index].type = static_cast<uint8_t>(devices[i].bars[bar_index].type);
-		}
-		if(!WriteObserveRecord(thread, user_buffer, offset, &record, sizeof(record)))
-		{
-			return -1;
-		}
-	}
-
-	return result;
-}
-
-struct InitrdCountContext
-{
-	uint32_t count = 0;
-};
-
-bool CountInitrdRecord(const char *, const uint8_t *, uint64_t, void *context)
-{
-	auto *count = static_cast<InitrdCountContext *>(context);
-	if(nullptr == count)
-	{
-		return false;
-	}
-	++count->count;
-	return true;
-}
-
-struct InitrdWriteContext
-{
-	Thread *thread = nullptr;
-	uint64_t user_buffer = 0;
-	size_t offset = 0;
-};
-
-bool WriteInitrdRecordCallback(const char *archive_name, const uint8_t *, uint64_t file_size, void *context)
-{
-	auto *write = static_cast<InitrdWriteContext *>(context);
-	if(nullptr == write)
-	{
-		return false;
-	}
-
-	Os1ObserveInitrdRecord record{};
-	CopyInitrdPath(record.path, sizeof(record.path), archive_name);
-	record.size = file_size;
-	return WriteObserveRecord(write->thread, write->user_buffer, write->offset, &record, sizeof(record));
-}
-
-long SysObserveInitrd(Thread *thread, uint64_t user_buffer, size_t length)
-{
-	InitrdCountContext count{};
-	if((nullptr != g_boot_info) && (g_boot_info->module_count > 0))
-	{
-		if(!ForEachInitrdFile(CountInitrdRecord, &count))
-		{
-			return -1;
-		}
-	}
-
-	size_t offset = 0;
-	long result = -1;
-	if(!BeginObserveTransfer(thread,
-			user_buffer,
-			length,
-			OS1_OBSERVE_INITRD,
-			sizeof(Os1ObserveInitrdRecord),
-			count.count,
-			offset,
-			result))
-	{
-		return -1;
-	}
-
-	if(0 == count.count)
-	{
-		return result;
-	}
-
-	InitrdWriteContext write{
-		.thread = thread,
-		.user_buffer = user_buffer,
-		.offset = offset,
-	};
-	if(!ForEachInitrdFile(WriteInitrdRecordCallback, &write))
-	{
-		return -1;
-	}
-	return result;
-}
-
-long SysObserve(uint64_t kind, uint64_t user_buffer, size_t length)
-{
-	Thread *thread = currentThread();
-	if(nullptr == thread)
-	{
-		return -1;
-	}
-
-	switch(kind)
-	{
-	case OS1_OBSERVE_SYSTEM:
-		return SysObserveSystem(thread, user_buffer, length);
-	case OS1_OBSERVE_PROCESSES:
-		return SysObserveProcesses(thread, user_buffer, length);
-	case OS1_OBSERVE_CPUS:
-		return SysObserveCpus(thread, user_buffer, length);
-	case OS1_OBSERVE_PCI:
-		return SysObservePci(thread, user_buffer, length);
-	case OS1_OBSERVE_INITRD:
-		return SysObserveInitrd(thread, user_buffer, length);
-	default:
-		return -1;
-	}
-}
-
-long SysWrite(int fd, uint64_t user_buffer, size_t length)
-{
-	if((fd != 1) && (fd != 2))
-	{
-		return -1;
-	}
-
-	Thread *thread = currentThread();
-	if(nullptr == thread)
-	{
-		return -1;
-	}
-
-	char buffer[128];
-	size_t written = 0;
-	while(written < length)
-	{
-		const size_t chunk = ((length - written) < sizeof(buffer))
-			? (length - written)
-			: sizeof(buffer);
-		if(!CopyFromUser(thread, user_buffer + written, buffer, chunk))
-		{
-			return -1;
-		}
-		WriteConsoleBytes(buffer, chunk);
-		written += chunk;
-	}
-	return (long)written;
-}
-
-long SysSpawn(uint64_t user_path)
-{
-	Thread *thread = currentThread();
-	if((nullptr == thread) || (nullptr == thread->process))
-	{
-		return -1;
-	}
-
-	char path[OS1_OBSERVE_INITRD_PATH_BYTES];
-	if(!CopyUserString(thread, user_path, path, sizeof(path)))
-	{
-		return -1;
-	}
-
-	Thread *child = LoadUserProgram(path, thread->process);
-	if((nullptr == child) || (nullptr == child->process))
-	{
-		return -1;
-	}
-	return static_cast<long>(child->process->pid);
-}
-
-long SysExec(uint64_t user_path)
-{
-	Thread *thread = currentThread();
-	if((nullptr == thread) || (nullptr == thread->process) || !thread->user_mode)
-	{
-		return -1;
-	}
-
-	char path[OS1_OBSERVE_INITRD_PATH_BYTES];
-	if(!CopyUserString(thread, user_path, path, sizeof(path)))
-	{
-		return -1;
-	}
-
-	uint64_t new_cr3 = 0;
-	uint64_t entry = 0;
-	uint64_t user_rsp = 0;
-	if(!LoadUserProgramImage(path, new_cr3, entry, user_rsp))
-	{
-		return -1;
-	}
-
-	const uint64_t old_cr3 = thread->address_space_cr3;
-	thread->address_space_cr3 = new_cr3;
-	if(thread->process)
-	{
-		thread->process->address_space.cr3 = new_cr3;
-		thread->process->state = ProcessState::Running;
-		CopyFixedString(thread->process->name, sizeof(thread->process->name), path);
-	}
-	PrepareUserThreadEntry(thread, entry, user_rsp);
-	WriteCr3(new_cr3);
-
-	if((0 != old_cr3) && (old_cr3 != new_cr3) && !DestroyUserAddressSpace(old_cr3))
-	{
-		debug("exec old address-space teardown failed for ")(path)();
-	}
-
-	return 0;
-}
-
 Thread *HandleSyscall(TrapFrame *frame)
 {
 	Thread *thread = currentThread();
@@ -1479,7 +309,12 @@ Thread *HandleSyscall(TrapFrame *frame)
 		switch(frame->rax)
 	{
 	case SYS_write:
-		frame->rax = (uint64_t)SysWrite((int)frame->rdi, frame->rsi, (size_t)frame->rdx);
+			frame->rax = (uint64_t)SysWrite(ProcessSyscallContext{
+				.frames = &page_frames,
+				.kernel_root_cr3 = g_kernel_root_cr3,
+				.write_console_bytes = WriteConsoleBytes,
+				.write_cr3 = WriteCr3,
+			}, (int)frame->rdi, frame->rsi, (size_t)frame->rdx);
 		return thread;
 	case SYS_read:
 	{
@@ -1489,7 +324,7 @@ Thread *HandleSyscall(TrapFrame *frame)
 			frame->rax = (uint64_t)-1;
 			return thread;
 		}
-		if(TryCompleteConsoleRead(thread, frame->rsi, (size_t)frame->rdx, read_result))
+		if(TryCompleteConsoleRead(page_frames, thread, frame->rsi, (size_t)frame->rdx, read_result))
 		{
 			frame->rax = (uint64_t)read_result;
 			return thread;
@@ -1507,15 +342,25 @@ Thread *HandleSyscall(TrapFrame *frame)
 		frame->rax = thread->process ? thread->process->pid : 0;
 		return thread;
 	case SYS_observe:
-		frame->rax = static_cast<uint64_t>(SysObserve(frame->rdi, frame->rsi, static_cast<size_t>(frame->rdx)));
+		frame->rax = static_cast<uint64_t>(SysObserve(ObserveContext{
+			.boot_info = g_boot_info,
+			.text_display = g_text_display,
+			.timer_ticks = g_timer_ticks,
+			.frames = &page_frames,
+		}, frame->rdi, frame->rsi, static_cast<size_t>(frame->rdx)));
 		return thread;
 	case SYS_spawn:
-		frame->rax = static_cast<uint64_t>(SysSpawn(frame->rdi));
+		frame->rax = static_cast<uint64_t>(SysSpawn(ProcessSyscallContext{
+			.frames = &page_frames,
+			.kernel_root_cr3 = g_kernel_root_cr3,
+			.write_console_bytes = WriteConsoleBytes,
+			.write_cr3 = WriteCr3,
+		}, frame->rdi));
 		return thread;
 	case SYS_waitpid:
 	{
 		long wait_result = -1;
-		if(TryCompleteWaitPid(thread, frame->rdi, frame->rsi, wait_result))
+		if(TryCompleteWaitPid(page_frames, thread, frame->rdi, frame->rsi, wait_result))
 		{
 			frame->rax = static_cast<uint64_t>(wait_result);
 			return thread;
@@ -1525,7 +370,12 @@ Thread *HandleSyscall(TrapFrame *frame)
 		return ScheduleNext(false);
 	}
 	case SYS_exec:
-		frame->rax = static_cast<uint64_t>(SysExec(frame->rdi));
+		frame->rax = static_cast<uint64_t>(SysExec(ProcessSyscallContext{
+			.frames = &page_frames,
+			.kernel_root_cr3 = g_kernel_root_cr3,
+			.write_console_bytes = WriteConsoleBytes,
+			.write_cr3 = WriteCr3,
+		}, frame->rdi));
 		return thread;
 	default:
 		frame->rax = (uint64_t)-1;
@@ -1547,7 +397,7 @@ Thread *HandleIrq(TrapFrame *frame)
 	}
 
 	AcknowledgeLegacyIrq(irq);
-	WakeConsoleReaders();
+	WakeConsoleReaders(page_frames);
 
 	if(nullptr == currentThread())
 	{
@@ -1653,6 +503,7 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 		debug("invalid boot info")();
 		return;
 	}
+	BindInitrdBootInfo(g_boot_info);
 	debug("boot source: ")(BootSourceName(g_boot_info->source))();
 	if(g_boot_info->bootloader_name)
 	{
@@ -1824,7 +675,7 @@ extern "C" void KernelMain(BootInfo *info, cpu* cpu_boot)
 		return;
 	}
 
-	Thread *init_thread = LoadUserProgram("/bin/init");
+	Thread *init_thread = LoadUserProgram(page_frames, g_kernel_root_cr3, "/bin/init");
 	if(nullptr == init_thread)
 	{
 		WriteConsoleLine("failed to load /bin/init");

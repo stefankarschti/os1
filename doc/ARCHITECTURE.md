@@ -14,6 +14,7 @@ This document is the current-state source of truth for `os1`. It describes what 
 - PCIe enumeration through ACPI `MCFG` and ECAM
 - a first practical modern device path through `virtio-blk`
 - a freestanding `C++20` kernel core with narrow assembly boundaries
+- a source tree split by major responsibility: `arch/x86_64`, `fs`, `mm`, `proc`, `syscall`, `platform`, and `drivers`
 - protected ring-3 user programs loaded from an initrd
 - a terminal-first operator environment that boots directly into a ring-3 shell
 - structured read-only observability snapshots exposed through a shared UAPI
@@ -57,8 +58,8 @@ The boot frontends are allowed to differ because firmware and bootloader require
 
 The current frontends are:
 
-- `kernel16.bin` plus `boot.bin` for the legacy BIOS raw-image path
-- `kernel_limine.elf` for the default Limine/UEFI path
+- `src/boot/bios/` building `kernel16.bin` plus `boot.bin` for the legacy BIOS raw-image path
+- `src/boot/limine/` building `kernel_limine.elf` for the default Limine/UEFI path
 
 The shared kernel core is:
 
@@ -115,10 +116,10 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 |                                                                             |
 |  OwnBootInfo --> PFA(bitmap) --> kernel page tables --> CR3 switch          |
 |                                                                             |
-|  platform_init:   RSDP --> XSDT/RSDT --> MADT + MCFG                        |
+|  platform_init:   ACPI discovery --> PCIe ECAM enumeration                   |
 |                   | CPUs, IOAPIC, LAPIC, IRQ overrides                      |
-|                   | PCIe ECAM enumeration, BAR sizing                       |
-|                   v virtio-blk modern probe + sector 0/1 smoke              |
+|                   | BAR sizing, virtio-blk probe                            |
+|                   v BlockDevice facade + sector 0/1 smoke                   |
 |                                                                             |
 |  PIC+IOAPIC+LAPIC  -->  cpu_bootothers  -->  APs in cpu_idle_loop (cli;hlt) |
 |                                                                             |
@@ -129,7 +130,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 |                                                                             |
 |  Task tables (Process, Thread) + idle thread + round-robin scheduler        |
 |                                                                             |
-|  initrd (cpio newc) --> ELF64 load /bin/init --> ring-3 transition          |
+|  initrd (cpio newc) --> ELF64 load /bin/init --> exec /bin/sh               |
 +--------------------------------+----------------+---------------------------+
                                  |                |
                       int 0x80   |                |   reads from console_input
@@ -138,9 +139,9 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                          +-------+----------------+-------+
                          |  Ring-3 user processes          |
                          |                                 |
-                         |  /bin/init  == /bin/sh  (same   |
-                         |                binary, 2 names) |
-                         |  /bin/yield   /bin/fault        |
+                         |  /bin/init -> /bin/sh           |
+                         |  /bin/yield  /bin/fault         |
+                         |  /bin/copycheck                 |
                          |                                 |
                          |  syscalls:  write, read, exit,  |
                          |    yield, getpid, observe,      |
@@ -198,7 +199,7 @@ The shared entry runs one deterministic sequence:
 10. 12 terminals are allocated (one page each), the display backend is selected from `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints `[kernel64] hello`.
 11. IDT initialization registers every exception handler with `OnKernelException`, the keyboard and console-input subsystems are initialized, and ISA IRQs for timer and keyboard are routed through the IOAPIC when SMP is active.
 12. Task tables (`Process[32]`, `Thread[32]`) are allocated from page frames, a kernel process is created, and a kernel idle thread is created.
-13. `LoadUserProgram("/bin/init")` loads the shell ELF from the initrd (`ET_EXEC`, `PT_LOAD` segments only, SysV-shaped initial stack).
+13. `LoadUserProgram("/bin/init")` loads the first user program from the initrd (`ET_EXEC`, `PT_LOAD` segments only, SysV-shaped initial stack). `/bin/init` then replaces itself with `/bin/sh` through `exec`.
 14. `SetTimer(1000)` sets the 1000 Hz PIT tick, `startMultiTask(init_thread)` enters the first user process via `iretq`.
 
 ### Phase 4 — ACPI, PCIe, and storage probe (inside `platform_init`)
@@ -229,9 +230,10 @@ BootInfo.rsdp_physical
         |                   3-page queue (desc/avail/used),
         |                   request scratch page
         v
- RunVirtioBlkSmoke  ---> read sector 0, verify prefix
-                         read sector 1, verify prefix
-                         -> "virtio-blk smoke ok"
+ BlockDevice(read/write) ---> read sector 0, verify prefix
+        |                    read sector 1, verify prefix
+        v                    -> "virtio-blk smoke ok"
+ RunVirtioBlkSmoke
 ```
 
 On Limine, missing or malformed ACPI tables are a hard error. On BIOS, the legacy MP-table fallback (`UseLegacyMpFallback`) is still accepted to keep the compatibility path viable.
@@ -301,7 +303,7 @@ It also produces the boot payloads that feed those images:
 - `kernel_limine.elf`
 - `initrd.cpio`
 - `virtio-test-disk.raw`
-- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`
+- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`, `user/copycheck.elf`
 
 The ISO stages these files:
 
@@ -498,7 +500,7 @@ Flow:
 2. The MBR stage loads the first sector of `kernel16.bin`.
 3. `kernel16.bin` finishes loading itself through CHS reads.
 4. The loader enables A20, checks long-mode support, reads the kernel and initrd through EDD packet reads, captures the BIOS cursor, collects the E820 memory map, and scans the standard BIOS ACPI search ranges for a valid RSDP.
-5. `src/boot/long64.asm` builds temporary page tables, enables `LME` and `NXE`, and jumps into long mode.
+5. `src/boot/bios/long64.asm` builds temporary page tables, enables `LME` and `NXE`, and jumps into long mode.
 6. The 64-bit loader expands `kernel_bios.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `KernelMain`.
 
 The BIOS path still exists for three reasons:
@@ -511,7 +513,7 @@ It is no longer the default workflow.
 
 ## Kernel Initialization After Handoff
 
-`KernelMain()` in `src/kernel/kernel.cpp` is the shared kernel entry for both paths.
+`KernelMain()` in `src/kernel/kernel.cpp` is the shared kernel entry for both paths. It now acts mostly as boot orchestration, trap routing, and scheduler dispatch. Subsystem implementation lives in narrower modules such as `fs/initrd.cpp`, `mm/user_copy.cpp`, `proc/user_program.cpp`, `syscall/*.cpp`, `platform/acpi.cpp`, `platform/pci.cpp`, and `drivers/block/virtio_blk.cpp`.
 
 The high-level sequence is:
 
@@ -718,7 +720,7 @@ Each user process gets:
 - user ELF segments mapped in user slot `1`
 - a 64 KiB user stack with a guard page below it
 
-The kernel validates user pointers through page-table translation. It does not rely on deliberate kernel faults as a normal syscall-copy mechanism.
+The kernel validates user pointers through `mm/user_copy.cpp` before copying syscall payloads. That boundary rejects null, non-canonical, overflowing, and out-of-user-range addresses. It also requires user-accessible mappings for reads and user-writable mappings for kernel-to-user writes. The kernel does not rely on deliberate kernel faults as a normal syscall-copy mechanism.
 
 ### Initrd And ELF Loader
 
@@ -726,12 +728,13 @@ The initrd is a `cpio newc` archive built from `src/user`.
 
 Current user programs:
 
-- `/bin/init` — same binary as `/bin/sh` (the shell)
+- `/bin/init` — minimal init process that `exec`s `/bin/sh`
 - `/bin/sh` — the ring-3 shell built from [`src/user/programs/sh.cpp`](../src/user/programs/sh.cpp)
 - `/bin/yield` — cooperative yield probe built from [`src/user/programs/yield.c`](../src/user/programs/yield.c)
 - `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.c`](../src/user/programs/fault.c)
+- `/bin/copycheck` — negative syscall-copy regression probe built from [`src/user/programs/copycheck.c`](../src/user/programs/copycheck.c)
 
-The shell ELF is staged into the initrd as both `/bin/init` and `/bin/sh` (see [`src/user/CMakeLists.txt`](../src/user/CMakeLists.txt)), so the kernel keeps its fixed `/bin/init` boot contract while still exposing a normal shell path for later `exec` or child launch. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
+The kernel keeps its fixed `/bin/init` boot contract, but init is now a real first user process rather than an alias for the shell. It immediately calls `exec("/bin/sh")`, so later init responsibilities can grow without changing the kernel boot path. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
 
 This userland is still intentionally a vertical slice, not a general Unix process-launch environment. The kernel can boot the shell, `spawn(path)` a child initrd program for foreground commands, `waitpid(pid)` for child completion, and `exec(path)` to replace the current image in place. There is still no filesystem-backed `exec`, no `fork`, and no arguments/environment yet.
 
@@ -758,7 +761,7 @@ The kernel now:
 - uses `MADT` as the primary source of CPU, LAPIC, IOAPIC, and IRQ-override topology
 - uses `MCFG` to discover PCIe ECAM ranges
 - enumerates PCIe devices and records BAR information
-- probes a modern `virtio-blk` PCI device and validates raw sector reads during boot
+- probes a modern `virtio-blk` PCI device, publishes it through a minimal `BlockDevice` read/write facade, and validates raw sector reads during boot
 
 On the default `q35` targets, both boot paths now discover four CPUs from ACPI and successfully bring up the APs.
 
@@ -839,12 +842,12 @@ Major constraints that remain:
 - the framebuffer path is a text presenter, not a graphics stack
 - userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
 - syscalls still use `int 0x80`, not `SYSCALL`/`SYSRET`
-- the first `virtio-blk` path is polling-only and smoke-oriented rather than a general block layer
+- the first `virtio-blk` path is polling-only and smoke-oriented, with only a minimal block-device facade rather than a general block layer
 - MSI / MSI-X, `virtio-net`, NVMe, and real filesystem-backed storage are still follow-on work
 
 The next major work is therefore not another boot or shell bring-up refactor. It is storage, networking, and richer filesystem-backed userland on top of the current platform and operator shell base:
 
-- block-device abstraction beyond the current `virtio-blk` smoke path
+- block-device growth beyond the current polling `virtio-blk` facade
 - filesystem-backed loading instead of initrd-only demos
 - `virtio-net` and later NIC work
 - timer / interrupt refinements such as MSI / MSI-X and HPET follow-on support

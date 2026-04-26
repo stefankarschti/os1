@@ -454,6 +454,7 @@ set(OS1_SHELL_SPAWN_INPUT_EVENTS
   "shell prompt ready::yield\\n"
   "shell spawn yield ok pid=::fault\\n"
   "shell spawn fault ok pid=::nope\\n"
+  "unknown command: nope::copycheck\\n"
 )
 
 set(OS1_SHELL_EXEC_INPUT_EVENTS
@@ -558,6 +559,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd /bin/sh size="
     "initrd /bin/yield size="
     "initrd /bin/fault size="
+    "initrd /bin/copycheck size="
     "idle thread online"
   )
 
@@ -603,6 +605,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[user/fault] boom"
     "shell spawn fault ok pid="
     "unknown command: nope"
+    "[user/copycheck] ok"
+    "shell spawn copycheck ok pid="
     "idle thread online"
   )
 
@@ -747,6 +751,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd /bin/sh size="
     "initrd /bin/yield size="
     "initrd /bin/fault size="
+    "initrd /bin/copycheck size="
     "idle thread online"
   )
 
@@ -790,6 +795,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[user/fault] boom"
     "shell spawn fault ok pid="
     "unknown command: nope"
+    "[user/copycheck] ok"
+    "shell spawn copycheck ok pid="
     "idle thread online"
   )
 
