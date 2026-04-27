@@ -2,8 +2,8 @@
 // kernel C++ before the page-frame allocator owns memory lifetime.
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 // These fixed addresses are still part of the early BIOS-era bring-up path.
 // Milestone 1 names them explicitly so ownership is clear even before later
@@ -54,8 +54,7 @@ constexpr uint64_t kApStartupIdtSizeBytes = 6;
 // can bring up allocation deterministically before later cleanup work.
 constexpr uint64_t kPageFrameBitmapBaseAddress = 0x20000;
 constexpr uint64_t kPageFrameBitmapSizeBytes = 0x40000;
-constexpr uint64_t kPageFrameBitmapQwordLimit =
-		kPageFrameBitmapSizeBytes / sizeof(uint64_t);
+constexpr uint64_t kPageFrameBitmapQwordLimit = kPageFrameBitmapSizeBytes / sizeof(uint64_t);
 
 // Early low-memory scratch remains reserved until boot no longer depends on it.
 constexpr uint64_t kEarlyReservedPhysicalEnd = 0x20000;
@@ -73,4 +72,3 @@ constexpr size_t kKernelThreadStackPages = 4;
 
 constexpr uint16_t kBootTextColumns = 80;
 constexpr uint16_t kBootTextRows = 25;
-

@@ -5,22 +5,22 @@
 
 constinit PlatformState g_platform{};
 
-const BlockDevice *platform_block_device()
+const BlockDevice* platform_block_device()
 {
-	return g_platform.block_device;
+    return g_platform.block_device;
 }
 
-const VirtioBlkDevice *platform_virtio_blk()
+const VirtioBlkDevice* platform_virtio_blk()
 {
-	return g_platform.virtio_blk_public.present ? &g_platform.virtio_blk_public : nullptr;
+    return g_platform.virtio_blk_public.present ? &g_platform.virtio_blk_public : nullptr;
 }
 
 size_t platform_pci_device_count()
 {
-	return g_platform.device_count;
+    return g_platform.device_count;
 }
 
-const PciDevice *platform_pci_devices()
+const PciDevice* platform_pci_devices()
 {
-	return g_platform.devices;
+    return g_platform.devices;
 }

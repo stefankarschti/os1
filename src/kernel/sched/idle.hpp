@@ -4,4 +4,3 @@
 
 // Entry function for the scheduler's idle thread.
 void kernel_idle_thread();
-

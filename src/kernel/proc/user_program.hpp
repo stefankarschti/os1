@@ -10,19 +10,18 @@
 // explicitly so this code stays separate from global boot orchestration.
 
 // Destroy the user slot and root page backing a process address space.
-bool destroy_user_address_space(PageFrameContainer &frames, uint64_t cr3);
+bool destroy_user_address_space(PageFrameContainer& frames, uint64_t cr3);
 // Load an ELF image from the initrd into a fresh user address space.
-bool load_user_program_image(PageFrameContainer &frames,
-		uint64_t kernel_root_cr3,
-		const char *path,
-		uint64_t &user_cr3,
-		uint64_t &entry,
-		uint64_t &user_rsp);
+bool load_user_program_image(PageFrameContainer& frames,
+                             uint64_t kernel_root_cr3,
+                             const char* path,
+                             uint64_t& user_cr3,
+                             uint64_t& entry,
+                             uint64_t& user_rsp);
 // Rewrite an existing thread's trap frame so it enters a loaded user image.
-void prepare_user_thread_entry(Thread *thread, uint64_t entry, uint64_t user_rsp);
+void prepare_user_thread_entry(Thread* thread, uint64_t entry, uint64_t user_rsp);
 // Load a user program from the initrd and create the first runnable thread.
-Thread *LoadUserProgram(PageFrameContainer &frames,
-		uint64_t kernel_root_cr3,
-		const char *path,
-		Process *parent = nullptr);
-
+Thread* LoadUserProgram(PageFrameContainer& frames,
+                        uint64_t kernel_root_cr3,
+                        const char* path,
+                        Process* parent = nullptr);

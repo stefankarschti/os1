@@ -3,8 +3,8 @@
 #include "mm/virtual_memory.hpp"
 
 #include "debug/debug.hpp"
-#include "util/memory.h"
 #include "handoff/memory_layout.h"
+#include "util/memory.h"
 
 namespace
 {
@@ -16,379 +16,391 @@ constexpr uint64_t kEntryAddressMask = 0x000FFFFFFFFFF000ull;
 
 [[nodiscard]] inline uint64_t PageIndex(uint64_t virtual_address, unsigned shift)
 {
-	return (virtual_address >> shift) & 0x1FFull;
+    return (virtual_address >> shift) & 0x1FFull;
 }
-}
+}  // namespace
 
-VirtualMemory::VirtualMemory(PageFrameContainer &frames, uint64_t existing_root)
-	: frames_(frames),
-	  initialized_(existing_root != ~0ull),
-	  root_(existing_root)
+VirtualMemory::VirtualMemory(PageFrameContainer& frames, uint64_t existing_root)
+    : frames_(frames), initialized_(existing_root != ~0ull), root_(existing_root)
 {
 }
 
 void VirtualMemory::attach(uint64_t root)
 {
-	root_ = root;
-	initialized_ = (root != ~0ull);
+    root_ = root;
+    initialized_ = (root != ~0ull);
 }
 
 bool VirtualMemory::ensure_root(void)
 {
-	if(initialized_)
-	{
-		return true;
-	}
+    if(initialized_)
+    {
+        return true;
+    }
 
-	if(!frames_.allocate(root_))
-	{
-		return false;
-	}
+    if(!frames_.allocate(root_))
+    {
+        return false;
+    }
 
-	memsetq((void*)root_, 0, kPageSize);
-	initialized_ = true;
-	debug("root alloc 0x")(root_, 16)();
-	return true;
+    memsetq((void*)root_, 0, kPageSize);
+    initialized_ = true;
+    debug("root alloc 0x")(root_, 16)();
+    return true;
 }
 
 uint64_t VirtualMemory::flags_to_entry(PageFlags flags)
 {
-	return static_cast<uint64_t>(flags);
+    return static_cast<uint64_t>(flags);
 }
 
 uint64_t VirtualMemory::table_entry_flags(bool user_visible)
 {
-	uint64_t entry = static_cast<uint64_t>(PageFlags::Present | PageFlags::Write);
-	if(user_visible)
-	{
-		entry |= static_cast<uint64_t>(PageFlags::User);
-	}
-	return entry;
+    uint64_t entry = static_cast<uint64_t>(PageFlags::Present | PageFlags::Write);
+    if(user_visible)
+    {
+        entry |= static_cast<uint64_t>(PageFlags::User);
+    }
+    return entry;
 }
 
-bool VirtualMemory::ensure_table_entry(uint64_t &entry, bool user_visible)
+bool VirtualMemory::ensure_table_entry(uint64_t& entry, bool user_visible)
 {
-	if(0 == entry)
-	{
-		uint64_t new_page = 0;
-		if(!frames_.allocate(new_page))
-		{
-			return false;
-		}
-		memsetq((void*)new_page, 0, kPageSize);
-		entry = (new_page & kEntryAddressMask) | table_entry_flags(user_visible);
-		return true;
-	}
+    if(0 == entry)
+    {
+        uint64_t new_page = 0;
+        if(!frames_.allocate(new_page))
+        {
+            return false;
+        }
+        memsetq((void*)new_page, 0, kPageSize);
+        entry = (new_page & kEntryAddressMask) | table_entry_flags(user_visible);
+        return true;
+    }
 
-	if(user_visible)
-	{
-		entry |= static_cast<uint64_t>(PageFlags::User);
-	}
+    if(user_visible)
+    {
+        entry |= static_cast<uint64_t>(PageFlags::User);
+    }
 
-	return true;
+    return true;
 }
 
-bool VirtualMemory::walk_to_leaf(uint64_t virtual_address, bool create, bool user_visible, uint64_t **leaf_entry)
+bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
+                                 bool create,
+                                 bool user_visible,
+                                 uint64_t** leaf_entry)
 {
-	if((nullptr == leaf_entry) || !ensure_root())
-	{
-		return false;
-	}
+    if((nullptr == leaf_entry) || !ensure_root())
+    {
+        return false;
+    }
 
-	uint64_t *pml4 = (uint64_t*)root_;
-	uint64_t *pml3 = nullptr;
-	uint64_t *pml2 = nullptr;
-	uint64_t *pml1 = nullptr;
+    uint64_t* pml4 = (uint64_t*)root_;
+    uint64_t* pml3 = nullptr;
+    uint64_t* pml2 = nullptr;
+    uint64_t* pml1 = nullptr;
 
-	uint64_t &pml4e = pml4[PageIndex(virtual_address, 39)];
-	if(create)
-	{
-		if(!ensure_table_entry(pml4e, user_visible))
-		{
-			return false;
-		}
-	}
-	else if(0 == pml4e)
-	{
-		return false;
-	}
-	pml3 = (uint64_t*)(pml4e & kEntryAddressMask);
+    uint64_t& pml4e = pml4[PageIndex(virtual_address, 39)];
+    if(create)
+    {
+        if(!ensure_table_entry(pml4e, user_visible))
+        {
+            return false;
+        }
+    }
+    else if(0 == pml4e)
+    {
+        return false;
+    }
+    pml3 = (uint64_t*)(pml4e & kEntryAddressMask);
 
-	uint64_t &pml3e = pml3[PageIndex(virtual_address, 30)];
-	if(create)
-	{
-		if(!ensure_table_entry(pml3e, user_visible))
-		{
-			return false;
-		}
-	}
-	else if(0 == pml3e)
-	{
-		return false;
-	}
-	pml2 = (uint64_t*)(pml3e & kEntryAddressMask);
+    uint64_t& pml3e = pml3[PageIndex(virtual_address, 30)];
+    if(create)
+    {
+        if(!ensure_table_entry(pml3e, user_visible))
+        {
+            return false;
+        }
+    }
+    else if(0 == pml3e)
+    {
+        return false;
+    }
+    pml2 = (uint64_t*)(pml3e & kEntryAddressMask);
 
-	uint64_t &pml2e = pml2[PageIndex(virtual_address, 21)];
-	if(create)
-	{
-		if(!ensure_table_entry(pml2e, user_visible))
-		{
-			return false;
-		}
-	}
-	else if(0 == pml2e)
-	{
-		return false;
-	}
-	pml1 = (uint64_t*)(pml2e & kEntryAddressMask);
+    uint64_t& pml2e = pml2[PageIndex(virtual_address, 21)];
+    if(create)
+    {
+        if(!ensure_table_entry(pml2e, user_visible))
+        {
+            return false;
+        }
+    }
+    else if(0 == pml2e)
+    {
+        return false;
+    }
+    pml1 = (uint64_t*)(pml2e & kEntryAddressMask);
 
-	*leaf_entry = &pml1[PageIndex(virtual_address, 12)];
-	return true;
+    *leaf_entry = &pml1[PageIndex(virtual_address, 12)];
+    return true;
 }
 
 bool VirtualMemory::allocate(uint64_t start_address, uint64_t num_pages, bool identity_map)
 {
-	if(identity_map)
-	{
-		return map_physical(start_address, start_address, num_pages,
-			PageFlags::Present | PageFlags::Write);
-	}
+    if(identity_map)
+    {
+        return map_physical(
+            start_address, start_address, num_pages, PageFlags::Present | PageFlags::Write);
+    }
 
-	return allocate_and_map(start_address, num_pages,
-		PageFlags::Present | PageFlags::Write);
+    return allocate_and_map(start_address, num_pages, PageFlags::Present | PageFlags::Write);
 }
 
-bool VirtualMemory::map_physical(uint64_t virtual_address, uint64_t physical_address, uint64_t num_pages, PageFlags flags)
+bool VirtualMemory::map_physical(uint64_t virtual_address,
+                                 uint64_t physical_address,
+                                 uint64_t num_pages,
+                                 PageFlags flags)
 {
-	if((0 == num_pages) || (virtual_address & (kPageSize - 1)) || (physical_address & (kPageSize - 1)))
-	{
-		return false;
-	}
+    if((0 == num_pages) || (virtual_address & (kPageSize - 1)) ||
+       (physical_address & (kPageSize - 1)))
+    {
+        return false;
+    }
 
-	const bool user_visible = (PageFlags::User == (flags & PageFlags::User));
-	for(uint64_t i = 0; i < num_pages; ++i)
-	{
-		uint64_t *leaf_entry = nullptr;
-		if(!walk_to_leaf(virtual_address + i * kPageSize, true, user_visible, &leaf_entry))
-		{
-			return false;
-		}
-		*leaf_entry = ((physical_address + i * kPageSize) & kEntryAddressMask)
-			| flags_to_entry(flags | PageFlags::Present);
-	}
+    const bool user_visible = (PageFlags::User == (flags & PageFlags::User));
+    for(uint64_t i = 0; i < num_pages; ++i)
+    {
+        uint64_t* leaf_entry = nullptr;
+        if(!walk_to_leaf(virtual_address + i * kPageSize, true, user_visible, &leaf_entry))
+        {
+            return false;
+        }
+        *leaf_entry = ((physical_address + i * kPageSize) & kEntryAddressMask) |
+                      flags_to_entry(flags | PageFlags::Present);
+    }
 
-	return true;
+    return true;
 }
 
-bool VirtualMemory::allocate_and_map(uint64_t virtual_address, uint64_t num_pages, PageFlags flags, uint64_t *first_physical)
+bool VirtualMemory::allocate_and_map(uint64_t virtual_address,
+                                     uint64_t num_pages,
+                                     PageFlags flags,
+                                     uint64_t* first_physical)
 {
-	if((0 == num_pages) || (virtual_address & (kPageSize - 1)))
-	{
-		return false;
-	}
+    if((0 == num_pages) || (virtual_address & (kPageSize - 1)))
+    {
+        return false;
+    }
 
-	uint64_t first_page = 0;
-	for(uint64_t i = 0; i < num_pages; ++i)
-	{
-		uint64_t physical_page = 0;
-		if(!frames_.allocate(physical_page))
-		{
-			return false;
-		}
-		if(0 == i)
-		{
-			first_page = physical_page;
-		}
-		memsetq((void*)physical_page, 0, kPageSize);
-		if(!map_physical(virtual_address + i * kPageSize, physical_page, 1, flags | PageFlags::Present))
-		{
-			return false;
-		}
-	}
+    uint64_t first_page = 0;
+    for(uint64_t i = 0; i < num_pages; ++i)
+    {
+        uint64_t physical_page = 0;
+        if(!frames_.allocate(physical_page))
+        {
+            return false;
+        }
+        if(0 == i)
+        {
+            first_page = physical_page;
+        }
+        memsetq((void*)physical_page, 0, kPageSize);
+        if(!map_physical(
+               virtual_address + i * kPageSize, physical_page, 1, flags | PageFlags::Present))
+        {
+            return false;
+        }
+    }
 
-	if(first_physical)
-	{
-		*first_physical = first_page;
-	}
+    if(first_physical)
+    {
+        *first_physical = first_page;
+    }
 
-	return true;
+    return true;
 }
 
 bool VirtualMemory::protect(uint64_t virtual_address, uint64_t num_pages, PageFlags flags)
 {
-	if((0 == num_pages) || (virtual_address & (kPageSize - 1)))
-	{
-		return false;
-	}
+    if((0 == num_pages) || (virtual_address & (kPageSize - 1)))
+    {
+        return false;
+    }
 
-	for(uint64_t i = 0; i < num_pages; ++i)
-	{
-		uint64_t *leaf_entry = nullptr;
-		if(!walk_to_leaf(virtual_address + i * kPageSize, false, false, &leaf_entry) || (nullptr == leaf_entry) || (0 == *leaf_entry))
-		{
-			return false;
-		}
-		const uint64_t physical_page = *leaf_entry & kEntryAddressMask;
-		*leaf_entry = physical_page | flags_to_entry(flags | PageFlags::Present);
-	}
+    for(uint64_t i = 0; i < num_pages; ++i)
+    {
+        uint64_t* leaf_entry = nullptr;
+        if(!walk_to_leaf(virtual_address + i * kPageSize, false, false, &leaf_entry) ||
+           (nullptr == leaf_entry) || (0 == *leaf_entry))
+        {
+            return false;
+        }
+        const uint64_t physical_page = *leaf_entry & kEntryAddressMask;
+        *leaf_entry = physical_page | flags_to_entry(flags | PageFlags::Present);
+    }
 
-	return true;
+    return true;
 }
 
-bool VirtualMemory::translate(uint64_t virtual_address, uint64_t &physical_address, uint64_t &flags) const
+bool VirtualMemory::translate(uint64_t virtual_address,
+                              uint64_t& physical_address,
+                              uint64_t& flags) const
 {
-	if(!initialized_)
-	{
-		return false;
-	}
+    if(!initialized_)
+    {
+        return false;
+    }
 
-	const uint64_t *pml4 = (const uint64_t*)root_;
-	const uint64_t pml4e = pml4[PageIndex(virtual_address, 39)];
-	if(0 == pml4e)
-	{
-		return false;
-	}
-	const uint64_t *pml3 = (const uint64_t*)(pml4e & kEntryAddressMask);
-	const uint64_t pml3e = pml3[PageIndex(virtual_address, 30)];
-	if(0 == pml3e)
-	{
-		return false;
-	}
-	const uint64_t *pml2 = (const uint64_t*)(pml3e & kEntryAddressMask);
-	const uint64_t pml2e = pml2[PageIndex(virtual_address, 21)];
-	if(0 == pml2e)
-	{
-		return false;
-	}
-	const uint64_t *pml1 = (const uint64_t*)(pml2e & kEntryAddressMask);
-	const uint64_t pml1e = pml1[PageIndex(virtual_address, 12)];
-	if(0 == pml1e)
-	{
-		return false;
-	}
+    const uint64_t* pml4 = (const uint64_t*)root_;
+    const uint64_t pml4e = pml4[PageIndex(virtual_address, 39)];
+    if(0 == pml4e)
+    {
+        return false;
+    }
+    const uint64_t* pml3 = (const uint64_t*)(pml4e & kEntryAddressMask);
+    const uint64_t pml3e = pml3[PageIndex(virtual_address, 30)];
+    if(0 == pml3e)
+    {
+        return false;
+    }
+    const uint64_t* pml2 = (const uint64_t*)(pml3e & kEntryAddressMask);
+    const uint64_t pml2e = pml2[PageIndex(virtual_address, 21)];
+    if(0 == pml2e)
+    {
+        return false;
+    }
+    const uint64_t* pml1 = (const uint64_t*)(pml2e & kEntryAddressMask);
+    const uint64_t pml1e = pml1[PageIndex(virtual_address, 12)];
+    if(0 == pml1e)
+    {
+        return false;
+    }
 
-	flags = pml1e & ~kEntryAddressMask;
-	physical_address = (pml1e & kEntryAddressMask) | (virtual_address & ~kPageMask);
-	return true;
+    flags = pml1e & ~kEntryAddressMask;
+    physical_address = (pml1e & kEntryAddressMask) | (virtual_address & ~kPageMask);
+    return true;
 }
 
 bool VirtualMemory::clone_kernel_pml4_entry(uint64_t slot, uint64_t source_root)
 {
-	if(!ensure_root())
-	{
-		return false;
-	}
-	if(slot >= 512)
-	{
-		return false;
-	}
-	uint64_t *target = (uint64_t*)root_;
-	const uint64_t *source = (const uint64_t*)source_root;
-	target[slot] = source[slot];
-	return true;
+    if(!ensure_root())
+    {
+        return false;
+    }
+    if(slot >= 512)
+    {
+        return false;
+    }
+    uint64_t* target = (uint64_t*)root_;
+    const uint64_t* source = (const uint64_t*)source_root;
+    target[slot] = source[slot];
+    return true;
 }
 
-void VirtualMemory::destroy_table(uint64_t &entry, int level, bool free_leaf_pages)
+void VirtualMemory::destroy_table(uint64_t& entry, int level, bool free_leaf_pages)
 {
-	if(0 == entry)
-	{
-		return;
-	}
+    if(0 == entry)
+    {
+        return;
+    }
 
-	uint64_t *table = (uint64_t*)(entry & kEntryAddressMask);
-	if(level > 1)
-	{
-		for(int i = 0; i < 512; ++i)
-		{
-			if(table[i])
-			{
-				destroy_table(table[i], level - 1, free_leaf_pages);
-			}
-		}
-	}
-	else if(free_leaf_pages)
-	{
-		for(int i = 0; i < 512; ++i)
-		{
-			if(table[i])
-			{
-				frames_.free(table[i] & kEntryAddressMask);
-				table[i] = 0;
-			}
-		}
-	}
+    uint64_t* table = (uint64_t*)(entry & kEntryAddressMask);
+    if(level > 1)
+    {
+        for(int i = 0; i < 512; ++i)
+        {
+            if(table[i])
+            {
+                destroy_table(table[i], level - 1, free_leaf_pages);
+            }
+        }
+    }
+    else if(free_leaf_pages)
+    {
+        for(int i = 0; i < 512; ++i)
+        {
+            if(table[i])
+            {
+                frames_.free(table[i] & kEntryAddressMask);
+                table[i] = 0;
+            }
+        }
+    }
 
-	frames_.free(entry & kEntryAddressMask);
-	entry = 0;
+    frames_.free(entry & kEntryAddressMask);
+    entry = 0;
 }
 
 bool VirtualMemory::destroy_user_slot(uint64_t slot)
 {
-	if(!initialized_ || (slot >= 512))
-	{
-		return false;
-	}
+    if(!initialized_ || (slot >= 512))
+    {
+        return false;
+    }
 
-	uint64_t *pml4 = (uint64_t*)root_;
-	destroy_table(pml4[slot], 4, true);
-	return true;
+    uint64_t* pml4 = (uint64_t*)root_;
+    destroy_table(pml4[slot], 4, true);
+    return true;
 }
 
 bool VirtualMemory::free(uint64_t start_address, uint64_t num_pages)
 {
-	if((0 == num_pages) || (start_address & (kPageSize - 1)))
-	{
-		return false;
-	}
+    if((0 == num_pages) || (start_address & (kPageSize - 1)))
+    {
+        return false;
+    }
 
-	for(uint64_t i = 0; i < num_pages; ++i)
-	{
-		uint64_t *leaf_entry = nullptr;
-		if(!walk_to_leaf(start_address + i * kPageSize, false, false, &leaf_entry) || (nullptr == leaf_entry) || (0 == *leaf_entry))
-		{
-			return false;
-		}
-		frames_.free(*leaf_entry & kEntryAddressMask);
-		*leaf_entry = 0;
-	}
+    for(uint64_t i = 0; i < num_pages; ++i)
+    {
+        uint64_t* leaf_entry = nullptr;
+        if(!walk_to_leaf(start_address + i * kPageSize, false, false, &leaf_entry) ||
+           (nullptr == leaf_entry) || (0 == *leaf_entry))
+        {
+            return false;
+        }
+        frames_.free(*leaf_entry & kEntryAddressMask);
+        *leaf_entry = 0;
+    }
 
-	return true;
+    return true;
 }
 
 bool VirtualMemory::free()
 {
-	if(initialized_)
-	{
-		uint64_t *pml4 = (uint64_t*)root_;
-		for(int i = 0; i < 512; ++i)
-		{
-			if(pml4[i])
-			{
-				destroy_table(pml4[i], 4, true);
-			}
-		}
-		frames_.free(root_);
-		root_ = ~0ull;
-		initialized_ = false;
-	}
-	return true;
+    if(initialized_)
+    {
+        uint64_t* pml4 = (uint64_t*)root_;
+        for(int i = 0; i < 512; ++i)
+        {
+            if(pml4[i])
+            {
+                destroy_table(pml4[i], 4, true);
+            }
+        }
+        frames_.free(root_);
+        root_ = ~0ull;
+        initialized_ = false;
+    }
+    return true;
 }
 
 uint64_t VirtualMemory::root()
 {
-	if(!initialized_)
-	{
-		debug("VirtualMemory::root() warning: VirtualMemory not initialized")();
-	}
-	return root_;
+    if(!initialized_)
+    {
+        debug("VirtualMemory::root() warning: VirtualMemory not initialized")();
+    }
+    return root_;
 }
 
 bool VirtualMemory::activate()
 {
-	if(!initialized_)
-	{
-		return false;
-	}
-	asm volatile("mov %0, %%cr3" : : "r"(root_));
-	return true;
+    if(!initialized_)
+    {
+        return false;
+    }
+    asm volatile("mov %0, %%cr3" : : "r"(root_));
+    return true;
 }

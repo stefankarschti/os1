@@ -10,7 +10,6 @@ UseTab: Never
 AccessModifierOffset: -4
 NamespaceIndentation: None
 
-BreakBeforeBraces: Attach
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
@@ -24,7 +23,7 @@ SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
 
 SpaceAfterTemplateKeyword: false
-SpaceBeforeParens: ControlStatements
+SpaceBeforeParens: Never
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
 SpaceInEmptyParentheses: false
@@ -46,3 +45,17 @@ Cpp11BracedListStyle: true
 FixNamespaceComments: true
 
 AlwaysBreakTemplateDeclarations: Yes
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass:      true
+  AfterControlStatement: true
+  AfterEnum:       true
+  AfterFunction:   true
+  AfterNamespace:  true
+  AfterStruct:     true
+  AfterUnion:      true
+  AfterExternBlock: true
+  BeforeCatch:     true
+  BeforeElse:      true
+  IndentBraces:    false

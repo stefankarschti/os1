@@ -5,17 +5,15 @@
 #include "mm/virtual_memory.hpp"
 #include "util/align.hpp"
 
-bool map_identity_range(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
+bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length)
 {
-	if((0 == physical_start) || (0 == length))
-	{
-		return true;
-	}
+    if((0 == physical_start) || (0 == length))
+    {
+        return true;
+    }
 
-	const uint64_t start = AlignDown(physical_start, kPageSize);
-	const uint64_t end = AlignUp(physical_start + length, kPageSize);
-	return vm.map_physical(start,
-			start,
-			(end - start) / kPageSize,
-			PageFlags::Present | PageFlags::Write);
+    const uint64_t start = AlignDown(physical_start, kPageSize);
+    const uint64_t end = AlignUp(physical_start + length, kPageSize);
+    return vm.map_physical(
+        start, start, (end - start) / kPageSize, PageFlags::Present | PageFlags::Write);
 }

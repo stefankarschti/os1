@@ -9,14 +9,13 @@
 struct Thread;
 
 // Return a human-readable architectural name for an exception vector.
-const char *KernelFaultName(uint64_t vector);
+const char* KernelFaultName(uint64_t vector);
 
 // Dump a trap frame to the serial debug channel.
-void dump_trap_frame(const TrapFrame &frame);
+void dump_trap_frame(const TrapFrame& frame);
 
 // Exception callback registered for kernel-mode exception vectors.
-void on_kernel_exception(TrapFrame *frame);
+void on_kernel_exception(TrapFrame* frame);
 
 // Main exception path called by trap dispatch.
-Thread *HandleException(TrapFrame *frame);
-
+Thread* HandleException(TrapFrame* frame);

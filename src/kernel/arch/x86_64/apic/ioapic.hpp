@@ -20,4 +20,3 @@ void ioapic_set_primary(uint32_t gsi_base);
 bool ioapic_enable_gsi(uint32_t gsi, int irq, uint16_t flags);
 // Enable a legacy INTIN line with the default active-high edge-triggered policy.
 void ioapic_enable(int intin, int irq = -1);
-

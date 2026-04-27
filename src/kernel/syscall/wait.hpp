@@ -8,11 +8,10 @@
 #include "proc/thread.hpp"
 
 // Try to complete waitpid for `thread`, writing status to user memory when done.
-bool try_complete_wait_pid(PageFrameContainer &frames,
-		Thread *thread,
-		uint64_t pid,
-		uint64_t user_status_pointer,
-		long &result);
+bool try_complete_wait_pid(PageFrameContainer& frames,
+                           Thread* thread,
+                           uint64_t pid,
+                           uint64_t user_status_pointer,
+                           long& result);
 // Wake threads blocked on child-exit waits after a process exits or reaps.
-void wake_child_waiters(PageFrameContainer &frames);
-
+void wake_child_waiters(PageFrameContainer& frames);

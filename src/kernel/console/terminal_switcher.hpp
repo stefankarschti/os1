@@ -8,4 +8,3 @@
 // Handle a raw keyboard scancode and return whether normal character handling
 // should continue after terminal-switch processing.
 bool kernel_keyboard_hook(uint16_t scancode);
-

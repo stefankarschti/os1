@@ -26,10 +26,10 @@ extern Keyboard keyboard;
 // The kernel keeps a small fixed terminal set until sessions/PTYs exist.
 inline constexpr size_t kNumTerminals = 12;
 extern Terminal terminal[kNumTerminals];
-extern Terminal *active_terminal;
+extern Terminal* active_terminal;
 
 // Owned boot contract copied out of bootloader staging memory.
-extern const BootInfo *g_boot_info;
+extern const BootInfo* g_boot_info;
 
 // Active kernel page-table root used for syscall CR3 transitions.
 extern uint64_t g_kernel_root_cr3;
@@ -38,5 +38,4 @@ extern uint64_t g_kernel_root_cr3;
 extern uint64_t g_timer_ticks;
 
 // Selected text output backend for terminal presentation and observability.
-extern TextDisplayBackend *g_text_display;
-
+extern TextDisplayBackend* g_text_display;

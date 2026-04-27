@@ -5,5 +5,4 @@
 class VirtualMemory;
 
 // Probe supported devices from the normalized PCI table and publish facades.
-bool probe_devices(VirtualMemory &kernel_vm);
-
+bool probe_devices(VirtualMemory& kernel_vm);

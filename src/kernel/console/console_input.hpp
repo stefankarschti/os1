@@ -15,5 +15,4 @@ void console_input_poll_serial();
 // Return true when a complete line is available for readers.
 bool console_input_has_line();
 // Pop the oldest complete line into `buffer`.
-bool console_input_pop_line(char *buffer, size_t buffer_size, size_t &line_length);
-
+bool console_input_pop_line(char* buffer, size_t buffer_size, size_t& line_length);

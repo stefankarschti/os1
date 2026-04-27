@@ -4,4 +4,3 @@
 
 // Disable interrupts and halt forever.
 [[noreturn]] void HaltForever();
-

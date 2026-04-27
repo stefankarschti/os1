@@ -3,9 +3,9 @@
 
 [[noreturn]] void HaltForever()
 {
-	for(;;)
-	{
-		asm volatile("cli");
-		asm volatile("hlt");
-	}
+    for(;;)
+    {
+        asm volatile("cli");
+        asm volatile("hlt");
+    }
 }

@@ -6,6 +6,5 @@
 // Return true for printable ASCII bytes accepted by the current text console.
 inline int isprint(char c)
 {
-	return c >= ' ';
+    return c >= ' ';
 }
-

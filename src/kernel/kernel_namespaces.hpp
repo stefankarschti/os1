@@ -27,7 +27,12 @@
 #include "syscall/process.hpp"
 #include "syscall/wait.hpp"
 
-namespace os1::kernel::handoff {
+namespace os1::kernel::handoff
+{
+using ::boot_framebuffer_pixel_format_name;
+using ::boot_memory_region_is_usable;
+using ::boot_memory_regions;
+using ::boot_source_name;
 using ::BootFramebufferInfo;
 using ::BootFramebufferPixelFormat;
 using ::BootInfo;
@@ -36,64 +41,67 @@ using ::BootMemoryType;
 using ::BootModuleInfo;
 using ::BootSource;
 using ::BootTextConsoleInfo;
-using ::boot_framebuffer_pixel_format_name;
-using ::boot_memory_region_is_usable;
-using ::boot_memory_regions;
-using ::boot_source_name;
 using ::own_boot_info;
 }  // namespace os1::kernel::handoff
 
-namespace os1::kernel::mm {
-using ::PageFlags;
-using ::PageFrameContainer;
-using ::VirtualMemory;
+namespace os1::kernel::mm
+{
 using ::copy_from_user;
 using ::copy_into_address_space;
 using ::copy_to_user;
 using ::copy_user_string;
 using ::map_identity_range;
+using ::PageFlags;
+using ::PageFrameContainer;
 using ::reserve_tracked_physical_range;
+using ::VirtualMemory;
 }  // namespace os1::kernel::mm
 
-namespace os1::kernel::console {
-using ::Terminal;
+namespace os1::kernel::console
+{
 using ::console_input_has_line;
 using ::console_input_initialize;
 using ::console_input_on_keyboard_char;
 using ::console_input_poll_serial;
 using ::console_input_pop_line;
+using ::Terminal;
 using ::write_console_bytes;
 using ::write_console_line;
 }  // namespace os1::kernel::console
 
-namespace os1::kernel::debug {
+namespace os1::kernel::debug
+{
 using ::Debug;
 using ::debug_memory;
 }  // namespace os1::kernel::debug
 
-namespace os1::kernel::drivers::display {
+namespace os1::kernel::drivers::display
+{
+using ::detach_text_display;
 using ::FramebufferTextDisplay;
+using ::initialize_framebuffer_text_display;
+using ::present_text_display;
 using ::TextDisplayBackend;
 using ::TextDisplayBackendKind;
 using ::VgaTextDisplay;
-using ::detach_text_display;
-using ::initialize_framebuffer_text_display;
-using ::present_text_display;
 }  // namespace os1::kernel::drivers::display
 
-namespace os1::kernel::drivers::input {
+namespace os1::kernel::drivers::input
+{
 using ::Keyboard;
 }  // namespace os1::kernel::drivers::input
 
-namespace os1::kernel::fs {
-using ::InitrdFileVisitor;
+namespace os1::kernel::fs
+{
 using ::bind_initrd_boot_info;
 using ::copy_initrd_path;
 using ::find_initrd_file;
 using ::for_each_initrd_file;
+using ::InitrdFileVisitor;
 }  // namespace os1::kernel::fs
 
-namespace os1::kernel::platform {
+namespace os1::kernel::platform
+{
 using ::BlockDevice;
 using ::CpuInfo;
 using ::InterruptOverride;
@@ -102,22 +110,18 @@ using ::PciBarInfo;
 using ::PciBarType;
 using ::PciDevice;
 using ::PciEcamRegion;
-using ::VirtioBlkDevice;
 using ::platform_block_device;
 using ::platform_enable_isa_irq;
 using ::platform_init;
 using ::platform_pci_device_count;
 using ::platform_pci_devices;
 using ::platform_virtio_blk;
+using ::VirtioBlkDevice;
 }  // namespace os1::kernel::platform
 
-namespace os1::kernel::proc {
+namespace os1::kernel::proc
+{
 using ::AddressSpace;
-using ::Process;
-using ::ProcessState;
-using ::Thread;
-using ::ThreadState;
-using ::ThreadWaitReason;
 using ::block_current_thread;
 using ::clear_thread;
 using ::clear_thread_wait;
@@ -131,22 +135,29 @@ using ::init_tasks;
 using ::mark_current_thread_dying;
 using ::mark_thread_ready;
 using ::next_runnable_thread;
+using ::Process;
 using ::process_has_threads;
-using ::runnable_thread_count;
+using ::ProcessState;
 using ::reap_dead_threads;
 using ::reap_process;
 using ::relink_runnable_threads;
+using ::runnable_thread_count;
 using ::set_current_thread;
+using ::Thread;
+using ::ThreadState;
+using ::ThreadWaitReason;
 }  // namespace os1::kernel::proc
 
-namespace os1::kernel::sched {
+namespace os1::kernel::sched
+{
 using ::schedule_next;
 }  // namespace os1::kernel::sched
 
-namespace os1::kernel::syscall {
+namespace os1::kernel::syscall
+{
+using ::handle_syscall;
 using ::ObserveContext;
 using ::ProcessSyscallContext;
-using ::handle_syscall;
 using ::sys_exec;
 using ::sys_observe;
 using ::sys_spawn;
@@ -155,18 +166,20 @@ using ::try_complete_wait_pid;
 using ::wake_child_waiters;
 }  // namespace os1::kernel::syscall
 
-namespace os1::kernel::arch::x86_64::cpu {
+namespace os1::kernel::arch::x86_64::cpu
+{
 using ::read_cr2;
 using ::read_cr3;
 using ::write_cr3;
 }  // namespace os1::kernel::arch::x86_64::cpu
 
-namespace os1::kernel::arch::x86_64::interrupt {
+namespace os1::kernel::arch::x86_64::interrupt
+{
+using ::dispatch_exception_handler;
+using ::dispatch_irq_hook;
 using ::ExceptionHandler;
 using ::IDTDescriptor;
 using ::Interrupts;
-using ::TrapFrame;
-using ::dispatch_exception_handler;
-using ::dispatch_irq_hook;
 using ::trap_frame_is_user;
+using ::TrapFrame;
 }  // namespace os1::kernel::arch::x86_64::interrupt

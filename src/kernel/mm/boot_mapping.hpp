@@ -9,5 +9,4 @@ class VirtualMemory;
 
 // Map the physical byte range `[physical_start, physical_start + length)` into
 // the same virtual addresses with supervisor read/write permissions.
-bool map_identity_range(VirtualMemory &vm, uint64_t physical_start, uint64_t length);
-
+bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length);

@@ -7,4 +7,3 @@ bool allocate_cpus_from_topology();
 
 // clear x86_64 MP/APIC globals before falling back to legacy MP discovery.
 void reset_mp_state_for_fallback();
-

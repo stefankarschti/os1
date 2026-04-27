@@ -7,5 +7,4 @@ struct Thread;
 
 // Choose the next thread to run, optionally preserving the current thread as
 // runnable before selection.
-[[nodiscard]] Thread *schedule_next(bool keep_current);
-
+[[nodiscard]] Thread* schedule_next(bool keep_current);

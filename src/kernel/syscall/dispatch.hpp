@@ -7,5 +7,4 @@
 struct Thread;
 
 // Handle one syscall trap and return the thread that should resume next.
-Thread *handle_syscall(TrapFrame *frame);
-
+Thread* handle_syscall(TrapFrame* frame);

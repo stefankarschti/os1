@@ -8,12 +8,11 @@
 // Round `value` down to the nearest `alignment` boundary.
 [[nodiscard]] inline uint64_t AlignDown(uint64_t value, uint64_t alignment)
 {
-	return value & ~(alignment - 1);
+    return value & ~(alignment - 1);
 }
 
 // Round `value` up to the nearest `alignment` boundary.
 [[nodiscard]] inline uint64_t AlignUp(uint64_t value, uint64_t alignment)
 {
-	return (value + alignment - 1) & ~(alignment - 1);
+    return (value + alignment - 1) & ~(alignment - 1);
 }
-

@@ -8,17 +8,17 @@
 
 enum class TextDisplayBackendKind : uint8_t
 {
-	None = 0,
-	VgaText = 1,
-	FramebufferText = 2,
+    None = 0,
+    VgaText = 1,
+    FramebufferText = 2,
 };
 
 struct TextDisplayBackend
 {
-	// Active rendering strategy.
-	TextDisplayBackendKind kind = TextDisplayBackendKind::None;
-	// Backend-specific object pointer.
-	void *instance = nullptr;
+    // Active rendering strategy.
+    TextDisplayBackendKind kind = TextDisplayBackendKind::None;
+    // Backend-specific object pointer.
+    void* instance = nullptr;
 };
 
 struct VgaTextDisplay
@@ -27,28 +27,28 @@ struct VgaTextDisplay
 
 struct FramebufferTextDisplay
 {
-	bool available = false;
-	uint8_t *framebuffer = nullptr;
-	uint32_t width = 0;
-	uint32_t height = 0;
-	uint32_t pitch_bytes = 0;
-	uint16_t bits_per_pixel = 0;
-	BootFramebufferPixelFormat pixel_format = BootFramebufferPixelFormat::Unknown;
+    bool available = false;
+    uint8_t* framebuffer = nullptr;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t pitch_bytes = 0;
+    uint16_t bits_per_pixel = 0;
+    BootFramebufferPixelFormat pixel_format = BootFramebufferPixelFormat::Unknown;
 };
 
 // Choose the terminal presentation backend from the normalized boot display
 // metadata. BIOS keeps VGA text; Limine prefers a compatible framebuffer.
-TextDisplayBackend *SelectTextDisplay(const BootInfo &boot_info);
+TextDisplayBackend* SelectTextDisplay(const BootInfo& boot_info);
 
 // Validate and bind a boot framebuffer for text rendering.
-bool initialize_framebuffer_text_display(FramebufferTextDisplay &display, const BootFramebufferInfo &framebuffer);
+bool initialize_framebuffer_text_display(FramebufferTextDisplay& display,
+                                         const BootFramebufferInfo& framebuffer);
 // Present one full text grid plus cursor state through the selected backend.
-void present_text_display(const TextDisplayBackend *backend,
-		const uint16_t *buffer,
-		uint16_t columns,
-		uint16_t rows,
-		uint16_t cursor_x,
-		uint16_t cursor_y);
+void present_text_display(const TextDisplayBackend* backend,
+                          const uint16_t* buffer,
+                          uint16_t columns,
+                          uint16_t rows,
+                          uint16_t cursor_x,
+                          uint16_t cursor_y);
 // Stop presenting a terminal through this backend.
-void detach_text_display(const TextDisplayBackend *backend);
-
+void detach_text_display(const TextDisplayBackend* backend);
