@@ -113,7 +113,7 @@ target_include_directories(kernel_core_objects PRIVATE
   "${KERNEL_ARCH_DIR}"
   "${PROJECT_SOURCE_DIR}/src/libc"
   "${PROJECT_SOURCE_DIR}/src/uapi"
-  "${PROJECT_SOURCE_DIR}/third_party/font8x8"
+  "${PROJECT_SOURCE_DIR}/third_party/font8x16"
 )
 set_target_properties(
   kernel_core_objects

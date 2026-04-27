@@ -4,13 +4,13 @@
 
 #include "arch/x86_64/cpu/io_port.hpp"
 #include "debug/debug.hpp"
-#include "font8x8_basic.h"
 #include "util/memory.h"
+#include "font8x16.h"
 
 namespace
 {
 constexpr uint32_t kFramebufferCellWidth = 8;
-constexpr uint32_t kFramebufferCellHeight = 12;
+constexpr uint32_t kFramebufferCellHeight = 16;
 constexpr uint32_t kFramebufferBackground = 0x00000000u;
 constexpr uint16_t kVgaBlankCell = 0x0720;
 constexpr uint32_t kVgaPalette[16] = {
@@ -174,10 +174,10 @@ void framebuffer_draw_cell(
     const uint32_t bg =
         inverse ? vga_color(attribute & 0x0Fu) : vga_color((attribute >> 4) & 0x0Fu);
 
-    for(uint32_t glyph_row = 0; glyph_row < 8; ++glyph_row)
+    for(uint32_t glyph_row = 0; glyph_row < 16; ++glyph_row)
     {
-        const uint8_t bits = font8x8_basic[glyph_index][glyph_row];
-        const uint32_t y = cell_y + (kFramebufferCellHeight - 8) / 2 + glyph_row;
+        const uint8_t bits = font8x16[glyph_index][glyph_row];
+        const uint32_t y = cell_y + glyph_row;
         for(uint32_t glyph_col = 0; glyph_col < 8; ++glyph_col)
         {
             const bool set = ((bits >> glyph_col) & 1u) != 0;
@@ -326,6 +326,7 @@ bool initialize_framebuffer_text_display(FramebufferTextDisplay& display,
     display.framebuffer = (uint8_t*)framebuffer.physical_address;
     display.available = true;
     framebuffer_clear(display, kFramebufferBackground);
+
     return true;
 }
 

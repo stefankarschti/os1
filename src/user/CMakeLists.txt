@@ -58,6 +58,7 @@ os1_add_user_cxx_program(init "${CMAKE_CURRENT_SOURCE_DIR}/programs/init.cpp" OS
 os1_add_user_cxx_program(yield "${CMAKE_CURRENT_SOURCE_DIR}/programs/yield.cpp" OS1_USER_YIELD_ELF)
 os1_add_user_cxx_program(fault "${CMAKE_CURRENT_SOURCE_DIR}/programs/fault.cpp" OS1_USER_FAULT_ELF)
 os1_add_user_cxx_program(copycheck "${CMAKE_CURRENT_SOURCE_DIR}/programs/copycheck.cpp" OS1_USER_COPYCHECK_ELF)
+os1_add_user_cxx_program(ascii "${CMAKE_CURRENT_SOURCE_DIR}/programs/ascii.cpp" OS1_USER_ASCII_ELF)
 
 add_custom_command(
   OUTPUT "${OS1_INITRD_CPIO}"
@@ -68,6 +69,7 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_YIELD_ELF}" "${USER_STAGE_DIR}/bin/yield"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_FAULT_ELF}" "${USER_STAGE_DIR}/bin/fault"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_COPYCHECK_ELF}" "${USER_STAGE_DIR}/bin/copycheck"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_ASCII_ELF}" "${USER_STAGE_DIR}/bin/ascii"
   COMMAND
     "${CMAKE_COMMAND}"
     "-DSTAGE_DIR=${USER_STAGE_DIR}"
@@ -81,6 +83,7 @@ add_custom_command(
     "${OS1_USER_YIELD_ELF}"
     "${OS1_USER_FAULT_ELF}"
     "${OS1_USER_COPYCHECK_ELF}"
+    "${OS1_USER_ASCII_ELF}"
   VERBATIM
 )
 
@@ -90,6 +93,7 @@ add_custom_target(user_programs DEPENDS
   "${OS1_USER_YIELD_ELF}"
   "${OS1_USER_FAULT_ELF}"
   "${OS1_USER_COPYCHECK_ELF}"
+  "${OS1_USER_ASCII_ELF}"
 )
 
 add_custom_target(initrd_cpio DEPENDS "${OS1_INITRD_CPIO}")
