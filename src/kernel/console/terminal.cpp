@@ -4,30 +4,52 @@
 
 #include <stdlib.h>
 
-#include "debug/debug.hpp"
 #include "drivers/display/text_display.hpp"
-#include "util/ctype.hpp"
 #include "util/memory.h"
+
+namespace
+{
+[[nodiscard]] inline bool IsPrintableAscii(char c)
+{
+    return c >= ' ';
+}
+}  // namespace
 
 void Terminal::clear()
 {
     if(!buffer_)
         return;
-    memsetw(buffer_, 0x0720, 80 * 25 * 2);
+    memsetw(buffer_, 0x0720, buffer_size_bytes());
     move_cursor(0, 0);
 }
 
-void Terminal::set_buffer(uint16_t* buffer)
+void Terminal::set_buffer(uint16_t* buffer, uint16_t columns, uint16_t rows)
 {
     buffer_ = buffer;
     display_ = nullptr;
+    width_ = (columns > 0) ? columns : 80;
+    height_ = (rows > 0) ? rows : 25;
+    row_ = 0;
+    col_ = 0;
+    ascii_char_ = 0;
 }
 
 void Terminal::copy(const uint16_t* buffer)
 {
     if(!buffer_ || !buffer)
         return;
-    memcpy(buffer_, buffer, 80 * 25 * 2);
+
+    const uint16_t source_columns = 80;
+    const uint16_t source_rows = 25;
+    const uint16_t copy_columns = (width_ < source_columns) ? width_ : source_columns;
+    const uint16_t copy_rows = (height_ < source_rows) ? height_ : source_rows;
+
+    clear();
+    for(uint16_t row = 0; row < copy_rows; ++row)
+    {
+        memcpy(
+            buffer_ + row * width_, buffer + row * source_columns, copy_columns * sizeof(uint16_t));
+    }
 }
 
 void Terminal::link(TextDisplayBackend* display)
@@ -112,7 +134,7 @@ void Terminal::read_line(char* line)
         char c = ascii_char_;
         ascii_char_ = 0;
 
-        if(isprint(c))
+        if(IsPrintableAscii(c))
         {
             *p++ = c;
         }
@@ -128,7 +150,7 @@ void Terminal::key_press(char ascii, uint16_t scancode)
 {
     (void)scancode;
     ascii_char_ = ascii;
-    if('\n' == ascii || isprint(ascii))
+    if('\n' == ascii || IsPrintableAscii(ascii))
         write(ascii);
 }
 
@@ -149,7 +171,7 @@ void Terminal::internal_write(char c)
             buffer_[row_ * width_ + col_] = 0x0720;
         }
     }
-    else if(isprint(c))
+    else if(IsPrintableAscii(c))
     {
         buffer_[row_ * width_ + col_] = c + (7 << 8);
         col_++;
@@ -167,4 +189,9 @@ void Terminal::internal_write(char c)
         memsetw(buffer_ + (height_ - 1) * width_, 0x0720, 2 * width_);
         row_ = height_ - 1;
     }
+}
+
+uint64_t Terminal::buffer_size_bytes() const
+{
+    return (uint64_t)width_ * (uint64_t)height_ * sizeof(uint16_t);
 }

@@ -147,19 +147,61 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     lapic_init();
     cpu_bootothers(g_kernel_root_cr3);
 
+    g_text_display = select_text_display(*g_boot_info);
+
+    uint16_t terminal_columns = 80;
+    uint16_t terminal_rows = 25;
+    if((nullptr != g_text_display) &&
+       (TextDisplayBackendKind::FramebufferText == g_text_display->kind) &&
+       (nullptr != g_text_display->instance))
+    {
+        auto& framebuffer_display = *static_cast<FramebufferTextDisplay*>(g_text_display->instance);
+        terminal_columns = framebuffer_display.columns;
+        terminal_rows = framebuffer_display.rows;
+
+        const uint64_t shadow_buffer_bytes =
+            (uint64_t)terminal_columns * (uint64_t)terminal_rows * sizeof(uint16_t);
+        const unsigned shadow_buffer_pages =
+            (unsigned)(AlignUp(shadow_buffer_bytes, kPageSize) / kPageSize);
+        uint64_t shadow_buffer = 0;
+        if((0 == shadow_buffer_pages) || !page_frames.allocate(shadow_buffer, shadow_buffer_pages))
+        {
+            debug("framebuffer shadow allocation failed")();
+            return;
+        }
+
+        framebuffer_display.shadow_buffer = reinterpret_cast<uint16_t*>(shadow_buffer);
+        framebuffer_display.shadow_cell_count =
+            (uint32_t)terminal_columns * (uint32_t)terminal_rows;
+        framebuffer_display.cursor_valid = false;
+        memset((void*)shadow_buffer, 0, shadow_buffer_pages * kPageSize);
+    }
+
+    const uint64_t terminal_buffer_bytes =
+        (uint64_t)terminal_columns * (uint64_t)terminal_rows * sizeof(uint16_t);
+    const unsigned terminal_buffer_pages =
+        (unsigned)(AlignUp(terminal_buffer_bytes, kPageSize) / kPageSize);
+    if(0 == terminal_buffer_pages)
+    {
+        debug("terminal buffer allocation size invalid")();
+        return;
+    }
+
     for(size_t i = 0; i < kNumTerminals; ++i)
     {
         uint64_t page = 0;
-        if(page_frames.allocate(page))
+        if(!page_frames.allocate(page, terminal_buffer_pages))
         {
-            terminal[i].set_buffer((uint16_t*)page);
-            terminal[i].clear();
-            terminal[i].write("Terminal ");
-            terminal[i].write_int_line(i + 1);
+            debug("terminal buffer allocation failed")(" index=")(i)();
+            return;
         }
+
+        terminal[i].set_buffer((uint16_t*)page, terminal_columns, terminal_rows);
+        terminal[i].clear();
+        terminal[i].write("Terminal ");
+        terminal[i].write_int_line(i + 1);
     }
 
-    g_text_display = SelectTextDisplay(*g_boot_info);
     active_terminal = &terminal[0];
     if(BootSource::BiosLegacy == g_boot_info->source)
     {

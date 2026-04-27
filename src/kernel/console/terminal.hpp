@@ -1,6 +1,5 @@
-// Logical text terminal model. A Terminal owns an 80x25 cell buffer and cursor;
-// display hardware is attached through TextDisplayBackend so terminal behavior
-// stays separate from VGA/framebuffer rendering.
+// Logical text terminal model. A Terminal owns a cell buffer and cursor while
+// display hardware stays separate behind TextDisplayBackend.
 #pragma once
 
 #include "stdbool.h"
@@ -13,8 +12,8 @@ class Terminal
 public:
     // clear the backing cell buffer and reset the cursor to the origin.
     void clear();
-    // attach a page-backed 80x25 text buffer owned by the caller.
-    void set_buffer(uint16_t* buffer);
+    // attach a page-backed text buffer owned by the caller.
+    void set_buffer(uint16_t* buffer, uint16_t columns = 80, uint16_t rows = 25);
     // copy an existing VGA-compatible text buffer into this terminal.
     void copy(const uint16_t* buffer);
     // attach this terminal to the active display backend and present immediately.
@@ -43,8 +42,8 @@ public:
 private:
     uint16_t* buffer_ = nullptr;
     TextDisplayBackend* display_ = nullptr;
-    const int width_ = 80;
-    const int height_ = 25;
+    uint16_t width_ = 80;
+    uint16_t height_ = 25;
     int row_ = 0;
     int col_ = 0;
 
@@ -55,4 +54,5 @@ private:
 
     // Mutate the cell buffer without triggering a display refresh.
     void internal_write(char c);
+    [[nodiscard]] uint64_t buffer_size_bytes() const;
 };
