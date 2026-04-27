@@ -63,10 +63,10 @@ p_filesz	resq	1
 p_memsz		resq	1
 
 section .bss.boot_memory_map start=BOOT_MEMORY_REGION_BUFFER_ADDRESS
-boot_memory_map resb boot_memory_region_struct_size * BOOT_MEMORY_REGION_CAPACITY
+boot_memory_map: times boot_memory_region_struct_size * BOOT_MEMORY_REGION_CAPACITY db 0
 
 section .bss.boot_modules start=BOOT_MODULE_INFO_BUFFER_ADDRESS
-boot_modules resb boot_module_info_struct_size
+boot_modules: times boot_module_info_struct_size db 0
 
 memory_pages	equ		EARLY_LONG_MODE_PAGE_TABLES_ADDRESS
 kernel_image	equ 	KERNEL_IMAGE_LOAD_ADDRESS

@@ -75,7 +75,7 @@ This section is the live source-structure contract for the kernel. Dated refacto
 
 Top-level kernel source rules:
 
-- [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) is the only loose file under `src/kernel/`.
+- The `src/kernel/` top level currently keeps two loose ownership files: [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) for build grouping and [../src/kernel/kernel_namespaces.hpp](../src/kernel/kernel_namespaces.hpp) for the transitional namespace facade.
 - C++ sources are grouped in CMake by ownership: architecture, handoff, memory, console, drivers, filesystem, core, platform, process, scheduler, syscall, debug, and utilities.
 - NASM include paths explicitly include architecture layout files, handoff layout files, and process thread-layout files so assembly does not rely on old flat-tree placement.
 - Internal C++ headers use `.hpp` and `#pragma once`; the remaining `.h` headers are deliberate C/UAPI/layout contracts.
@@ -267,9 +267,9 @@ BootInfo.rsdp_physical
         |                   3-page queue (desc/avail/used),
         |                   request scratch page
         v
- BlockDevice(read/write) ---> read sector 0, verify prefix
-        |                    read sector 1, verify prefix
-        v                    -> "virtio-blk smoke ok"
+ BlockDevice(read + stub write) ---> read sector 0, verify prefix
+        |                          read sector 1, verify prefix
+        v                          -> "virtio-blk smoke ok"
  RunVirtioBlkSmoke
 ```
 
@@ -798,7 +798,7 @@ The kernel now:
 - uses `MADT` as the primary source of CPU, LAPIC, IOAPIC, and IRQ-override topology
 - uses `MCFG` to discover PCIe ECAM ranges
 - enumerates PCIe devices and records BAR information
-- probes a modern `virtio-blk` PCI device, publishes it through a minimal `BlockDevice` read/write facade, and validates raw sector reads during boot
+- probes a modern `virtio-blk` PCI device, publishes it through a minimal `BlockDevice` facade with implemented reads and stubbed writes, and validates raw sector reads during boot
 
 On the default `q35` targets, both boot paths now discover four CPUs from ACPI and successfully bring up the APs.
 

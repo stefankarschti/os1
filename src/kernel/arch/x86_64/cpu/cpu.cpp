@@ -9,6 +9,8 @@
 
 namespace
 {
+constexpr size_t k_cpu_record_prefix_bytes = offsetof(cpu, kstacklo);
+
 [[noreturn]] void cpu_idle_loop()
 {
     // Secondary CPUs are online in M2, but BSP-only scheduling keeps them out of
@@ -33,29 +35,32 @@ void set_tss_descriptor(cpu* c)
     c->gdt[CPU_GDT_TSS >> 3] = low;
     c->gdt[(CPU_GDT_TSS >> 3) + 1] = high;
 }
+
+void initialize_cpu_record_prefix(cpu* c)
+{
+    memset(c, 0, k_cpu_record_prefix_bytes);
+    c->gdt[0] = SEGDESC_NULL;
+    c->gdt[CPU_GDT_KCODE >> 3] = SEGDESC64_CODE(0);
+    c->gdt[CPU_GDT_KDATA >> 3] = SEGDESC64_DATA(0);
+    c->gdt[CPU_GDT_UDATA >> 3] = SEGDESC64_DATA(3);
+    c->gdt[CPU_GDT_UCODE >> 3] = SEGDESC64_CODE(3);
+    c->gdt[CPU_GDT_TSS >> 3] = 0;
+    c->gdt[(CPU_GDT_TSS >> 3) + 1] = 0;
+    c->magic = CPU_MAGIC;
+}
 }  // namespace
 
-cpu cpu_boot_template = {
-    self : nullptr,
-    current_thread : nullptr,
-    interrupt_frame : {},
-    gdt : {
-        [0] = SEGDESC_NULL,
-        [CPU_GDT_KCODE >> 3] = SEGDESC64_CODE(0),
-        [CPU_GDT_KDATA >> 3] = SEGDESC64_DATA(0),
-        [CPU_GDT_UDATA >> 3] = SEGDESC64_DATA(3),
-        [CPU_GDT_UCODE >> 3] = SEGDESC64_CODE(3),
-        [CPU_GDT_TSS >> 3] = 0,
-        [(CPU_GDT_TSS >> 3) + 1] = 0,
-    },
-    tss : {},
-    next : nullptr,
-    id : 0,
-    booted : 0,
-    magic : CPU_MAGIC
-};
-
 cpu* g_cpu_boot = nullptr;
+
+void cpu_initialize_record(cpu* c)
+{
+    if(nullptr == c)
+    {
+        return;
+    }
+
+    initialize_cpu_record_prefix(c);
+}
 
 void cpu_set_kernel_stack(uint64_t stack_top)
 {
@@ -111,11 +116,7 @@ cpu* cpu_alloc(void)
 
     cpu* c = (cpu*)page;
     memset(c, 0, sizeof(cpu));
-    memcpy(c,
-           &cpu_boot_template,
-           ((uint8_t*)&cpu_boot_template.kstacklo - (uint8_t*)&cpu_boot_template));
-    c->self = c;
-    c->magic = CPU_MAGIC;
+    cpu_initialize_record(c);
     last_cpu->next = c;
     debug("alloc cpu at 0x")(page, 16)();
     return c;

@@ -57,9 +57,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
 
     {
         g_cpu_boot = cpu_boot;
-        memcpy(g_cpu_boot,
-               &cpu_boot_template,
-               ((uint8_t*)&cpu_boot_template.kstacklo - (uint8_t*)&cpu_boot_template));
+        cpu_initialize_record(g_cpu_boot);
         cpu_init();
     }
 

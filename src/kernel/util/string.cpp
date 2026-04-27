@@ -9,6 +9,8 @@
 
 #include "util/string.h"
 
+#include "stdint.h"
+
 // Using assembly for memset/memmove
 // makes some difference on real hardware,
 // but it makes an even bigger difference on bochs.
@@ -94,8 +96,6 @@ char* strchr(const char* s, char c)
 #if ASM
 void* memset(void* v, int c, size_t n)
 {
-    char* p;
-
     if(n == 0)
         return v;
     if((uint64_t)v % 4 == 0 && n % 4 == 0)
@@ -111,11 +111,11 @@ void* memset(void* v, int c, size_t n)
 
 void* memmove(void* dst, const void* src, size_t n)
 {
-    const void* s;
-    void* d;
+    const uint8_t* s;
+    uint8_t* d;
 
-    s = src;
-    d = dst;
+    s = static_cast<const uint8_t*>(src);
+    d = static_cast<uint8_t*>(dst);
     if(s < d && s + n > d)
     {
         s += n;
@@ -196,9 +196,9 @@ int memcmp(const void* v1, const void* v2, size_t n)
 
 void* memchr(const void* s, int c, size_t n)
 {
-    const void* ends = (const char*)s + n;
-    for(; s < ends; s++)
-        if(*(const unsigned char*)s == (unsigned char)c)
-            return (void*)s;
+    const char* ends = (const char*)s + n;
+    for(const char* p = (const char*)s; p < ends; p++)
+        if(*(const unsigned char*)p == (unsigned char)c)
+            return (void*)p;
     return NULL;
 }

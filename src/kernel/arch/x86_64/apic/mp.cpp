@@ -26,6 +26,12 @@ int ncpu;
 uint8_t ioapicid;
 volatile struct ioapic* ioapic;
 
+template<typename T>
+[[nodiscard]] T* physical_pointer(uint32_t physical_address)
+{
+    return reinterpret_cast<T*>(static_cast<uintptr_t>(physical_address));
+}
+
 static uint8_t sum(uint8_t* addr, int len)
 {
     int i, sum;
@@ -56,22 +62,22 @@ static struct mp* mp_search1(uint8_t* addr, int len)
 static struct mp* mp_search(void)
 {
     uint8_t* bda;
-    uint32_t p;
+    uintptr_t p;
     struct mp* mp;
 
-    bda = (uint8_t*)0x400;
+    bda = physical_pointer<uint8_t>(0x400);
     if((p = ((bda[0x0F] << 8) | bda[0x0E]) << 4))
     {
-        if((mp = mp_search1((uint8_t*)p, 1024)))
+        if((mp = mp_search1(reinterpret_cast<uint8_t*>(p), 1024)))
             return mp;
     }
     else
     {
         p = ((bda[0x14] << 8) | bda[0x13]) * 1024;
-        if((mp = mp_search1((uint8_t*)p - 1024, 1024)))
+        if((mp = mp_search1(reinterpret_cast<uint8_t*>(p - 1024), 1024)))
             return mp;
     }
-    return mp_search1((uint8_t*)0xF0000, 0x10000);
+    return mp_search1(physical_pointer<uint8_t>(0xF0000), 0x10000);
 }
 
 // Search for an MP configuration table.  For now,
@@ -86,7 +92,7 @@ static struct mpconf* mp_config(struct mp** pmp)
 
     if((mp = mp_search()) == 0 || mp->physaddr == 0)
         return 0;
-    conf = (struct mpconf*)mp->physaddr;
+    conf = physical_pointer<struct mpconf>(mp->physaddr);
     if(memcmp(conf, "PCMP", 4) != 0)
         return 0;
     if(conf->version != 1 && conf->version != 4)
@@ -112,7 +118,7 @@ void mp_init(void)
         return;  // Not a multiprocessor machine - just use boot CPU.
 
     ismp = 1;
-    lapic = (uint32_t*)conf->lapicaddr;
+    lapic = physical_pointer<uint32_t>(conf->lapicaddr);
     debug("LAPIC at 0x")((uint64_t)lapic, 16)();
     for(p = (uint8_t*)(conf + 1), e = (uint8_t*)conf + conf->length; p < e;)
     {
@@ -135,7 +141,7 @@ void mp_init(void)
                 mpio = (struct mpioapic*)p;
                 p += sizeof(struct mpioapic);
                 ioapicid = mpio->apicno;
-                ioapic = (struct ioapic*)mpio->addr;
+                ioapic = physical_pointer<struct ioapic>(mpio->addr);
                 debug("APIC id=0x")(ioapicid, 16)(" at 0x")(mpio->addr, 16)();
                 continue;
             case MPBUS:

@@ -136,4 +136,4 @@ print64_qhex:
 	pop rbx
 
 	ret
-.buffer resb 17
+.buffer: times 17 db 0

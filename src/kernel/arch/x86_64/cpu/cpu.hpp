@@ -75,7 +75,6 @@ CPU_STATIC_ASSERT(tss_rsp0_offset, offsetof(cpu, tss) + offsetof(Tss64, rsp0) ==
 #undef CPU_STATIC_ASSERT
 
 extern cpu* g_cpu_boot;
-extern cpu cpu_boot_template;
 
 // Read the current stack pointer.
 static inline uint64_t read_rsp(void)
@@ -108,6 +107,8 @@ static inline int cpu_on_boot()
 
 // initialize the current CPU's GDT, TSS, and GS base.
 void cpu_init(void);
+// Initialize the prefix fields of a cpu record before the embedded stack area.
+void cpu_initialize_record(cpu* c);
 // allocate a CPU record plus kernel stack from physical pages.
 cpu* cpu_alloc(void);
 // Start application processors using the AP trampoline.

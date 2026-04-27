@@ -223,7 +223,7 @@ Later modularization is acceptable where it clearly improves structure, but earl
 
 ### Kernel and userland separation
 
-The project has already crossed the first protected-userland threshold: it boots directly into a ring-3 shell staged as both `/bin/init` and `/bin/sh`, can load statically linked user ELF programs from an initrd, services a small but real syscall ABI, and can kill or reap a faulting child process without panicking the kernel. The remaining goal is to deepen that foundation into a more complete operating system model.
+The project has already crossed the first protected-userland threshold: it boots through a minimal `/bin/init` that immediately `exec`s `/bin/sh`, can load statically linked user ELF programs from an initrd, services a small but real syscall ABI, and can kill or reap a faulting child process without panicking the kernel. The remaining goal is to deepen that foundation into a more complete operating system model.
 
 Required eventual capabilities:
 
@@ -445,7 +445,7 @@ Some earlier open questions have since been resolved in source or in the milesto
 - **Resolved:** the kernel-facing boot contract is a single versioned `BootInfo` block normalized by each boot source (see [M1](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) and [src/kernel/handoff/boot_info.hpp](src/kernel/handoff/boot_info.hpp)).
 - **Resolved:** the modern default boot path is Limine plus UEFI, while BIOS remains available during the transition ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md)).
 - **Resolved:** the first protected-userland ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with `int 0x80` syscalls matching the System V AMD64 register layout and now covering console I/O, observability, and initrd-backed process control ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [src/uapi/os1/syscall_numbers.h](src/uapi/os1/syscall_numbers.h), [src/kernel/syscall/abi.hpp](src/kernel/syscall/abi.hpp), [src/uapi/os1/observe.h](src/uapi/os1/observe.h), [src/user/](src/user/)).
-- **Resolved:** the first operator environment is an initrd-backed ring-3 shell staged as both `/bin/init` and `/bin/sh`, scriptable through serial input and backed by explicit kernel observability snapshots rather than parsed boot logs ([M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)).
+- **Resolved:** the first operator environment is an initrd-backed ring-3 shell entered through a minimal `/bin/init` that `exec`s `/bin/sh`, scriptable through serial input and backed by explicit kernel observability snapshots rather than parsed boot logs ([M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)).
 
 The following are not fully decided yet and should be revisited explicitly:
 

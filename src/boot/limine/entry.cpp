@@ -16,7 +16,10 @@ constexpr size_t kLimineShimStackBytes = 16 * 1024;
 
 extern "C" [[noreturn]] void limine_enter_kernel(void (*)(BootInfo*, cpu*), BootInfo*, cpu*);
 extern "C" [[noreturn]] void limine_start_main(void);
-extern "C" alignas(16) constinit uint8_t g_limine_shim_stack[kLimineShimStackBytes]{};
+extern "C"
+{
+alignas(16) constinit uint8_t g_limine_shim_stack[kLimineShimStackBytes]{};
+}
 
 asm(R"ASM(
 .section .text

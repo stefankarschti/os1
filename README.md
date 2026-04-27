@@ -215,7 +215,6 @@ The build writes outputs under `build/artifacts/`:
 - `smoke-observe.log` / `smoke-observe-bios.log` — captured observability smoke serial logs
 - `smoke-spawn.log` / `smoke-spawn-bios.log` — captured child-launch smoke serial logs
 - `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
-- `dump.asm` / `cpu_start.asm` — disassembly outputs
 
 The helper wrapper scripts remain available as thin CMake frontends:
 
