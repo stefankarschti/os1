@@ -1,11 +1,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "bootinfo.h"
-#include "cpu.h"
+#include "handoff/bootinfo.h"
+#include "arch/x86_64/cpu/cpu.h"
+#include "arch/x86_64/cpu/io_port.h"
 #include "limine.h"
-#include "memory_layout.h"
-#include "memory.h"
+#include "handoff/memory_layout.h"
+#include "util/memory.h"
 
 // The shared kernel still expects to start on a low identity-mapped stack.
 // Keep this as a real assembler symbol rather than a naked C++ function:

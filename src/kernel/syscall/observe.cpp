@@ -2,12 +2,12 @@
 
 #include <os1/observe.h>
 
-#include "cpu.h"
+#include "arch/x86_64/cpu/cpu.h"
 #include "fs/initrd.h"
 #include "mm/user_copy.h"
-#include "mp.h"
-#include "platform.h"
-#include "task.h"
+#include "arch/x86_64/apic/mp.h"
+#include "platform/platform.h"
+#include "proc/thread.h"
 #include "util/fixed_string.h"
 
 namespace

@@ -1,11 +1,13 @@
+// Modern virtio-blk PCI driver with a single synchronous queue path. It is kept
+// hardware-specific and publishes only the generic BlockDevice facade upward.
 #include "drivers/block/virtio_blk.h"
 
-#include "debug.h"
-#include "drivers/block/block_device.h"
-#include "memory_layout.h"
-#include "string.h"
-#include "virtualmemory.h"
-#include "x86.h"
+#include "debug/debug.h"
+#include "storage/block_device.h"
+#include "handoff/memory_layout.h"
+#include "util/string.h"
+#include "mm/virtual_memory.h"
+#include "arch/x86_64/cpu/x86.h"
 
 namespace
 {

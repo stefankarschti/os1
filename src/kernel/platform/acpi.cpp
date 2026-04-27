@@ -1,11 +1,14 @@
+// ACPI table parser for platform discovery. It normalizes RSDP/XSDT/RSDT,
+// MADT, and MCFG content into platform-state records consumed by topology,
+// interrupt routing, and PCI enumeration.
 #include "platform/acpi.h"
 
-#include "cpu.h"
-#include "debug.h"
-#include "memory_layout.h"
-#include "string.h"
-#include "virtualmemory.h"
-#include "x86.h"
+#include "arch/x86_64/cpu/cpu.h"
+#include "debug/debug.h"
+#include "handoff/memory_layout.h"
+#include "util/string.h"
+#include "mm/virtual_memory.h"
+#include "arch/x86_64/cpu/x86.h"
 
 namespace
 {

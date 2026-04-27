@@ -1,10 +1,12 @@
+// Initrd-backed ELF64 user-program loader. It owns user address-space creation,
+// segment permission mapping, initial stack setup, and exec image replacement.
 #include "proc/user_program.h"
 
-#include "debug.h"
+#include "debug/debug.h"
 #include "fs/initrd.h"
-#include "memory_layout.h"
+#include "handoff/memory_layout.h"
 #include "mm/user_copy.h"
-#include "virtualmemory.h"
+#include "mm/virtual_memory.h"
 
 namespace
 {

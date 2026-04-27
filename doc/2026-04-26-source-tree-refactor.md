@@ -4,9 +4,11 @@
 
 This note summarizes the 2026-04 source-tree refactor. The goal was to keep current behavior intact while making subsystem boundaries easier to understand, test, and evolve.
 
+Update: the follow-up kernel root reorganization from 2026-04-27 has now been implemented. The live source-structure contract is [ARCHITECTURE.md](ARCHITECTURE.md), and the detailed migration rationale is [2026-04-27-kernel-source-tree-reorganization-plan.md](2026-04-27-kernel-source-tree-reorganization-plan.md).
+
 ## Summary
 
-The refactor moved the kernel away from two broad catch-all files. `kernel.cpp` is now mostly boot orchestration, trap routing, and scheduler dispatch. `platform.cpp` is now a platform facade and policy layer. Implementation details that previously lived in those files were extracted into narrower directories:
+The refactor moved the kernel away from two broad catch-all files. The follow-up 2026-04-27 pass deleted the old root `kernel.cpp` and `platform.cpp`; their remaining responsibilities now live under `src/kernel/core/` and `src/kernel/platform/`. Implementation details that previously lived in those files were extracted into narrower directories:
 
 - `src/boot/bios/` for the legacy BIOS boot frontend, explicitly alongside the existing `src/boot/limine/` modern boot frontend.
 - `src/kernel/arch/x86_64/` for CPU, interrupt, APIC, PIC, MP, trap-frame, and assembly context-switching code.
@@ -15,16 +17,16 @@ The refactor moved the kernel away from two broad catch-all files. `kernel.cpp` 
 - `src/kernel/proc/` for initrd-backed ELF user-program loading.
 - `src/kernel/syscall/` for observe, process/write, waitpid, and console-read syscall support.
 - `src/kernel/platform/` for ACPI and PCI enumeration helpers.
-- `src/kernel/drivers/block/` for the `virtio-blk` driver and the minimal block-device facade.
+- `src/kernel/drivers/block/` for the `virtio-blk` driver and `src/kernel/storage/` for the minimal block-device facade.
 - `src/kernel/util/` for small shared utilities.
 
 The main behavioral fixes made during the refactor were user-copy hardening, real `/bin/init` handoff to `/bin/sh`, and more accurate user ELF segment permissions.
 
 ## Major Structural Changes
 
-`src/kernel/kernel.cpp` no longer contains the CPIO parser, ELF loader, syscall bodies, observe handlers, wait/read wakeup helpers, or user-copy implementation. It delegates to explicit modules through small context structures, which keeps global boot state visible at the call site instead of hidden inside syscall code.
+The old root `src/kernel/kernel.cpp` was split into explicit modules. Boot orchestration lives in `src/kernel/core/kernel_main.cpp`; trap, IRQ, fault, and panic flow lives in neighboring `core/` files; syscall dispatch lives in `src/kernel/syscall/dispatch.cpp`; process/thread lifetime lives in `src/kernel/proc/`; scheduler policy lives in `src/kernel/sched/`; CPIO, ELF loading, observe, wait/read wakeup helpers, and user-copy implementation live in their owning subsystem directories.
 
-`src/kernel/platform.cpp` no longer contains ACPI table parsing, PCI ECAM enumeration, BAR sizing, or the `virtio-blk` implementation. It now wires the platform sequence together: ACPI discovery, CPU/APIC topology allocation, PCI enumeration, device probing, and fallback policy for the BIOS compatibility path.
+The old root `src/kernel/platform.cpp` was split under `src/kernel/platform/`. ACPI table parsing, PCI ECAM enumeration, BAR sizing, device probing, CPU/APIC topology allocation, IRQ routing, and BIOS fallback policy now have separate files. The public facade is `src/kernel/platform/platform.h`, and the implementation entry point is `src/kernel/platform/init.cpp`.
 
 Architecture-specific x86_64 code was moved under `src/kernel/arch/x86_64/`. The CMake/NASM rules were updated so C++ and assembly sources can include both the kernel root and the architecture directory without relying on old flat-tree paths.
 
@@ -51,7 +53,7 @@ The syscall implementation was split by responsibility:
 - `syscall/wait.cpp` handles `waitpid` completion and child-exit wakeups.
 - `syscall/console_read.cpp` handles blocking console reads and reader wakeups.
 
-`HandleSyscall` still owns ABI dispatch in `kernel.cpp`, but the syscall bodies are now small, auditable modules that receive dependencies explicitly.
+`HandleSyscall` owns ABI dispatch in `src/kernel/syscall/dispatch.cpp`, and the syscall bodies are small, auditable modules that receive dependencies explicitly.
 
 ## Platform And Drivers
 
@@ -59,7 +61,7 @@ ACPI discovery moved to `src/kernel/platform/acpi.cpp`. It owns RSDP/root-table 
 
 PCI enumeration moved to `src/kernel/platform/pci.cpp`. It owns ECAM walking, multi-function detection, config-space access, BAR sizing, and `PciDevice` recording.
 
-The `virtio-blk` code moved to `src/kernel/drivers/block/virtio_blk.cpp`. It still uses a synchronous polling request path, but it now publishes a generic `BlockDevice` in `src/kernel/drivers/block/block_device.h`. The facade has read and write slots; read is wired to `virtio-blk`, and write currently returns unsupported.
+The `virtio-blk` code moved to `src/kernel/drivers/block/virtio_blk.cpp`. It still uses a synchronous polling request path, but it now publishes a generic `BlockDevice` in `src/kernel/storage/block_device.h`. The facade has read and write slots; read is wired to `virtio-blk`, and write currently returns unsupported.
 
 ## Deleted Code
 

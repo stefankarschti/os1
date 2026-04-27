@@ -4,7 +4,7 @@ file(GLOB BOOT_ASM_DEPENDENCIES CONFIGURE_DEPENDS "${BOOT_BIOS_DIR}/*.asm")
 list(SORT BOOT_ASM_DEPENDENCIES)
 set(BOOT_SHARED_DEPENDENCIES
   ${BOOT_ASM_DEPENDENCIES}
-  "${PROJECT_SOURCE_DIR}/src/kernel/memory_layout.inc"
+  "${PROJECT_SOURCE_DIR}/src/kernel/handoff/memory_layout.inc"
   "${OS1_IMAGE_LAYOUT_INC}"
 )
 

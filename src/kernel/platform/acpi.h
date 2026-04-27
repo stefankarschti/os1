@@ -1,14 +1,18 @@
+// ACPI discovery front door. This parser extracts only the machine facts the
+// rest of the kernel needs: LAPIC base, CPU topology, IOAPICs, IRQ overrides,
+// and PCI ECAM windows.
 #ifndef OS1_KERNEL_PLATFORM_ACPI_H
 #define OS1_KERNEL_PLATFORM_ACPI_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "bootinfo.h"
-#include "platform.h"
+#include "handoff/bootinfo.h"
+#include "platform/platform.h"
 
 class VirtualMemory;
 
+// Parse ACPI tables rooted at BootInfo::rsdp_physical into normalized arrays.
 bool DiscoverAcpiPlatform(VirtualMemory &kernel_vm,
 		const BootInfo &boot_info,
 		uint64_t &lapic_base,
@@ -21,4 +25,4 @@ bool DiscoverAcpiPlatform(VirtualMemory &kernel_vm,
 		PciEcamRegion *ecam_regions,
 		size_t &ecam_region_count);
 
-#endif
+#endif // OS1_KERNEL_PLATFORM_ACPI_H

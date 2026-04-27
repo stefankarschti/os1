@@ -1,7 +1,9 @@
+// Audited syscall copy boundary. Every user pointer is canonicalized, range
+// checked, translated, and permission checked before bytes cross into kernel code.
 #include "mm/user_copy.h"
 
-#include "memory.h"
-#include "memory_layout.h"
+#include "util/memory.h"
+#include "handoff/memory_layout.h"
 
 namespace
 {

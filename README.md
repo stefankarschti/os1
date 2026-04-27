@@ -4,7 +4,7 @@
 
 Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, starts a small `/bin/init` that `exec`s `/bin/sh`, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` block device, validates raw-sector reads from a generated test disk, and lands at a serial-drivable interactive shell with structured observability and initrd-backed command execution.
 
-In the source tree, the two boot frontends are now explicit peers under `src/boot/`: the legacy raw-image BIOS path lives in `src/boot/bios/`, and the modern UEFI shim lives in `src/boot/limine/`.
+In the source tree, the two boot frontends are explicit peers under `src/boot/`: the legacy raw-image BIOS path lives in `src/boot/bios/`, and the modern UEFI shim lives in `src/boot/limine/`. The kernel tree is now split by ownership rather than by bring-up history: `src/kernel/core/` owns orchestration and trap flow, `handoff/` owns the boot contract, `mm/` owns physical/virtual memory, `proc/` and `sched/` split process/thread lifecycle from scheduling policy, `console/` owns terminal streams, `drivers/` owns hardware drivers, `platform/` owns machine discovery, and `storage/`, `vfs/`, and `security/` mark the intended growth seams. The detailed source-structure contract now lives in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md).
 
 ## Prerequisites
 
@@ -225,6 +225,7 @@ The helper wrapper scripts remain available as thin CMake frontends:
 
 - [Goals](GOALS.md) — project direction and design principles
 - [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture; includes a system diagram and end-to-end workflow
+- [Kernel Source Tree Reorganization Plan 2026-04-27](doc/2026-04-27-kernel-source-tree-reorganization-plan.md) — plan and implementation checklist for the current kernel source layout
 - [Review 2026-04-23](doc/2026-04-23-review.md) — current code-grounded project review (recommended entry point for readers)
 - [Review 2026-04-19](doc/2026-04-19-review.md) — historical review
 - [Review 2026-04-21](doc/2026-04-21-review.md) — historical review

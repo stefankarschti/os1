@@ -1,3 +1,5 @@
+// CPIO newc initrd parser. It exposes a tiny archive traversal API until the
+// future VFS can provide path lookup and filesystem-backed exec.
 #include "fs/initrd.h"
 
 namespace

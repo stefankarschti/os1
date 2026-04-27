@@ -2,10 +2,10 @@
 
 #include <os1/observe.h>
 
-#include "debug.h"
+#include "debug/debug.h"
 #include "mm/user_copy.h"
 #include "proc/user_program.h"
-#include "task.h"
+#include "proc/thread.h"
 #include "util/fixed_string.h"
 
 long SysWrite(const ProcessSyscallContext &context, int fd, uint64_t user_buffer, size_t length)

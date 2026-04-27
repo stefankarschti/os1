@@ -1,36 +1,109 @@
-set(KERNEL_BIOS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker2.ld")
-set(KERNEL_LIMINE_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker_limine.ld")
+set(KERNEL_BIOS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker/kernel_bios.ld")
+set(KERNEL_LIMINE_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker/kernel_limine.ld")
 set(KERNEL_ARCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/arch/x86_64")
 
-set(KERNEL_CXX_SOURCES
-  arch/x86_64/cpu.cpp
-  arch/x86_64/interrupt.cpp
-  arch/x86_64/ioapic.cpp
-  arch/x86_64/lapic.cpp
-  arch/x86_64/mp.cpp
-  arch/x86_64/pic.cpp
-  bootinfo.cpp
-  console_input.cpp
-  debug.cpp
-  display.cpp
-  drivers/block/virtio_blk.cpp
-  fs/initrd.cpp
-  kernel.cpp
-  keyboard.cpp
+set(KERNEL_ARCH_SOURCES
+  arch/x86_64/apic/ioapic.cpp
+  arch/x86_64/apic/lapic.cpp
+  arch/x86_64/apic/mp.cpp
+  arch/x86_64/apic/pic.cpp
+  arch/x86_64/cpu/cpu.cpp
+  arch/x86_64/interrupt/interrupt.cpp
+)
+
+set(KERNEL_HANDOFF_SOURCES
+  handoff/bootinfo.cpp
+)
+
+set(KERNEL_MM_SOURCES
+  mm/boot_mapping.cpp
+  mm/boot_reserve.cpp
+  mm/page_frame.cpp
   mm/user_copy.cpp
-  pageframe.cpp
-  platform.cpp
+  mm/virtual_memory.cpp
+)
+
+set(KERNEL_CONSOLE_SOURCES
+  console/console.cpp
+  console/console_input.cpp
+  console/terminal.cpp
+  console/terminal_switcher.cpp
+)
+
+set(KERNEL_DRIVER_SOURCES
+  drivers/block/virtio_blk.cpp
+  drivers/display/text_display.cpp
+  drivers/input/ps2_keyboard.cpp
+  drivers/timer/pit.cpp
+)
+
+set(KERNEL_FS_SOURCES
+  fs/initrd.cpp
+)
+
+set(KERNEL_CORE_SOURCES
+  core/fault.cpp
+  core/irq_dispatch.cpp
+  core/kernel_main.cpp
+  core/kernel_state.cpp
+  core/panic.cpp
+  core/trap_dispatch.cpp
+)
+
+set(KERNEL_PLATFORM_SOURCES
   platform/acpi.cpp
+  platform/device_probe.cpp
+  platform/init.cpp
+  platform/irq_routing.cpp
+  platform/legacy_mp.cpp
   platform/pci.cpp
+  platform/state.cpp
+  platform/topology.cpp
+)
+
+set(KERNEL_PROC_SOURCES
+  proc/process.cpp
+  proc/reaper.cpp
+  proc/thread.cpp
   proc/user_program.cpp
-  string.cpp
+)
+
+set(KERNEL_SCHED_SOURCES
+  sched/idle.cpp
+  sched/scheduler.cpp
+  sched/thread_queue.cpp
+)
+
+set(KERNEL_SYSCALL_SOURCES
   syscall/console_read.cpp
+  syscall/dispatch.cpp
   syscall/observe.cpp
   syscall/process.cpp
   syscall/wait.cpp
-  task.cpp
-  terminal.cpp
-  virtualmemory.cpp
+)
+
+set(KERNEL_DEBUG_SOURCES
+  debug/debug.cpp
+)
+
+set(KERNEL_UTIL_SOURCES
+  util/string.cpp
+)
+
+set(KERNEL_CXX_SOURCES
+  ${KERNEL_ARCH_SOURCES}
+  ${KERNEL_HANDOFF_SOURCES}
+  ${KERNEL_MM_SOURCES}
+  ${KERNEL_CONSOLE_SOURCES}
+  ${KERNEL_DRIVER_SOURCES}
+  ${KERNEL_FS_SOURCES}
+  ${KERNEL_CORE_SOURCES}
+  ${KERNEL_PLATFORM_SOURCES}
+  ${KERNEL_PROC_SOURCES}
+  ${KERNEL_SCHED_SOURCES}
+  ${KERNEL_SYSCALL_SOURCES}
+  ${KERNEL_DEBUG_SOURCES}
+  ${KERNEL_UTIL_SOURCES}
   "${PROJECT_SOURCE_DIR}/src/libc/stdlib.cpp"
 )
 
@@ -95,8 +168,12 @@ target_compile_options(
 )
 
 file(GLOB KERNEL_ASM_DEPENDENCIES CONFIGURE_DEPENDS
-  "${KERNEL_ARCH_DIR}/*.asm"
-  "${KERNEL_ARCH_DIR}/*.inc"
+  "${KERNEL_ARCH_DIR}/apic/*.asm"
+  "${KERNEL_ARCH_DIR}/asm/*.asm"
+  "${KERNEL_ARCH_DIR}/include/*.inc"
+  "${KERNEL_ARCH_DIR}/interrupt/*.asm"
+  "${CMAKE_CURRENT_SOURCE_DIR}/handoff/*.inc"
+  "${CMAKE_CURRENT_SOURCE_DIR}/proc/*.inc"
   "${CMAKE_CURRENT_SOURCE_DIR}/*.inc"
 )
 list(SORT KERNEL_ASM_DEPENDENCIES)
@@ -108,7 +185,9 @@ function(os1_add_nasm_object out_var source_name format)
     OUTPUT "${output_path}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}"
     COMMAND "${OS1_NASM_EXECUTABLE}" "-f${format}"
-      -I "${KERNEL_ARCH_DIR}/"
+      -I "${KERNEL_ARCH_DIR}/include/"
+      -I "${CMAKE_CURRENT_SOURCE_DIR}/handoff/"
+      -I "${CMAKE_CURRENT_SOURCE_DIR}/proc/"
       -I "${CMAKE_CURRENT_SOURCE_DIR}/"
       "${CMAKE_CURRENT_SOURCE_DIR}/${source_name}"
       -o "${output_path}"
@@ -119,11 +198,11 @@ function(os1_add_nasm_object out_var source_name format)
   set("${out_var}" "${output_path}" PARENT_SCOPE)
 endfunction()
 
-os1_add_nasm_object(KERNEL_MEMORY_OBJECT "arch/x86_64/memory.asm" "elf64")
-os1_add_nasm_object(KERNEL_IRQHANDLER_OBJECT "arch/x86_64/irqhandler.asm" "elf64")
-os1_add_nasm_object(KERNEL_INTHANDLER_OBJECT "arch/x86_64/inthandler.asm" "elf64")
-os1_add_nasm_object(KERNEL_MULTITASK_OBJECT "arch/x86_64/multitask.asm" "elf64")
-os1_add_nasm_object(KERNEL_CPUSTART_OBJECT "arch/x86_64/cpustart.asm" "elf64")
+os1_add_nasm_object(KERNEL_MEMORY_OBJECT "arch/x86_64/asm/memory.asm" "elf64")
+os1_add_nasm_object(KERNEL_IRQHANDLER_OBJECT "arch/x86_64/interrupt/irqhandler.asm" "elf64")
+os1_add_nasm_object(KERNEL_INTHANDLER_OBJECT "arch/x86_64/interrupt/inthandler.asm" "elf64")
+os1_add_nasm_object(KERNEL_MULTITASK_OBJECT "arch/x86_64/asm/multitask.asm" "elf64")
+os1_add_nasm_object(KERNEL_CPUSTART_OBJECT "arch/x86_64/asm/cpustart.asm" "elf64")
 
 set(KERNEL_ASM_OBJECTS
   "${KERNEL_MEMORY_OBJECT}"
@@ -162,9 +241,11 @@ add_custom_command(
   OUTPUT "${OS1_CPUSTART_BIN}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_NASM_EXECUTABLE}" -fbin
-    -I "${KERNEL_ARCH_DIR}/"
+    -I "${KERNEL_ARCH_DIR}/include/"
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/handoff/"
+    -I "${CMAKE_CURRENT_SOURCE_DIR}/proc/"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/"
-    "${KERNEL_ARCH_DIR}/cpustart.asm"
+    "${KERNEL_ARCH_DIR}/asm/cpustart.asm"
     -o "${OS1_CPUSTART_BIN}"
   DEPENDS ${KERNEL_ASM_DEPENDENCIES}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

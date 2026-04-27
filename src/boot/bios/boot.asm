@@ -1,6 +1,6 @@
 [bits 16]
 [org 0x7c00]
-%include "../kernel/memory_layout.inc"
+%include "../kernel/handoff/memory_layout.inc"
 %include "image_layout.inc"
 
 loader_main16		equ LOADER16_LOAD_ADDRESS

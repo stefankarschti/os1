@@ -1,4 +1,4 @@
-%include "../kernel/memory_layout.inc"
+%include "../kernel/handoff/memory_layout.inc"
 %include "image_layout.inc"
 
 struc boot_text_console_info_struct

@@ -1,6 +1,6 @@
 #include "syscall/console_read.h"
 
-#include "console_input.h"
+#include "console/console_input.h"
 #include "mm/user_copy.h"
 
 bool TryCompleteConsoleRead(PageFrameContainer &frames,

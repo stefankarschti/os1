@@ -1,9 +1,12 @@
+// PCI ECAM enumerator. It walks buses/functions from ACPI MCFG windows, sizes
+// BARs, maps MMIO ranges needed by drivers, and records normalized PciDevice
+// entries for platform probing.
 #include "platform/pci.h"
 
-#include "debug.h"
-#include "memory_layout.h"
-#include "string.h"
-#include "virtualmemory.h"
+#include "debug/debug.h"
+#include "handoff/memory_layout.h"
+#include "util/string.h"
+#include "mm/virtual_memory.h"
 
 namespace
 {
