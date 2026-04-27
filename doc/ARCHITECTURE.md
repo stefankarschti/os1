@@ -1,8 +1,8 @@
 # os1 Architecture
 
-> generated-by: Claude (Opus 4.7) · generated-at: 2026-04-23 · git-state: working tree
+> generated-by: GitHub Copilot - generated-at: 2026-04-27 - git-state: working tree
 
-This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Review 2026-04-23](2026-04-23-review.md). The review documents under `doc/` are historical context, not the live system contract.
+This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Review 2026-04-23](2026-04-23-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
 `os1` currently has:
 
@@ -14,6 +14,7 @@ This document is the current-state source of truth for `os1`. It describes what 
 - PCIe enumeration through ACPI `MCFG` and ECAM
 - a first practical modern device path through `virtio-blk`
 - a freestanding `C++20` kernel core with narrow assembly boundaries
+- a source tree split by major responsibility: `arch/x86_64`, `core`, `handoff`, `mm`, `proc`, `sched`, `syscall`, `console`, `drivers`, `platform`, `storage`, `fs`, `vfs`, `security`, `debug`, `util`, and `linker`
 - protected ring-3 user programs loaded from an initrd
 - a terminal-first operator environment that boots directly into a ring-3 shell
 - structured read-only observability snapshots exposed through a shared UAPI
@@ -38,7 +39,7 @@ Milestone status:
 | Limine | The bootloader / protocol used for the modern default path. |
 | OVMF | The UEFI firmware image used by QEMU for the default `run` and `smoke` targets. |
 | HHDM | Higher-Half Direct Map. Limine provides a virtual mapping of physical memory so the shim can access physical ranges before the kernel installs its own page tables. |
-| `BootInfo` | The normalized bootloader-to-kernel contract. Every boot frontend must convert its native state into this structure before entering `KernelMain`. |
+| `BootInfo` | The normalized bootloader-to-kernel contract. Every boot frontend must convert its native state into this structure before entering `kernel_main`. |
 | Framebuffer | A physical memory region whose bytes directly represent display pixels. |
 | `cpio newc` | The archive format used for the initrd. It contains the first user-space programs. |
 | `ET_EXEC` | The ELF executable type used by the current statically linked user programs. |
@@ -57,16 +58,53 @@ The boot frontends are allowed to differ because firmware and bootloader require
 
 The current frontends are:
 
-- `kernel16.bin` plus `boot.bin` for the legacy BIOS raw-image path
-- `kernel_limine.elf` for the default Limine/UEFI path
+- `src/boot/bios/` building `kernel16.bin` plus `boot.bin` for the legacy BIOS raw-image path
+- `src/boot/limine/` building `kernel_limine.elf` for the default Limine/UEFI path
 
 The shared kernel core is:
 
 - `kernel_bios.elf`
 
-That naming reflects implementation history rather than long-term intent. `kernel_bios.elf` is not BIOS-only logic anymore. It is the low-half kernel core used by both paths. The Limine path loads it as a module and then transfers control into the same `KernelMain(BootInfo*, cpu*)` entry that the BIOS loader uses.
+That naming reflects implementation history rather than long-term intent. `kernel_bios.elf` is not BIOS-only logic anymore. It is the low-half kernel core used by both paths. The Limine path loads it as a module and then transfers control into the same `kernel_main(BootInfo*, cpu*)` entry that the BIOS loader uses.
 
 This split exists for a pragmatic reason: the kernel core is still linked at low identity-mapped addresses around `0x00100000`, while the Limine executable itself must be presented in a form the modern bootloader accepts. The higher-half Limine frontend exists to bridge that difference without teaching the kernel multiple boot ABIs.
+
+## Source Tree Ownership
+
+This section is the live source-structure contract for the kernel. Dated refactor notes and review docs are historical context; when they conflict with this section, this document owns the current layout.
+
+Top-level kernel source rules:
+
+- The `src/kernel/` top level currently keeps two loose ownership files: [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) for build grouping and [../src/kernel/kernel_namespaces.hpp](../src/kernel/kernel_namespaces.hpp) for the transitional namespace facade.
+- C++ sources are grouped in CMake by ownership: architecture, handoff, memory, console, drivers, filesystem, core, platform, process, scheduler, syscall, debug, and utilities.
+- NASM include paths explicitly include architecture layout files, handoff layout files, and process thread-layout files so assembly does not rely on old flat-tree placement.
+- Internal C++ headers use `.hpp` and `#pragma once`; the remaining `.h` headers are deliberate C/UAPI/layout contracts.
+- [../src/kernel/kernel_namespaces.hpp](../src/kernel/kernel_namespaces.hpp) provides the transitional `os1::kernel::*` namespace facade while ABI-sensitive global symbols remain available to assembly and existing call sites.
+- Future-growth directories exist with ownership notes even before executable code lands, so later work has an obvious home.
+
+Current kernel folders:
+
+| Folder | Role | Current important files |
+| --- | --- | --- |
+| [../src/kernel/core/](../src/kernel/core) | Shared kernel orchestration, trap classification, IRQ dispatch, fault policy, panic/halt, and temporary global kernel state. | `kernel_main.cpp`, `kernel_state.hpp`, `trap_dispatch.cpp`, `irq_dispatch.hpp`, `fault.hpp`, `panic.hpp` |
+| [../src/kernel/handoff/](../src/kernel/handoff) | Bootloader-to-kernel ABI and fixed early memory layout shared by BIOS, Limine, C++, and NASM. | `boot_info.hpp`, `boot_info.cpp`, `memory_layout.h`, `memory_layout.inc` |
+| [../src/kernel/arch/x86_64/](../src/kernel/arch/x86_64) | x86_64 CPU, APIC, interrupt, assembly, and processor helper code. Generic kernel code should include the narrowest architecture header it needs. | `cpu/`, `apic/`, `interrupt/`, `asm/`, `include/` |
+| [../src/kernel/mm/](../src/kernel/mm) | Physical page allocation, page-table management, user-copy validation, and boot-critical mapping/reservation helpers. | `page_frame.*`, `virtual_memory.*`, `user_copy.*`, `boot_mapping.*`, `boot_reserve.*` |
+| [../src/kernel/proc/](../src/kernel/proc) | Process and thread object lifecycle, process table ownership, thread frame setup, deferred reaping, and initrd-backed user-program loading. | `process.*`, `thread.*`, `thread_layout.inc`, `reaper.cpp`, `user_program.*` |
+| [../src/kernel/sched/](../src/kernel/sched) | Scheduling policy, runnable selection, scheduler handoff, and idle-thread behavior. | `scheduler.*`, `thread_queue.cpp`, `idle.*` |
+| [../src/kernel/syscall/](../src/kernel/syscall) | User/kernel ABI numbers, register-level dispatch, and individual syscall bodies. | `abi.hpp`, `dispatch.hpp`, `process.hpp`, `console_read.hpp`, `wait.hpp`, `observe.hpp`; syscall numbers live in [../src/uapi/os1/syscall_numbers.h](../src/uapi/os1/syscall_numbers.h) |
+| [../src/kernel/console/](../src/kernel/console) | Logical terminals, console byte streams, serial/keyboard line input, and terminal switching policy. | `terminal.*`, `console.*`, `console_input.*`, `terminal_switcher.*`, `pty/README.md` |
+| [../src/kernel/drivers/](../src/kernel/drivers) | Device-specific hardware drivers. Driver folders must not own platform-wide discovery policy. | `block/virtio_blk.*`, `display/text_display.*`, `input/ps2_keyboard.*`, `timer/pit.*`, future `bus/`, `net/`, `virtio/` notes |
+| [../src/kernel/platform/](../src/kernel/platform) | ACPI/PCI machine discovery, normalized platform state, CPU/APIC topology publication, legacy MP fallback, ISA IRQ routing, and device-probe sequencing. | `platform.hpp`, `types.hpp`, `state.hpp`, `init.cpp`, `acpi.hpp`, `pci.hpp`, `topology.hpp`, `irq_routing.hpp`, `legacy_mp.hpp`, `device_probe.hpp` |
+| [../src/kernel/storage/](../src/kernel/storage) | Generic storage abstractions above concrete block drivers. | `block_device.hpp`, `README.md` |
+| [../src/kernel/fs/](../src/kernel/fs) | Concrete filesystem/archive parsers. Today this is the boot initrd CPIO parser, not a general namespace. | `initrd.*` |
+| [../src/kernel/vfs/](../src/kernel/vfs) | Future filesystem namespace layer: mount table, path lookup, file descriptors, and filesystem-backed `exec`. | `README.md` |
+| [../src/kernel/security/](../src/kernel/security) | Future credentials, permissions, and resource-boundary policy. | `README.md` |
+| [../src/kernel/debug/](../src/kernel/debug) | Serial debug logger and future tracing/counter surfaces. | `debug.*` |
+| [../src/kernel/util/](../src/kernel/util) | Small generic helpers with no subsystem ownership. | `assert.hpp`, `align.hpp`, `ctype.hpp`, `fixed_string.hpp`, `memory.h`, `string.*` |
+| [../src/kernel/linker/](../src/kernel/linker) | Kernel linker scripts and link-layout variants. | `kernel_bios.ld`, `kernel_limine.ld` |
+
+The split is intentionally monolithic at link time. These folders express ownership and readability, not a module ABI or loadable-driver boundary.
 
 ## System Diagram
 
@@ -107,18 +145,18 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                               |  memory_map[], modules[]     |
                               +--------------+---------------+
                                              |
-                             KernelMain(BootInfo*, cpu*)  <-- shared entry
+                             kernel_main(BootInfo*, cpu*)  <-- shared entry
                                              |
                                              v
 +-----------------------------------------------------------------------------+
 |                         kernel_bios.elf   (shared core)                     |
 |                                                                             |
-|  OwnBootInfo --> PFA(bitmap) --> kernel page tables --> CR3 switch          |
+|  own_boot_info --> PFA(bitmap) --> kernel page tables --> CR3 switch          |
 |                                                                             |
-|  platform_init:   RSDP --> XSDT/RSDT --> MADT + MCFG                        |
+|  platform_init:   ACPI discovery --> PCIe ECAM enumeration                   |
 |                   | CPUs, IOAPIC, LAPIC, IRQ overrides                      |
-|                   | PCIe ECAM enumeration, BAR sizing                       |
-|                   v virtio-blk modern probe + sector 0/1 smoke              |
+|                   | BAR sizing, virtio-blk probe                            |
+|                   v BlockDevice facade + sector 0/1 smoke                   |
 |                                                                             |
 |  PIC+IOAPIC+LAPIC  -->  cpu_bootothers  -->  APs in cpu_idle_loop (cli;hlt) |
 |                                                                             |
@@ -129,7 +167,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 |                                                                             |
 |  Task tables (Process, Thread) + idle thread + round-robin scheduler        |
 |                                                                             |
-|  initrd (cpio newc) --> ELF64 load /bin/init --> ring-3 transition          |
+|  initrd (cpio newc) --> ELF64 load /bin/init --> exec /bin/sh               |
 +--------------------------------+----------------+---------------------------+
                                  |                |
                       int 0x80   |                |   reads from console_input
@@ -138,9 +176,9 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                          +-------+----------------+-------+
                          |  Ring-3 user processes          |
                          |                                 |
-                         |  /bin/init  == /bin/sh  (same   |
-                         |                binary, 2 names) |
-                         |  /bin/yield   /bin/fault        |
+                         |  /bin/init -> /bin/sh           |
+                         |  /bin/yield  /bin/fault         |
+                         |  /bin/copycheck                 |
                          |                                 |
                          |  syscalls:  write, read, exit,  |
                          |    yield, getpid, observe,      |
@@ -153,7 +191,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 
 Key invariants visible in the diagram:
 
-- Two boot frontends, one `BootInfo` at a well-known low-memory address, one `KernelMain` entry.
+- Two boot frontends, one `BootInfo` at a well-known low-memory address, one `kernel_main` entry.
 - The kernel never reads Limine-virtual pointers; everything is translated to physical before the kernel sees it.
 - ACPI drives both CPU topology (MADT) and PCIe windows (MCFG). Legacy MP tables are a BIOS-only fallback.
 - User space reaches the kernel through a single interrupt gate (vector 48) and reads kernel state through one UAPI header.
@@ -180,26 +218,26 @@ Both paths finalize identical low-memory arenas:
 - `0x7000` — `BootModuleInfo[]` module descriptors
 - `0x7200` — string pool (bootloader name, command line, module names)
 
-The shim then installs a minimum low-identity window (PML4[0] → PML3[0] → 2 MiB PML2 pages covering only the handoff region) and calls `limine_enter_kernel`, which switches to the per-CPU boot stack and jumps to `KernelMain(BootInfo*, cpu*)`.
+The shim then installs a minimum low-identity window (PML4[0] → PML3[0] → 2 MiB PML2 pages covering only the handoff region) and calls `limine_enter_kernel`, which switches to the per-CPU boot stack and jumps to `kernel_main(BootInfo*, cpu*)`.
 
-### Phase 3 — kernel bring-up (`KernelMain`)
+### Phase 3 — kernel bring-up (`kernel_main`)
 
 The shared entry runs one deterministic sequence:
 
 1. `debug("[kernel64] hello!")` on serial.
-2. `OwnBootInfo()` deep-copies the header, memory map, modules, and all strings into kernel BSS. After this line, bootloader staging memory is no longer referenced.
+2. `own_boot_info()` deep-copies the header, memory map, modules, and all strings into kernel BSS. After this line, bootloader staging memory is no longer referenced.
 3. Boot CPU page (`cpu_boot`) is templated, `cpu_init()` loads the GDT, TSS, kernel CR3, and gs base.
 4. `PageFrameContainer` is initialized from `std::span<const BootMemoryRegion>`: mark all pages busy → free only `Usable` regions → reserve the bitmap → reserve low bootstrap → reserve the kernel image.
-5. `ReserveTrackedPhysicalRange` reserves every initrd module and the framebuffer.
-6. Kernel identity page tables are built for all usable RAM above `kKernelReservedPhysicalStart`, then modules, framebuffer, and the RSDP page are explicitly `MapIdentityRange`d because they may live in non-usable memory on the modern path.
-7. `kvm.Activate()` switches CR3 to the kernel root; `g_kernel_root_cr3` records it.
+5. `reserve_tracked_physical_range` reserves every initrd module and the framebuffer.
+6. Kernel identity page tables are built for all usable RAM above `kKernelReservedPhysicalStart`, then modules, framebuffer, and the RSDP page are explicitly `map_identity_range`d because they may live in non-usable memory on the modern path.
+7. `kvm.activate()` switches CR3 to the kernel root; `g_kernel_root_cr3` records it.
 8. `platform_init(*g_boot_info, kvm)` runs the ACPI → PCIe → virtio-blk pipeline (see Phase 4).
 9. `pic_init`, `ioapic_init`, `lapic_init`, `cpu_bootothers(g_kernel_root_cr3)` bring up the 8259 in masked mode, program the IOAPIC, activate the LAPIC, and start APs. APs land in `cpu_idle_loop()` (`cli; hlt`).
 10. 12 terminals are allocated (one page each), the display backend is selected from `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints `[kernel64] hello`.
-11. IDT initialization registers every exception handler with `OnKernelException`, the keyboard and console-input subsystems are initialized, and ISA IRQs for timer and keyboard are routed through the IOAPIC when SMP is active.
+11. IDT initialization registers every exception handler with `on_kernel_exception`, the keyboard and console-input subsystems are initialized, and ISA IRQs for timer and keyboard are routed through the IOAPIC when SMP is active.
 12. Task tables (`Process[32]`, `Thread[32]`) are allocated from page frames, a kernel process is created, and a kernel idle thread is created.
-13. `LoadUserProgram("/bin/init")` loads the shell ELF from the initrd (`ET_EXEC`, `PT_LOAD` segments only, SysV-shaped initial stack).
-14. `SetTimer(1000)` sets the 1000 Hz PIT tick, `startMultiTask(init_thread)` enters the first user process via `iretq`.
+13. `LoadUserProgram("/bin/init")` loads the first user program from the initrd (`ET_EXEC`, `PT_LOAD` segments only, SysV-shaped initial stack). `/bin/init` then replaces itself with `/bin/sh` through `exec`.
+14. `set_timer(1000)` sets the 1000 Hz PIT tick, `start_multi_task(init_thread)` enters the first user process via `iretq`.
 
 ### Phase 4 — ACPI, PCIe, and storage probe (inside `platform_init`)
 
@@ -229,9 +267,10 @@ BootInfo.rsdp_physical
         |                   3-page queue (desc/avail/used),
         |                   request scratch page
         v
- RunVirtioBlkSmoke  ---> read sector 0, verify prefix
-                         read sector 1, verify prefix
-                         -> "virtio-blk smoke ok"
+ BlockDevice(read + stub write) ---> read sector 0, verify prefix
+        |                          read sector 1, verify prefix
+        v                          -> "virtio-blk smoke ok"
+ RunVirtioBlkSmoke
 ```
 
 On Limine, missing or malformed ACPI tables are a hard error. On BIOS, the legacy MP-table fallback (`UseLegacyMpFallback`) is still accepted to keep the compatibility path viable.
@@ -301,7 +340,7 @@ It also produces the boot payloads that feed those images:
 - `kernel_limine.elf`
 - `initrd.cpio`
 - `virtio-test-disk.raw`
-- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`
+- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`, `user/copycheck.elf`
 
 The ISO stages these files:
 
@@ -321,7 +360,7 @@ The BIOS raw image keeps a fixed LBA layout generated at configure time and emit
 
 ## The Shared Kernel Contract: `BootInfo`
 
-`src/kernel/bootinfo.h` defines the only boot contract the kernel consumes.
+[../src/kernel/handoff/boot_info.hpp](../src/kernel/handoff/boot_info.hpp) defines the only boot contract the kernel consumes.
 
 Important properties:
 
@@ -347,7 +386,7 @@ Fields include:
 - `Rgb`
 - `Bgr`
 
-The kernel immediately calls `OwnBootInfo()` on entry. That function deep-copies:
+The kernel immediately calls `own_boot_info()` on entry. That function deep-copies:
 
 - the header
 - the memory map
@@ -356,11 +395,11 @@ The kernel immediately calls `OwnBootInfo()` on entry. That function deep-copies
 - command line
 - per-module names
 
-into kernel-owned BSS storage. That matters because bootloader staging memory is not a stable ownership boundary. Once `OwnBootInfo()` returns, the rest of the kernel no longer depends on bootloader-owned metadata buffers.
+into kernel-owned BSS storage. That matters because bootloader staging memory is not a stable ownership boundary. Once `own_boot_info()` returns, the rest of the kernel no longer depends on bootloader-owned metadata buffers.
 
 ## Early Physical Layout Shared By Boot Paths
 
-`src/kernel/memory_layout.h` and `src/kernel/memory_layout.inc` hold the fixed early-boot addresses used by the BIOS loader and mirrored by the Limine shim.
+[../src/kernel/handoff/memory_layout.h](../src/kernel/handoff/memory_layout.h) and [../src/kernel/handoff/memory_layout.inc](../src/kernel/handoff/memory_layout.inc) hold the fixed early-boot addresses used by the BIOS loader and mirrored by the Limine shim.
 
 Key addresses:
 
@@ -376,7 +415,7 @@ Key addresses:
 | `0x100000` | low-half kernel link/load base |
 | `0x20000-0x5FFFF` | page-frame bitmap |
 
-The modern path deliberately mirrors this layout before entering `KernelMain`. That is not nostalgia. It is a compatibility technique that keeps the shared kernel core bootloader-agnostic while the project still uses a low identity-linked kernel.
+The modern path deliberately mirrors this layout before entering `kernel_main`. That is not nostalgia. It is a compatibility technique that keeps the shared kernel core bootloader-agnostic while the project still uses a low identity-linked kernel.
 
 ## Modern Default Boot Path: Limine + UEFI
 
@@ -459,7 +498,7 @@ This function patches the active page tables so the first boot-critical physical
 - PML3 slot `0`
 - PML2 2 MiB large-page entries
 
-The goal is not to keep Limine's page tables forever. The goal is to make the final jump into `KernelMain` valid while preserving the rest of Limine's higher-half environment long enough for the kernel to copy `BootInfo` and build its own page tables.
+The goal is not to keep Limine's page tables forever. The goal is to make the final jump into `kernel_main` valid while preserving the rest of Limine's higher-half environment long enough for the kernel to copy `BootInfo` and build its own page tables.
 
 ### Building The Final `BootInfo`
 
@@ -486,7 +525,7 @@ The final transfer happens through `limine_enter_kernel()`, which:
 - switches to the low boot CPU page as the stack
 - passes `RDI = BootInfo*`
 - passes `RSI = cpu*`
-- calls the shared low-half `KernelMain`
+- calls the shared low-half `kernel_main`
 
 ## Legacy BIOS Compatibility Path
 
@@ -498,8 +537,8 @@ Flow:
 2. The MBR stage loads the first sector of `kernel16.bin`.
 3. `kernel16.bin` finishes loading itself through CHS reads.
 4. The loader enables A20, checks long-mode support, reads the kernel and initrd through EDD packet reads, captures the BIOS cursor, collects the E820 memory map, and scans the standard BIOS ACPI search ranges for a valid RSDP.
-5. `src/boot/long64.asm` builds temporary page tables, enables `LME` and `NXE`, and jumps into long mode.
-6. The 64-bit loader expands `kernel_bios.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `KernelMain`.
+5. `src/boot/bios/long64.asm` builds temporary page tables, enables `LME` and `NXE`, and jumps into long mode.
+6. The 64-bit loader expands `kernel_bios.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `kernel_main`.
 
 The BIOS path still exists for three reasons:
 
@@ -511,12 +550,12 @@ It is no longer the default workflow.
 
 ## Kernel Initialization After Handoff
 
-`KernelMain()` in `src/kernel/kernel.cpp` is the shared kernel entry for both paths.
+`kernel_main()` in [../src/kernel/core/kernel_main.cpp](../src/kernel/core/kernel_main.cpp) is the shared kernel entry for both paths. It is now high-level boot orchestration only: trap routing lives in `core/trap_dispatch.cpp`, IRQ flow in `core/irq_dispatch.cpp`, fault policy in `core/fault.cpp`, syscall dispatch in `syscall/dispatch.cpp`, scheduler handoff in `sched/scheduler.cpp`, platform sequencing in `platform/init.cpp`, and device-specific behavior under `drivers/`.
 
 The high-level sequence is:
 
 1. serial hello
-2. `OwnBootInfo()`
+2. `own_boot_info()`
 3. boot CPU initialization
 4. physical page-frame allocator initialization
 5. reserve boot modules and framebuffer ranges
@@ -534,7 +573,7 @@ The high-level sequence is:
 17. load user programs from initrd
 18. start multitasking
 
-The important architectural point is that the boot frontends stop mattering almost immediately after `OwnBootInfo()`. After that point, the system is running on kernel-owned page tables and kernel-owned copies of boot metadata.
+The important architectural point is that the boot frontends stop mattering almost immediately after `own_boot_info()`. After that point, the system is running on kernel-owned page tables and kernel-owned copies of boot metadata.
 
 ## Console And Display Architecture
 
@@ -542,7 +581,7 @@ Milestone 3 introduced a real split between the logical terminal model and the p
 
 ### Terminal Model
 
-`src/kernel/terminal.cpp` still owns the text-cell model:
+[../src/kernel/console/terminal.cpp](../src/kernel/console/terminal.cpp) owns the text-cell model:
 
 - fixed 80x25 grid
 - cursor tracking
@@ -553,7 +592,7 @@ The terminal remains fixed-size on both boot paths. That is intentional. It keep
 
 ### Console Input Path
 
-`src/kernel/console_input.cpp` owns the shared canonical input path used by the shell.
+[../src/kernel/console/console_input.cpp](../src/kernel/console/console_input.cpp) owns the shared canonical input path used by the shell.
 
 - decoded keyboard input and serial RX feed the same pending line buffer
 - backspace edits the pending line locally before it is committed
@@ -564,7 +603,7 @@ This keeps manual keyboard sessions and serial-driven automation on one kernel-v
 
 ### Display Backends
 
-`src/kernel/display.cpp` adds two presentation backends:
+[../src/kernel/drivers/display/text_display.cpp](../src/kernel/drivers/display/text_display.cpp) adds two presentation backends:
 
 - `VgaTextDisplay`
 - `FramebufferTextDisplay`
@@ -594,7 +633,7 @@ The full-redraw policy is deliberate. It keeps the first framebuffer path easy t
 
 ### Physical Page Allocation
 
-`PageFrameContainer` owns the physical page allocator. It is bitmap-based and now seeds itself directly from `std::span<const BootMemoryRegion>` rather than an older BIOS-specific structure.
+`PageFrameContainer` in [../src/kernel/mm/page_frame.cpp](../src/kernel/mm/page_frame.cpp) owns the physical page allocator. It is bitmap-based and now seeds itself directly from `std::span<const BootMemoryRegion>` rather than an older BIOS-specific structure.
 
 The allocator:
 
@@ -609,7 +648,7 @@ That last capability matters on the modern path because initrd modules and frame
 
 ### Virtual Memory
 
-`VirtualMemory` manages kernel and user mappings. The kernel still uses low identity mappings, but user mappings now live in a dedicated PML4 slot:
+`VirtualMemory` in [../src/kernel/mm/virtual_memory.cpp](../src/kernel/mm/virtual_memory.cpp) manages kernel and user mappings. The kernel still uses low identity mappings, but user mappings now live in a dedicated PML4 slot:
 
 - `kUserPml4Index = 1`
 - `kUserSpaceBase = 0x0000008000000000`
@@ -718,7 +757,7 @@ Each user process gets:
 - user ELF segments mapped in user slot `1`
 - a 64 KiB user stack with a guard page below it
 
-The kernel validates user pointers through page-table translation. It does not rely on deliberate kernel faults as a normal syscall-copy mechanism.
+The kernel validates user pointers through `mm/user_copy.cpp` before copying syscall payloads. That boundary rejects null, non-canonical, overflowing, and out-of-user-range addresses. It also requires user-accessible mappings for reads and user-writable mappings for kernel-to-user writes. The kernel does not rely on deliberate kernel faults as a normal syscall-copy mechanism.
 
 ### Initrd And ELF Loader
 
@@ -726,12 +765,13 @@ The initrd is a `cpio newc` archive built from `src/user`.
 
 Current user programs:
 
-- `/bin/init` — same binary as `/bin/sh` (the shell)
+- `/bin/init` — minimal init process that `exec`s `/bin/sh`
 - `/bin/sh` — the ring-3 shell built from [`src/user/programs/sh.cpp`](../src/user/programs/sh.cpp)
-- `/bin/yield` — cooperative yield probe built from [`src/user/programs/yield.c`](../src/user/programs/yield.c)
-- `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.c`](../src/user/programs/fault.c)
+- `/bin/yield` — cooperative yield probe built from [`src/user/programs/yield.cpp`](../src/user/programs/yield.cpp)
+- `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.cpp`](../src/user/programs/fault.cpp)
+- `/bin/copycheck` — negative syscall-copy regression probe built from [`src/user/programs/copycheck.cpp`](../src/user/programs/copycheck.cpp)
 
-The shell ELF is staged into the initrd as both `/bin/init` and `/bin/sh` (see [`src/user/CMakeLists.txt`](../src/user/CMakeLists.txt)), so the kernel keeps its fixed `/bin/init` boot contract while still exposing a normal shell path for later `exec` or child launch. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
+The kernel keeps its fixed `/bin/init` boot contract, but init is now a real first user process rather than an alias for the shell. It immediately calls `exec("/bin/sh")`, so later init responsibilities can grow without changing the kernel boot path. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
 
 This userland is still intentionally a vertical slice, not a general Unix process-launch environment. The kernel can boot the shell, `spawn(path)` a child initrd program for foreground commands, `waitpid(pid)` for child completion, and `exec(path)` to replace the current image in place. There is still no filesystem-backed `exec`, no `fork`, and no arguments/environment yet.
 
@@ -758,7 +798,7 @@ The kernel now:
 - uses `MADT` as the primary source of CPU, LAPIC, IOAPIC, and IRQ-override topology
 - uses `MCFG` to discover PCIe ECAM ranges
 - enumerates PCIe devices and records BAR information
-- probes a modern `virtio-blk` PCI device and validates raw sector reads during boot
+- probes a modern `virtio-blk` PCI device, publishes it through a minimal `BlockDevice` facade with implemented reads and stubbed writes, and validates raw sector reads during boot
 
 On the default `q35` targets, both boot paths now discover four CPUs from ACPI and successfully bring up the APs.
 
@@ -839,12 +879,12 @@ Major constraints that remain:
 - the framebuffer path is a text presenter, not a graphics stack
 - userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
 - syscalls still use `int 0x80`, not `SYSCALL`/`SYSRET`
-- the first `virtio-blk` path is polling-only and smoke-oriented rather than a general block layer
+- the first `virtio-blk` path is polling-only and smoke-oriented, with only a minimal block-device facade rather than a general block layer
 - MSI / MSI-X, `virtio-net`, NVMe, and real filesystem-backed storage are still follow-on work
 
 The next major work is therefore not another boot or shell bring-up refactor. It is storage, networking, and richer filesystem-backed userland on top of the current platform and operator shell base:
 
-- block-device abstraction beyond the current `virtio-blk` smoke path
+- block-device growth beyond the current polling `virtio-blk` facade
 - filesystem-backed loading instead of initrd-only demos
 - `virtio-net` and later NIC work
 - timer / interrupt refinements such as MSI / MSI-X and HPET follow-on support

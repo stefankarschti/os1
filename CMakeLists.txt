@@ -48,7 +48,7 @@ set(OS1_ISO_STAGE_DIR "${CMAKE_BINARY_DIR}/iso-root")
 
 set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
-set(OS1_CPUSTART_BIN "${OS1_ARTIFACT_DIR}/cpustart.bin")
+set(OS1_CPU_START_BIN "${OS1_ARTIFACT_DIR}/cpu_start.bin")
 set(OS1_KERNEL_BIOS_ELF "${OS1_ARTIFACT_DIR}/kernel_bios.elf")
 set(OS1_KERNEL_LIMINE_ELF "${OS1_ARTIFACT_DIR}/kernel_limine.elf")
 set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
@@ -67,7 +67,7 @@ set(OS1_SMOKE_SPAWN_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-spawn-bios.log")
 set(OS1_SMOKE_EXEC_LOG "${OS1_ARTIFACT_DIR}/smoke-exec.log")
 set(OS1_SMOKE_EXEC_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-exec-bios.log")
 set(OS1_DUMP_ASM "${OS1_ARTIFACT_DIR}/dump.asm")
-set(OS1_CPUSTART_DUMP "${OS1_ARTIFACT_DIR}/cpustart.asm")
+set(OS1_CPU_START_DUMP "${OS1_ARTIFACT_DIR}/cpu_start.asm")
 
 set(OS1_LIMINE_DIR "${PROJECT_SOURCE_DIR}/third_party/limine/v11.4.0")
 set(OS1_LIMINE_BOOTX64 "${OS1_LIMINE_DIR}/BOOTX64.EFI")
@@ -454,6 +454,7 @@ set(OS1_SHELL_SPAWN_INPUT_EVENTS
   "shell prompt ready::yield\\n"
   "shell spawn yield ok pid=::fault\\n"
   "shell spawn fault ok pid=::nope\\n"
+  "unknown command: nope::copycheck\\n"
 )
 
 set(OS1_SHELL_EXEC_INPUT_EVENTS
@@ -558,6 +559,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd /bin/sh size="
     "initrd /bin/yield size="
     "initrd /bin/fault size="
+    "initrd /bin/copycheck size="
     "idle thread online"
   )
 
@@ -603,6 +605,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[user/fault] boom"
     "shell spawn fault ok pid="
     "unknown command: nope"
+    "[user/copycheck] ok"
+    "shell spawn copycheck ok pid="
     "idle thread online"
   )
 
@@ -747,6 +751,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd /bin/sh size="
     "initrd /bin/yield size="
     "initrd /bin/fault size="
+    "initrd /bin/copycheck size="
     "idle thread online"
   )
 
@@ -790,6 +795,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[user/fault] boom"
     "shell spawn fault ok pid="
     "unknown command: nope"
+    "[user/copycheck] ok"
+    "shell spawn copycheck ok pid="
     "idle thread online"
   )
 

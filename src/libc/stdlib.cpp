@@ -1,12 +1,12 @@
 #include "stdlib.h"
 
-char* utoa(uint64_t value, char *str, int base /*= 10*/, int minimum_digits /*= 1*/)
+char* utoa(uint64_t value, char* str, int base /*= 10*/, int minimum_digits /*= 1*/)
 {
-    char * rc;
-    char * ptr;
-    char * low;
+    char* rc;
+    char* ptr;
+    char* low;
     // Check for supported base.
-    if ( base < 2 || base > 36 )
+    if(base < 2 || base > 36)
     {
         *str = '\0';
         return str;
@@ -23,15 +23,16 @@ char* utoa(uint64_t value, char *str, int base /*= 10*/, int minimum_digits /*= 
     do
     {
         // Modulo is negative for negative value. This trick makes abs() unnecessary.
-        *ptr++ = "zyxwvutsrqponmlkjihgfedcba9876543210123456789abcdefghijklmnopqrstuvwxyz"[35 + value % base];
+        *ptr++ =
+            "zyxwvutsrqponmlkjihgfedcba9876543210123456789abcdefghijklmnopqrstuvwxyz"[35 +
+                                                                                      value % base];
         value /= base;
-		minimum_digits--;
-	}
-	while(value || (minimum_digits > 0));
+        minimum_digits--;
+    } while(value || (minimum_digits > 0));
     // Terminating the string.
     *ptr-- = '\0';
     // Invert the numbers.
-    while ( low < ptr )
+    while(low < ptr)
     {
         char tmp = *low;
         *low++ = *ptr;
@@ -39,4 +40,3 @@ char* utoa(uint64_t value, char *str, int base /*= 10*/, int minimum_digits /*= 
     }
     return rc;
 }
-

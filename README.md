@@ -1,8 +1,10 @@
 # os1
 
-`os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status and a full system diagram in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md), the longer-term direction in [GOALS.md](GOALS.md), a code-grounded project review in [doc/2026-04-23-review.md](doc/2026-04-23-review.md), and the completed shell/operator milestone captured in [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md).
+`os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status and a full system diagram in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md), the longer-term direction in [GOALS.md](GOALS.md), the curated external standards and specification index in [doc/REFERENCES.md](doc/REFERENCES.md), a code-grounded project review in [doc/2026-04-23-review.md](doc/2026-04-23-review.md), the completed shell/operator milestone captured in [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), and the 2026 source-tree refactor summary in [doc/2026-04-26-source-tree-refactor.md](doc/2026-04-26-source-tree-refactor.md).
 
-Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, boots directly into a ring-3 shell, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` device, validates raw-sector reads from a generated test disk, and lands at a serial-drivable interactive shell with structured observability and initrd-backed command execution.
+Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, starts a small `/bin/init` that `exec`s `/bin/sh`, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` block device, validates raw-sector reads from a generated test disk, and lands at a serial-drivable interactive shell with structured observability and initrd-backed command execution.
+
+In the source tree, the two boot frontends are explicit peers under `src/boot/`: the legacy raw-image BIOS path lives in `src/boot/bios/`, and the modern UEFI shim lives in `src/boot/limine/`. The kernel tree is now split by ownership rather than by bring-up history: `src/kernel/core/` owns orchestration and trap flow, `handoff/` owns the boot contract, `mm/` owns physical/virtual memory, `proc/` and `sched/` split process/thread lifecycle from scheduling policy, `console/` owns terminal streams, `drivers/` owns hardware drivers, `platform/` owns machine discovery, and `storage/`, `vfs/`, and `security/` mark the intended growth seams. The detailed source-structure contract now lives in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md).
 
 ## Prerequisites
 
@@ -201,8 +203,8 @@ The build writes outputs under `build/artifacts/`:
 - `kernel16.bin` — BIOS stage-1 loader with E820, EDD reads, long-mode entry, and ELF expansion
 - `kernel_bios.elf` — shared low-half kernel core used by the BIOS path and loaded as a module by the Limine path
 - `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state and enters the shared kernel
-- `cpustart.bin` — AP trampoline blob used for debugging / disassembly
-- `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/sh`, `/bin/yield`, and `/bin/fault`
+- `cpu_start.bin` — AP trampoline blob used for debugging / disassembly
+- `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/sh`, `/bin/yield`, `/bin/fault`, and `/bin/copycheck`
 - `virtio-test-disk.raw` — generated raw disk image used to validate the `virtio-blk` path during boot and smoke tests
 - `user/*.elf` — statically linked user-space ELF inputs used to build the initrd
 - `os1.iso` — default UEFI-only Limine ISO
@@ -213,7 +215,6 @@ The build writes outputs under `build/artifacts/`:
 - `smoke-observe.log` / `smoke-observe-bios.log` — captured observability smoke serial logs
 - `smoke-spawn.log` / `smoke-spawn-bios.log` — captured child-launch smoke serial logs
 - `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
-- `dump.asm` / `cpustart.asm` — disassembly outputs
 
 The helper wrapper scripts remain available as thin CMake frontends:
 
@@ -222,7 +223,9 @@ The helper wrapper scripts remain available as thin CMake frontends:
 ## Documentation
 
 - [Goals](GOALS.md) — project direction and design principles
+- [References](doc/REFERENCES.md) — central index of external standards, vendor manuals, protocol RFCs, and public specifications used by the project
 - [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture; includes a system diagram and end-to-end workflow
+- [Kernel Source Tree Reorganization Plan 2026-04-27](doc/2026-04-27-kernel-source-tree-reorganization-plan.md) — plan and implementation checklist for the current kernel source layout
 - [Review 2026-04-23](doc/2026-04-23-review.md) — current code-grounded project review (recommended entry point for readers)
 - [Review 2026-04-19](doc/2026-04-19-review.md) — historical review
 - [Review 2026-04-21](doc/2026-04-21-review.md) — historical review

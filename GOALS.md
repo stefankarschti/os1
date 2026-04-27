@@ -223,7 +223,7 @@ Later modularization is acceptable where it clearly improves structure, but earl
 
 ### Kernel and userland separation
 
-The project has already crossed the first protected-userland threshold: it boots directly into a ring-3 shell staged as both `/bin/init` and `/bin/sh`, can load statically linked user ELF programs from an initrd, services a small but real syscall ABI, and can kill or reap a faulting child process without panicking the kernel. The remaining goal is to deepen that foundation into a more complete operating system model.
+The project has already crossed the first protected-userland threshold: it boots through a minimal `/bin/init` that immediately `exec`s `/bin/sh`, can load statically linked user ELF programs from an initrd, services a small but real syscall ABI, and can kill or reap a faulting child process without panicking the kernel. The remaining goal is to deepen that foundation into a more complete operating system model.
 
 Required eventual capabilities:
 
@@ -413,9 +413,9 @@ The virtio-blk probe in Milestone 4 is a smoke path, not a block layer. Mileston
 
 Implementation notes grounded in current source:
 
-- promote `VirtioBlkReadSector` in [src/kernel/platform.cpp](src/kernel/platform.cpp) from a polling one-shot into a request-slab behind a `BlockDevice` interface
+- grow the current `BlockDevice` facade in [src/kernel/storage/block_device.hpp](src/kernel/storage/block_device.hpp) and [src/kernel/drivers/block/virtio_blk.cpp](src/kernel/drivers/block/virtio_blk.cpp) from polling smoke coverage into request ownership, completion, errors, and eventually write support
 - move `virtio-blk` to MSI/MSI-X *before* the filesystem layer is written on top
-- add argv/envp handoff in [`LoadUserElf`](src/kernel/kernel.cpp) so a real `init` can evolve apart from `/bin/sh`
+- add argv/envp handoff in the initrd-backed loader under [src/kernel/proc/user_program.cpp](src/kernel/proc/user_program.cpp) so a real `init` can evolve apart from `/bin/sh`
 
 ### Milestone E: Networking foundation
 
@@ -442,10 +442,10 @@ Implementation notes grounded in current source:
 
 Some earlier open questions have since been resolved in source or in the milestone designs; they are listed here for the record rather than as open work:
 
-- **Resolved:** the kernel-facing boot contract is a single versioned `BootInfo` block normalized by each boot source (see [M1](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) and [`src/kernel/bootinfo.h`](src/kernel/bootinfo.h)).
+- **Resolved:** the kernel-facing boot contract is a single versioned `BootInfo` block normalized by each boot source (see [M1](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) and [src/kernel/handoff/boot_info.hpp](src/kernel/handoff/boot_info.hpp)).
 - **Resolved:** the modern default boot path is Limine plus UEFI, while BIOS remains available during the transition ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md)).
-- **Resolved:** the first protected-userland ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with `int 0x80` syscalls matching the System V AMD64 register layout and now covering console I/O, observability, and initrd-backed process control ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [`src/kernel/syscall_abi.h`](src/kernel/syscall_abi.h), [`src/uapi/os1/observe.h`](src/uapi/os1/observe.h), [`src/user/`](src/user/)).
-- **Resolved:** the first operator environment is an initrd-backed ring-3 shell staged as both `/bin/init` and `/bin/sh`, scriptable through serial input and backed by explicit kernel observability snapshots rather than parsed boot logs ([M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)).
+- **Resolved:** the first protected-userland ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with `int 0x80` syscalls matching the System V AMD64 register layout and now covering console I/O, observability, and initrd-backed process control ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [src/uapi/os1/syscall_numbers.h](src/uapi/os1/syscall_numbers.h), [src/kernel/syscall/abi.hpp](src/kernel/syscall/abi.hpp), [src/uapi/os1/observe.h](src/uapi/os1/observe.h), [src/user/](src/user/)).
+- **Resolved:** the first operator environment is an initrd-backed ring-3 shell entered through a minimal `/bin/init` that `exec`s `/bin/sh`, scriptable through serial input and backed by explicit kernel observability snapshots rather than parsed boot logs ([M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)).
 
 The following are not fully decided yet and should be revisited explicitly:
 
