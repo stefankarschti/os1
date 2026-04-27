@@ -4,7 +4,7 @@
 
 namespace
 {
-Process* FindChildProcess(Process* parent, uint64_t pid, bool zombie_only)
+Process* find_child_process(Process* parent, uint64_t pid, bool zombie_only)
 {
     if(nullptr == parent)
     {
@@ -30,7 +30,7 @@ Process* FindChildProcess(Process* parent, uint64_t pid, bool zombie_only)
     return nullptr;
 }
 
-bool ProcessHasAnyThreads(const Process* process)
+bool process_has_any_threads(const Process* process)
 {
     if(nullptr == process)
     {
@@ -60,10 +60,10 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
         return true;
     }
 
-    Process* child = FindChildProcess(thread->process, pid, true);
+    Process* child = find_child_process(thread->process, pid, true);
     if(nullptr != child)
     {
-        if(ProcessHasAnyThreads(child))
+        if(process_has_any_threads(child))
         {
             return false;
         }
@@ -83,7 +83,7 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
         return true;
     }
 
-    if(nullptr != FindChildProcess(thread->process, pid, false))
+    if(nullptr != find_child_process(thread->process, pid, false))
     {
         return false;
     }

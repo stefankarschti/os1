@@ -26,6 +26,6 @@ bool probe_devices(VirtualMemory& kernel_vm)
     {
         debug("virtio-blk: no device present")();
     }
-    g_platform.block_device = VirtioBlkBlockDevice();
+    g_platform.block_device = virtio_blk_block_device();
     return run_virtio_blk_smoke();
 }

@@ -1,7 +1,7 @@
 // Minimal halt loop used after unrecoverable kernel failures.
 #include "core/panic.hpp"
 
-[[noreturn]] void HaltForever()
+[[noreturn]] void halt_forever()
 {
     for(;;)
     {

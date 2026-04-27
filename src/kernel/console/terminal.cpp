@@ -9,7 +9,7 @@
 
 namespace
 {
-[[nodiscard]] inline bool IsPrintableAscii(char c)
+[[nodiscard]] inline bool is_printable_ascii(char c)
 {
     return c >= ' ';
 }
@@ -134,7 +134,7 @@ void Terminal::read_line(char* line)
         char c = ascii_char_;
         ascii_char_ = 0;
 
-        if(IsPrintableAscii(c))
+        if(is_printable_ascii(c))
         {
             *p++ = c;
         }
@@ -150,7 +150,7 @@ void Terminal::key_press(char ascii, uint16_t scancode)
 {
     (void)scancode;
     ascii_char_ = ascii;
-    if('\n' == ascii || IsPrintableAscii(ascii))
+    if('\n' == ascii || is_printable_ascii(ascii))
         write(ascii);
 }
 
@@ -171,7 +171,7 @@ void Terminal::internal_write(char c)
             buffer_[row_ * width_ + col_] = 0x0720;
         }
     }
-    else if(IsPrintableAscii(c))
+    else if(is_printable_ascii(c))
     {
         buffer_[row_ * width_ + col_] = c + (7 << 8);
         col_++;

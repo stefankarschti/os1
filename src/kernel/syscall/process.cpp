@@ -61,7 +61,7 @@ long sys_spawn(const ProcessSyscallContext& context, uint64_t user_path)
     }
 
     Thread* child =
-        LoadUserProgram(*context.frames, context.kernel_root_cr3, path, thread->process);
+        load_user_program(*context.frames, context.kernel_root_cr3, path, thread->process);
     if((nullptr == child) || (nullptr == child->process))
     {
         return -1;

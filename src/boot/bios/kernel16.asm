@@ -259,7 +259,7 @@ loader_full_main16:
 
 	; switch to long mode
 	mov edi, memory_pages
-	jmp SwitchToLongMode
+	jmp switch_to_long_mode
 	
 no_long_mode:
 	mov si, str_no_long_mode

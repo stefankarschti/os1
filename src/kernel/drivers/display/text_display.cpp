@@ -10,7 +10,7 @@
 namespace
 {
 constexpr uint32_t kFramebufferCellWidth = 8;
-constexpr uint32_t kFramebufferCellHeight = 16;
+constexpr uint32_t kFramebufferCellHeight = 12;
 constexpr uint32_t kFramebufferBackground = 0x00000000u;
 constexpr uint16_t kVgaBlankCell = 0x0720;
 constexpr uint32_t kVgaPalette[16] = {

@@ -9,7 +9,7 @@
 class PageFrameContainer;
 
 // Return the byte length of a boot framebuffer from pitch and height metadata.
-[[nodiscard]] uint64_t BootFramebufferLengthBytes(const BootFramebufferInfo& framebuffer);
+[[nodiscard]] uint64_t boot_framebuffer_length_bytes(const BootFramebufferInfo& framebuffer);
 
 // Reserve a clamped physical range in the page-frame allocator.
 void reserve_tracked_physical_range(PageFrameContainer& frames,

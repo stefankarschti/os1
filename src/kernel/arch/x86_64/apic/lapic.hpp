@@ -65,10 +65,10 @@ extern "C"
     void lapic_eoi(void);
 
     // Handle local APIC error interrupt
-    void lapic_errintr(void);
+    void lapic_err_intr(void);
 
     // Send a message to start an Application Processor (AP) running at addr.
-    void lapic_startcpu(uint8_t apicid, uint32_t addr);
+    void lapic_start_cpu(uint8_t apicid, uint32_t addr);
 
 #ifdef __cplusplus
 }

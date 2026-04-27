@@ -8,4 +8,4 @@
 struct Thread;
 
 // Main IRQ path called by trap dispatch for vectors T_IRQ0 through T_IRQ0+15.
-Thread* HandleIrq(TrapFrame* frame);
+Thread* handle_irq(TrapFrame* frame);

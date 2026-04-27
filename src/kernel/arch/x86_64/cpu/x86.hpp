@@ -114,7 +114,7 @@ static inline uint32_t rcr4(void)
     return cr4;
 }
 
-static inline void tlbflush(void)
+static inline void tlb_flush(void)
 {
     uint32_t cr3;
     __asm __volatile("movl %%cr3,%0" : "=r"(cr3));
@@ -165,13 +165,13 @@ static inline uint32_t xchg(volatile uint32_t* addr, uint32_t newval)
 }
 
 // Atomically add incr to *addr.
-static inline void lockadd(volatile int32_t* addr, int32_t incr)
+static inline void lock_add(volatile int32_t* addr, int32_t incr)
 {
     asm volatile("lock; addl %1,%0" : "+m"(*addr) : "r"(incr) : "cc");
 }
 
 // Atomically add incr to *addr and return true if the result is zero.
-static inline uint8_t lockaddz(volatile int32_t* addr, int32_t incr)
+static inline uint8_t lock_add_zero(volatile int32_t* addr, int32_t incr)
 {
     uint8_t zero;
     asm volatile("lock; addl %2,%0; setzb %1" : "+m"(*addr), "=rm"(zero) : "r"(incr) : "cc");

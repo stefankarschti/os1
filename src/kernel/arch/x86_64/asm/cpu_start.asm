@@ -56,11 +56,11 @@ cpu_start_begin:
 
 	; Load the trampoline-local GDT so AP startup does not depend on whatever
 	; low-memory bootstrap state the active boot frontend happened to leave at 0.
-	lgdt [AP_TRAMPOLINE_ADDRESS + GdtPointer - cpu_start_begin]
-	jmp CODE_SEG:(AP_TRAMPOLINE_ADDRESS + LongMode - cpu_start_begin)         ; Load CS with 64 bit segment and flush the instruction cache
+	lgdt [AP_TRAMPOLINE_ADDRESS + gdt_pointer - cpu_start_begin]
+	jmp CODE_SEG:(AP_TRAMPOLINE_ADDRESS + long_mode - cpu_start_begin)         ; Load CS with 64 bit segment and flush the instruction cache
 
 [BITS 64]
-LongMode:
+long_mode:
 	mov ax, DATA_SEG
 	mov ds, ax
 	mov es, ax
@@ -81,15 +81,15 @@ LongMode:
 	jmp .die
 
 align 8
-GdtTable:
+gdt_table:
 	dq 0x0000000000000000
 	dq 0x00209A0000000000
 	dq 0x0000920000000000
 
 align 4
-GdtPointer:
-	dw GdtPointer - GdtTable - 1
-	dd AP_TRAMPOLINE_ADDRESS + GdtTable - cpu_start_begin
+gdt_pointer:
+	dw gdt_pointer - gdt_table - 1
+	dd AP_TRAMPOLINE_ADDRESS + gdt_table - cpu_start_begin
 
 global cpu_start_end
 cpu_start_end:

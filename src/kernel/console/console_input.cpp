@@ -27,7 +27,7 @@ size_t g_completed_head = 0;
 size_t g_completed_tail = 0;
 size_t g_completed_count = 0;
 
-void EchoByte(char c)
+void echo_byte(char c)
 {
     debug.write(c);
     if(active_terminal)
@@ -36,7 +36,7 @@ void EchoByte(char c)
     }
 }
 
-void EchoBackspace()
+void echo_backspace()
 {
     debug.write('\b');
     debug.write(' ');
@@ -47,7 +47,7 @@ void EchoBackspace()
     }
 }
 
-void CommitPendingLine()
+void commit_pending_line()
 {
     if(g_completed_count == kConsoleInputCompletedLineCapacity)
     {
@@ -64,7 +64,7 @@ void CommitPendingLine()
     g_pending_length = 0;
 }
 
-void HandleInputChar(char ascii)
+void handle_input_char(char ascii)
 {
     if('\r' == ascii)
     {
@@ -80,15 +80,15 @@ void HandleInputChar(char ascii)
         if(g_pending_length > 0)
         {
             --g_pending_length;
-            EchoBackspace();
+            echo_backspace();
         }
         return;
     }
 
     if('\n' == ascii)
     {
-        EchoByte('\n');
-        CommitPendingLine();
+        echo_byte('\n');
+        commit_pending_line();
         return;
     }
 
@@ -104,7 +104,7 @@ void HandleInputChar(char ascii)
     }
 
     g_pending_line[g_pending_length++] = ascii;
-    EchoByte(ascii);
+    echo_byte(ascii);
 }
 }  // namespace
 
@@ -121,14 +121,14 @@ void console_input_initialize()
 
 void console_input_on_keyboard_char(char ascii)
 {
-    HandleInputChar(ascii);
+    handle_input_char(ascii);
 }
 
 void console_input_poll_serial()
 {
     while((inb(kSerialLineStatusPort) & kSerialDataReady) != 0)
     {
-        HandleInputChar((char)inb(kSerialPortBase));
+        handle_input_char((char)inb(kSerialPortBase));
     }
 }
 

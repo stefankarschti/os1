@@ -136,32 +136,32 @@ struct VirtioBlkState
 constinit VirtioBlkState g_virtio_blk{};
 BlockDevice g_virtio_blk_device{};
 
-[[nodiscard]] inline uint64_t AlignDown(uint64_t value, uint64_t alignment)
+[[nodiscard]] inline uint64_t align_down(uint64_t value, uint64_t alignment)
 {
     return value & ~(alignment - 1);
 }
 
-[[nodiscard]] inline uint64_t AlignUp(uint64_t value, uint64_t alignment)
+[[nodiscard]] inline uint64_t align_up(uint64_t value, uint64_t alignment)
 {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-[[nodiscard]] uint16_t MinU16(uint16_t left, uint16_t right)
+[[nodiscard]] uint16_t min_u16(uint16_t left, uint16_t right)
 {
     return (left < right) ? left : right;
 }
 
-[[nodiscard]] uint8_t PciRead8(uint64_t config_physical, uint16_t offset)
+[[nodiscard]] uint8_t pci_read8(uint64_t config_physical, uint16_t offset)
 {
     return *reinterpret_cast<volatile uint8_t*>(config_physical + offset);
 }
 
-[[nodiscard]] uint32_t PciRead32(uint64_t config_physical, uint16_t offset)
+[[nodiscard]] uint32_t pci_read32(uint64_t config_physical, uint16_t offset)
 {
     return *reinterpret_cast<volatile uint32_t*>(config_physical + offset);
 }
 
-void WriteDeviceStatus(volatile VirtioPciCommonCfg* common_cfg, uint8_t status)
+void write_device_status(volatile VirtioPciCommonCfg* common_cfg, uint8_t status)
 {
     if(nullptr != common_cfg)
     {
@@ -176,15 +176,15 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
         return true;
     }
 
-    const uint64_t start = AlignDown(physical_start, kPageSize);
-    const uint64_t end = AlignUp(physical_start + length, kPageSize);
+    const uint64_t start = align_down(physical_start, kPageSize);
+    const uint64_t end = align_up(physical_start + length, kPageSize);
     return vm.map_physical(
         start, start, (end - start) / kPageSize, PageFlags::Present | PageFlags::Write);
 }
 
-[[nodiscard]] bool MapBarForCapability(VirtualMemory& kernel_vm,
-                                       const PciDevice& device,
-                                       uint8_t bar_index)
+[[nodiscard]] bool map_bar_for_capability(VirtualMemory& kernel_vm,
+                                          const PciDevice& device,
+                                          uint8_t bar_index)
 {
     if(bar_index >= 6u)
     {
@@ -202,7 +202,7 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
     return map_identity_range(kernel_vm, bar.base, bar.size);
 }
 
-[[nodiscard]] bool VirtioBlkReadSector(uint64_t sector, uint8_t* buffer, size_t length)
+[[nodiscard]] bool virtio_blk_read_sector(uint64_t sector, uint8_t* buffer, size_t length)
 {
     auto& state = g_virtio_blk;
     if(!state.present || (nullptr == buffer) || (length > kVirtioSectorSize))
@@ -263,7 +263,7 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
     return false;
 }
 
-bool ReadBlockDevice(BlockDevice& device, uint64_t sector, void* buffer, size_t sector_count)
+bool read_block_device(BlockDevice& device, uint64_t sector, void* buffer, size_t sector_count)
 {
     if((device.driver_state != &g_virtio_blk) || (nullptr == buffer) || (0 == sector_count))
     {
@@ -273,7 +273,7 @@ bool ReadBlockDevice(BlockDevice& device, uint64_t sector, void* buffer, size_t 
     auto* cursor = static_cast<uint8_t*>(buffer);
     for(size_t i = 0; i < sector_count; ++i)
     {
-        if(!VirtioBlkReadSector(sector + i, cursor + i * kVirtioSectorSize, kVirtioSectorSize))
+        if(!virtio_blk_read_sector(sector + i, cursor + i * kVirtioSectorSize, kVirtioSectorSize))
         {
             return false;
         }
@@ -281,15 +281,15 @@ bool ReadBlockDevice(BlockDevice& device, uint64_t sector, void* buffer, size_t 
     return true;
 }
 
-bool WriteBlockDevice(BlockDevice&, uint64_t, const void*, size_t)
+bool write_block_device(BlockDevice&, uint64_t, const void*, size_t)
 {
     return false;
 }
 
-[[nodiscard]] bool VerifyVirtioBlkPrefix(uint64_t sector, const char* expected_prefix)
+[[nodiscard]] bool verify_virtio_blk_prefix(uint64_t sector, const char* expected_prefix)
 {
     uint8_t buffer[kVirtioSectorSize]{};
-    if(!VirtioBlkReadSector(sector, buffer, sizeof(buffer)))
+    if(!virtio_blk_read_sector(sector, buffer, sizeof(buffer)))
     {
         return false;
     }
@@ -337,21 +337,21 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
         {
             break;
         }
-        const uint8_t cap_id = PciRead8(device.config_physical, capability);
-        const uint8_t cap_next = PciRead8(device.config_physical, capability + 1);
+        const uint8_t cap_id = pci_read8(device.config_physical, capability);
+        const uint8_t cap_next = pci_read8(device.config_physical, capability + 1);
         if(kPciCapabilityVendorSpecific == cap_id)
         {
             const VirtioPciCapability cap{
                 .cap_vndr = cap_id,
                 .cap_next = cap_next,
-                .cap_len = PciRead8(device.config_physical, capability + 2),
-                .cfg_type = PciRead8(device.config_physical, capability + 3),
-                .bar = PciRead8(device.config_physical, capability + 4),
-                .id = PciRead8(device.config_physical, capability + 5),
-                .padding = {PciRead8(device.config_physical, capability + 6),
-                            PciRead8(device.config_physical, capability + 7)},
-                .offset = PciRead32(device.config_physical, capability + 8),
-                .length = PciRead32(device.config_physical, capability + 12),
+                .cap_len = pci_read8(device.config_physical, capability + 2),
+                .cfg_type = pci_read8(device.config_physical, capability + 3),
+                .bar = pci_read8(device.config_physical, capability + 4),
+                .id = pci_read8(device.config_physical, capability + 5),
+                .padding = {pci_read8(device.config_physical, capability + 6),
+                            pci_read8(device.config_physical, capability + 7)},
+                .offset = pci_read32(device.config_physical, capability + 8),
+                .length = pci_read32(device.config_physical, capability + 12),
             };
 
             switch(cap.cfg_type)
@@ -365,7 +365,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
                     notify_bar = cap.bar;
                     notify_offset = cap.offset;
                     notify_length = cap.length;
-                    notify_multiplier = PciRead32(device.config_physical, capability + 16);
+                    notify_multiplier = pci_read32(device.config_physical, capability + 16);
                     break;
                 case kVirtioPciCapDeviceCfg:
                     device_bar = cap.bar;
@@ -394,9 +394,9 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
         debug("virtio-blk: invalid capability lengths")();
         return false;
     }
-    if(!MapBarForCapability(kernel_vm, device, common_bar) ||
-       !MapBarForCapability(kernel_vm, device, notify_bar) ||
-       !MapBarForCapability(kernel_vm, device, device_bar))
+    if(!map_bar_for_capability(kernel_vm, device, common_bar) ||
+       !map_bar_for_capability(kernel_vm, device, notify_bar) ||
+       !map_bar_for_capability(kernel_vm, device, device_bar))
     {
         debug("virtio-blk: BAR mapping failed")();
         return false;
@@ -421,10 +421,11 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
         reinterpret_cast<volatile VirtioBlkConfig*>(device_bar_info.base + device_offset);
     state.notify_multiplier = notify_multiplier;
 
-    WriteDeviceStatus(state.common_cfg, 0);
-    WriteDeviceStatus(state.common_cfg, kVirtioStatusAcknowledge);
-    WriteDeviceStatus(state.common_cfg,
-                      static_cast<uint8_t>(state.common_cfg->device_status | kVirtioStatusDriver));
+    write_device_status(state.common_cfg, 0);
+    write_device_status(state.common_cfg, kVirtioStatusAcknowledge);
+    write_device_status(
+        state.common_cfg,
+        static_cast<uint8_t>(state.common_cfg->device_status | kVirtioStatusDriver));
 
     state.common_cfg->device_feature_select = 0;
     const uint64_t device_features_low = state.common_cfg->device_feature;
@@ -441,7 +442,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
     state.common_cfg->driver_feature = 0;
     state.common_cfg->driver_feature_select = 1;
     state.common_cfg->driver_feature = static_cast<uint32_t>(kVirtioFeatureVersion1 >> 32);
-    WriteDeviceStatus(
+    write_device_status(
         state.common_cfg,
         static_cast<uint8_t>(state.common_cfg->device_status | kVirtioStatusFeaturesOk));
     if(0 == (state.common_cfg->device_status & kVirtioStatusFeaturesOk))
@@ -457,7 +458,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
         debug("virtio-blk: queue too small")();
         return false;
     }
-    state.queue_size = MinU16(device_queue_size, kVirtioBlkQueueTargetSize);
+    state.queue_size = min_u16(device_queue_size, kVirtioBlkQueueTargetSize);
     state.common_cfg->queue_size = state.queue_size;
     state.common_cfg->queue_msix_vector = kVirtioNoVector;
 
@@ -500,7 +501,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
     state.capacity_sectors = state.device_cfg->capacity;
     state.pci_index = static_cast<uint16_t>(device_index);
     state.last_used_idx = state.used->idx;
-    WriteDeviceStatus(
+    write_device_status(
         state.common_cfg,
         static_cast<uint8_t>(state.common_cfg->device_status | kVirtioStatusDriverOk));
     state.present = true;
@@ -514,15 +515,15 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
     g_virtio_blk_device.sector_count = state.capacity_sectors;
     g_virtio_blk_device.sector_size = static_cast<uint32_t>(kVirtioSectorSize);
     g_virtio_blk_device.driver_state = &g_virtio_blk;
-    g_virtio_blk_device.read = ReadBlockDevice;
-    g_virtio_blk_device.write = WriteBlockDevice;
+    g_virtio_blk_device.read = read_block_device;
+    g_virtio_blk_device.write = write_block_device;
 
     debug("virtio-blk: ready pci=")(device.bus, 16, 2)(":")(device.slot, 16, 2)(".")(
         device.function, 16, 1)(" sectors=")(state.capacity_sectors)(" qsize=")(state.queue_size)();
     return true;
 }
 
-const BlockDevice* VirtioBlkBlockDevice()
+const BlockDevice* virtio_blk_block_device()
 {
     return g_virtio_blk.present ? &g_virtio_blk_device : nullptr;
 }
@@ -538,8 +539,8 @@ bool run_virtio_blk_smoke()
         debug("virtio-blk: test disk too small")();
         return false;
     }
-    if(!VerifyVirtioBlkPrefix(0, kVirtioSector0Prefix) ||
-       !VerifyVirtioBlkPrefix(1, kVirtioSector1Prefix))
+    if(!verify_virtio_blk_prefix(0, kVirtioSector0Prefix) ||
+       !verify_virtio_blk_prefix(1, kVirtioSector1Prefix))
     {
         return false;
     }

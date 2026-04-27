@@ -86,7 +86,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         reserve_tracked_physical_range(page_frames,
                                        g_boot_info->framebuffer.physical_address,
-                                       BootFramebufferLengthBytes(g_boot_info->framebuffer));
+                                       boot_framebuffer_length_bytes(g_boot_info->framebuffer));
     }
 
     VirtualMemory kvm(page_frames);
@@ -102,8 +102,8 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         if(boot_memory_region_is_usable(region) &&
            (region.physical_start >= kKernelReservedPhysicalStart) && (region.length > 0))
         {
-            const uint64_t start = AlignDown(region.physical_start, kPageSize);
-            const uint64_t end = AlignUp(region.physical_start + region.length, kPageSize);
+            const uint64_t start = align_down(region.physical_start, kPageSize);
+            const uint64_t end = align_up(region.physical_start + region.length, kPageSize);
             if(!kvm.allocate(start, (end - start) / kPageSize, true))
             {
                 return;
@@ -124,7 +124,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     }
     if(!map_identity_range(kvm,
                            g_boot_info->framebuffer.physical_address,
-                           BootFramebufferLengthBytes(g_boot_info->framebuffer)))
+                           boot_framebuffer_length_bytes(g_boot_info->framebuffer)))
     {
         return;
     }
@@ -145,7 +145,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     pic_init();
     ioapic_init();
     lapic_init();
-    cpu_bootothers(g_kernel_root_cr3);
+    cpu_boot_others(g_kernel_root_cr3);
 
     g_text_display = select_text_display(*g_boot_info);
 
@@ -162,7 +162,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         const uint64_t shadow_buffer_bytes =
             (uint64_t)terminal_columns * (uint64_t)terminal_rows * sizeof(uint16_t);
         const unsigned shadow_buffer_pages =
-            (unsigned)(AlignUp(shadow_buffer_bytes, kPageSize) / kPageSize);
+            (unsigned)(align_up(shadow_buffer_bytes, kPageSize) / kPageSize);
         uint64_t shadow_buffer = 0;
         if((0 == shadow_buffer_pages) || !page_frames.allocate(shadow_buffer, shadow_buffer_pages))
         {
@@ -180,7 +180,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     const uint64_t terminal_buffer_bytes =
         (uint64_t)terminal_columns * (uint64_t)terminal_rows * sizeof(uint16_t);
     const unsigned terminal_buffer_pages =
-        (unsigned)(AlignUp(terminal_buffer_bytes, kPageSize) / kPageSize);
+        (unsigned)(align_up(terminal_buffer_bytes, kPageSize) / kPageSize);
     if(0 == terminal_buffer_pages)
     {
         debug("terminal buffer allocation size invalid")();
@@ -255,7 +255,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         return;
     }
 
-    Process* kernel_process = createKernelProcess(g_kernel_root_cr3);
+    Process* kernel_process = create_kernel_process(g_kernel_root_cr3);
     if(nullptr == kernel_process)
     {
         return;
@@ -265,7 +265,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         return;
     }
 
-    Thread* init_thread = LoadUserProgram(page_frames, g_kernel_root_cr3, "/bin/init");
+    Thread* init_thread = load_user_program(page_frames, g_kernel_root_cr3, "/bin/init");
     if(nullptr == init_thread)
     {
         write_console_line("failed to load /bin/init");
@@ -276,5 +276,5 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     write_console_line("starting first user process");
     set_timer(1000);
     start_multi_task(init_thread);
-    HaltForever();
+    halt_forever();
 }

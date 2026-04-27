@@ -47,7 +47,7 @@ check_long_mode:
 %define DATA_SEG     0x0010
  
 ALIGN 4
-IDT:
+idt:
     .Length       dw 0
     .Base         dd 0
  
@@ -58,7 +58,7 @@ IDT:
 ; es:edi    Should point to a valid page-aligned 16KiB buffer, for the PML4, PDPT, PD and a PT.
 ; ss:esp    Should point to memory that can be used as a small (1 uint32_t) stack
  
-SwitchToLongMode:
+switch_to_long_mode:
     ; Zero out the 16KiB buffer.
     ; Since we are doing a rep stosd, count should be bytes/4.   
     push di                           ; REP STOSD alters DI.
@@ -111,7 +111,7 @@ SwitchToLongMode:
     nop
     nop
  
-    lidt [IDT]                        ; Load a zero length IDT so that any NMI causes a triple fault.
+    lidt [idt]                        ; Load a zero length IDT so that any NMI causes a triple fault.
  
     ; Enter long mode.
     mov eax, 10100000b                ; Set the PAE and PGE bit.
@@ -132,10 +132,10 @@ SwitchToLongMode:
     or ebx,0x80000001                 ; - by enabling paging and protection simultaneously.
     mov cr0, ebx                    
  
-	; move GDT to address 0
+    ; move GDT to address 0
 GDTT equ 0x0
 	mov edi, GDTT
-	mov esi, GDT
+    mov esi, gdt
 	cld
 	mov ecx, 3 * 8 + 8
 	rep movsb
@@ -144,12 +144,12 @@ GDTT equ 0x0
 
 	; load GDT
 	lgdt [GDTT + 3 * 8 + 2]
-    jmp CODE_SEG:LongMode             ; Load CS with 64 bit segment and flush the instruction cache
+    jmp CODE_SEG:long_mode            ; Load CS with 64 bit segment and flush the instruction cache
  
  
     ; Global Descriptor Table
 ALIGN 8
-GDT:
+gdt:
 .Null:
 	dq 0x0000000000000000             ; Null Descriptor - should be present.
  
@@ -161,12 +161,12 @@ ALIGN 4
 	dw 0                              ; Padding to make the "address of the GDT" field aligned on a 4-byte boundary
  
 .Pointer:
-	dw $ - GDT - 1                    ; 16-bit Size (Limit) of GDT.
-	dd GDT                            ; 32-bit Base Address of GDT. (CPU will zero extend to 64-bit)
+    dw $ - gdt - 1                    ; 16-bit Size (Limit) of GDT.
+    dd gdt                            ; 32-bit Base Address of GDT. (CPU will zero extend to 64-bit)
 
  
 [BITS 64]      
-LongMode:
+long_mode:
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax

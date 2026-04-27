@@ -17,7 +17,7 @@ constexpr size_t kProcessTablePageCount =
 uint64_t g_next_pid = 1;
 Process* g_kernel_process = nullptr;
 
-Process* nextFreeProcess()
+Process* next_free_process()
 {
     for(size_t i = 0; i < kMaxProcesses; ++i)
     {
@@ -29,7 +29,7 @@ Process* nextFreeProcess()
     return nullptr;
 }
 
-void clearProcess(Process* process)
+void clear_process(Process* process)
 {
     if(process)
     {
@@ -38,7 +38,7 @@ void clearProcess(Process* process)
     }
 }
 
-void orphanChildren(Process* process)
+void orphan_children(Process* process)
 {
     if(nullptr == process)
     {
@@ -54,7 +54,7 @@ void orphanChildren(Process* process)
     }
 }
 
-void fillProcessName(Process* process, const char* name)
+void fill_process_name(Process* process, const char* name)
 {
     if(nullptr == process)
     {
@@ -102,9 +102,9 @@ bool initialize_process_table(PageFrameContainer& frames)
     return true;
 }
 
-Process* createKernelProcess(uint64_t kernel_cr3)
+Process* create_kernel_process(uint64_t kernel_cr3)
 {
-    Process* process = nextFreeProcess();
+    Process* process = next_free_process();
     if(nullptr == process)
     {
         return nullptr;
@@ -114,14 +114,14 @@ Process* createKernelProcess(uint64_t kernel_cr3)
     process->state = ProcessState::Ready;
     process->address_space.cr3 = kernel_cr3;
     process->exit_status = 0;
-    fillProcessName(process, "kernel");
+    fill_process_name(process, "kernel");
     g_kernel_process = process;
     return process;
 }
 
-Process* createUserProcess(const char* name, uint64_t cr3)
+Process* create_user_process(const char* name, uint64_t cr3)
 {
-    Process* process = nextFreeProcess();
+    Process* process = next_free_process();
     if(nullptr == process)
     {
         return nullptr;
@@ -131,7 +131,7 @@ Process* createUserProcess(const char* name, uint64_t cr3)
     process->state = ProcessState::Ready;
     process->address_space.cr3 = cr3;
     process->exit_status = 0;
-    fillProcessName(process, name);
+    fill_process_name(process, name);
     return process;
 }
 
@@ -167,7 +167,7 @@ bool reap_process(Process* process, PageFrameContainer& frames)
         pml4[0] = 0;
         frames.free(process->address_space.cr3);
     }
-    orphanChildren(process);
-    clearProcess(process);
+    orphan_children(process);
+    clear_process(process);
     return true;
 }

@@ -10,7 +10,7 @@
 #include "proc/thread.hpp"
 #include "sched/scheduler.hpp"
 
-const char* KernelFaultName(uint64_t vector)
+const char* kernel_fault_name(uint64_t vector)
 {
     switch(vector)
     {
@@ -73,17 +73,17 @@ void dump_trap_frame(const TrapFrame& frame)
 
 void on_kernel_exception(TrapFrame* frame)
 {
-    const char* name = KernelFaultName(frame->vector);
+    const char* name = kernel_fault_name(frame->vector);
     if(active_terminal)
     {
         active_terminal->write_line(name);
     }
     debug(name)(" cr2=0x")(read_cr2(), 16)(" cr3=0x")(read_cr3(), 16)();
     dump_trap_frame(*frame);
-    HaltForever();
+    halt_forever();
 }
 
-Thread* HandleException(TrapFrame* frame)
+Thread* handle_exception(TrapFrame* frame)
 {
     if(trap_frame_is_user(*frame))
     {

@@ -14,7 +14,7 @@ constexpr uint64_t kPageMask = ~(kPageSize - 1);
 // low page-offset bits.
 constexpr uint64_t kEntryAddressMask = 0x000FFFFFFFFFF000ull;
 
-[[nodiscard]] inline uint64_t PageIndex(uint64_t virtual_address, unsigned shift)
+[[nodiscard]] inline uint64_t page_index(uint64_t virtual_address, unsigned shift)
 {
     return (virtual_address >> shift) & 0x1FFull;
 }
@@ -101,7 +101,7 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
     uint64_t* pml2 = nullptr;
     uint64_t* pml1 = nullptr;
 
-    uint64_t& pml4e = pml4[PageIndex(virtual_address, 39)];
+    uint64_t& pml4e = pml4[page_index(virtual_address, 39)];
     if(create)
     {
         if(!ensure_table_entry(pml4e, user_visible))
@@ -115,7 +115,7 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
     }
     pml3 = (uint64_t*)(pml4e & kEntryAddressMask);
 
-    uint64_t& pml3e = pml3[PageIndex(virtual_address, 30)];
+    uint64_t& pml3e = pml3[page_index(virtual_address, 30)];
     if(create)
     {
         if(!ensure_table_entry(pml3e, user_visible))
@@ -129,7 +129,7 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
     }
     pml2 = (uint64_t*)(pml3e & kEntryAddressMask);
 
-    uint64_t& pml2e = pml2[PageIndex(virtual_address, 21)];
+    uint64_t& pml2e = pml2[page_index(virtual_address, 21)];
     if(create)
     {
         if(!ensure_table_entry(pml2e, user_visible))
@@ -143,7 +143,7 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
     }
     pml1 = (uint64_t*)(pml2e & kEntryAddressMask);
 
-    *leaf_entry = &pml1[PageIndex(virtual_address, 12)];
+    *leaf_entry = &pml1[page_index(virtual_address, 12)];
     return true;
 }
 
@@ -254,25 +254,25 @@ bool VirtualMemory::translate(uint64_t virtual_address,
     }
 
     const uint64_t* pml4 = (const uint64_t*)root_;
-    const uint64_t pml4e = pml4[PageIndex(virtual_address, 39)];
+    const uint64_t pml4e = pml4[page_index(virtual_address, 39)];
     if(0 == pml4e)
     {
         return false;
     }
     const uint64_t* pml3 = (const uint64_t*)(pml4e & kEntryAddressMask);
-    const uint64_t pml3e = pml3[PageIndex(virtual_address, 30)];
+    const uint64_t pml3e = pml3[page_index(virtual_address, 30)];
     if(0 == pml3e)
     {
         return false;
     }
     const uint64_t* pml2 = (const uint64_t*)(pml3e & kEntryAddressMask);
-    const uint64_t pml2e = pml2[PageIndex(virtual_address, 21)];
+    const uint64_t pml2e = pml2[page_index(virtual_address, 21)];
     if(0 == pml2e)
     {
         return false;
     }
     const uint64_t* pml1 = (const uint64_t*)(pml2e & kEntryAddressMask);
-    const uint64_t pml1e = pml1[PageIndex(virtual_address, 12)];
+    const uint64_t pml1e = pml1[page_index(virtual_address, 12)];
     if(0 == pml1e)
     {
         return false;

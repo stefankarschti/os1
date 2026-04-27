@@ -123,7 +123,7 @@ cpu* cpu_alloc(void)
 
 void init()
 {
-    if(!cpu_onboot())
+    if(!cpu_on_boot())
     {
         debug("CPU ")(cpu_cur()->id)(" is alive at 0x")((uint64_t)cpu_cur(), 16)();
         cpu_init();
@@ -136,11 +136,11 @@ void init()
     cpu_idle_loop();
 }
 
-void cpu_bootothers(uint64_t cr3)
+void cpu_boot_others(uint64_t cr3)
 {
     debug("booting other CPUs cr3 = 0x")(cr3, 16)();
     debug("current CPU = ")(cpu_cur()->id)();
-    if(!cpu_onboot())
+    if(!cpu_on_boot())
     {
         xchg(&cpu_cur()->booted, 1);
         return;
@@ -164,7 +164,7 @@ void cpu_bootothers(uint64_t cr3)
         memset((void*)kApStartupIdtAddress, 0, kApStartupIdtSizeBytes);
 
         debug("Starting CPU ")(c->id)();
-        lapic_startcpu(c->id, (uint64_t)code);
+        lapic_start_cpu(c->id, (uint64_t)code);
         while(c->booted == 0)
         {
         }

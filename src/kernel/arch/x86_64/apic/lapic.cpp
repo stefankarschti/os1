@@ -18,7 +18,7 @@
 
 volatile uint32_t* lapic;  // Initialized in mp.c
 
-static void lapicw(int index, int value)
+static void lapic_write(int index, int value)
 {
     lapic[index] = value;
     lapic[ID];  // wait for write to finish, by reading
@@ -30,68 +30,68 @@ void lapic_init()
         return;
 
     // Enable local APIC; set spurious interrupt vector.
-    lapicw(SVR, ENABLE | (T_IRQ0 + IRQ_SPURIOUS));
+    lapic_write(SVR, ENABLE | (T_IRQ0 + IRQ_SPURIOUS));
 
     // The timer repeatedly counts down at bus frequency
     // from lapic[TICR] and then issues an interrupt.
-    lapicw(TDCR, X1);
-    lapicw(TIMER, MASKED | PERIODIC | T_LTIMER);
+    lapic_write(TDCR, X1);
+    lapic_write(TIMER, MASKED | PERIODIC | T_LTIMER);
 
     // If we cared more about precise timekeeping,
     // we would calibrate TICR with another time source such as the PIT.
-    lapicw(TICR, 10000000);
+    lapic_write(TICR, 10000000);
 
     // Disable logical interrupt lines.
-    lapicw(LINT0, MASKED);
-    lapicw(LINT1, MASKED);
+    lapic_write(LINT0, MASKED);
+    lapic_write(LINT1, MASKED);
 
     // Disable performance counter overflow interrupts
     // on machines that provide that interrupt entry.
     if(((lapic[VER] >> 16) & 0xFF) >= 4)
-        lapicw(PCINT, MASKED);
+        lapic_write(PCINT, MASKED);
 
     // Map other interrupts to appropriate vectors.
-    lapicw(ERROR, T_LERROR);
+    lapic_write(ERROR, T_LERROR);
 
     // Set up to lowest-priority, "anycast" interrupts
-    lapicw(LDR, 0xff << 24);  // Accept all interrupts
-    lapicw(DFR, 0xf << 28);   // Flat model
-    lapicw(TPR, 0x00);        // Task priority 0, no intrs masked
+    lapic_write(LDR, 0xff << 24);  // Accept all interrupts
+    lapic_write(DFR, 0xf << 28);   // Flat model
+    lapic_write(TPR, 0x00);        // Task priority 0, no intrs masked
 
     // clear error status register (requires back-to-back writes).
-    lapicw(ESR, 0);
-    lapicw(ESR, 0);
+    lapic_write(ESR, 0);
+    lapic_write(ESR, 0);
 
     // Ack any outstanding interrupts.
-    lapicw(EOI, 0);
+    lapic_write(EOI, 0);
 
     // Send an Init Level De-Assert to synchronise arbitration ID's.
-    lapicw(ICRHI, 0);
-    lapicw(ICRLO, BCAST | INIT | LEVEL);
+    lapic_write(ICRHI, 0);
+    lapic_write(ICRLO, BCAST | INIT | LEVEL);
     while(lapic[ICRLO] & DELIVS)
         ;
 
     // Enable interrupts on the APIC (but not on the processor).
-    lapicw(TPR, 0);
+    lapic_write(TPR, 0);
 }
 
 // Acknowledge interrupt.
 void lapic_eoi(void)
 {
     if(lapic)
-        lapicw(EOI, 0);
+        lapic_write(EOI, 0);
 }
 
-void lapic_errintr(void)
+void lapic_err_intr(void)
 {
-    lapic_eoi();     // Acknowledge interrupt
-    lapicw(ESR, 0);  // Trigger update of ESR by writing anything
+    lapic_eoi();          // Acknowledge interrupt
+    lapic_write(ESR, 0);  // Trigger update of ESR by writing anything
     debug("CPU")(cpu_cur()->id)(" LAPIC error: ESR 0x")(lapic[ESR], 16)();
 }
 
 // Spin for a given number of microseconds.
 // On real hardware would want to tune this dynamically.
-void microdelay(int us)
+void micro_delay(int us)
 {
     outb(0x43, 0x30);
     outb(0x40, us & 0xFF);
@@ -109,7 +109,7 @@ void microdelay(int us)
 
 // Start additional processor running bootstrap code at addr.
 // See Appendix B of MultiProcessor Specification.
-void lapic_startcpu(uint8_t apicid, uint32_t addr)
+void lapic_start_cpu(uint8_t apicid, uint32_t addr)
 {
     int i;
     uint16_t* wrv;
@@ -125,11 +125,11 @@ void lapic_startcpu(uint8_t apicid, uint32_t addr)
 
     // "Universal startup algorithm."
     // Send INIT (level-triggered) interrupt to reset other CPU.
-    lapicw(ICRHI, apicid << 24);
-    lapicw(ICRLO, INIT | LEVEL | ASSERT);
-    microdelay(10000);
-    lapicw(ICRLO, INIT | LEVEL);
-    microdelay(10000);  // should be 10ms, but too slow in Bochs!
+    lapic_write(ICRHI, apicid << 24);
+    lapic_write(ICRLO, INIT | LEVEL | ASSERT);
+    micro_delay(10000);
+    lapic_write(ICRLO, INIT | LEVEL);
+    micro_delay(10000);  // should be 10ms, but too slow in Bochs!
 
     // Send startup IPI (twice!) to enter bootstrap code.
     // Regular hardware is supposed to only accept a STARTUP
@@ -138,8 +138,8 @@ void lapic_startcpu(uint8_t apicid, uint32_t addr)
     // Bochs complains about the second one.  Too bad for Bochs.
     for(i = 0; i < 2; i++)
     {
-        lapicw(ICRHI, apicid << 24);
-        lapicw(ICRLO, STARTUP | (addr >> 12));
-        microdelay(200);
+        lapic_write(ICRHI, apicid << 24);
+        lapic_write(ICRLO, STARTUP | (addr >> 12));
+        micro_delay(200);
     }
 }

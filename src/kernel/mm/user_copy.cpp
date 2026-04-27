@@ -7,19 +7,19 @@
 
 namespace
 {
-[[nodiscard]] bool IsCanonicalVirtualAddress(uint64_t address)
+[[nodiscard]] bool is_canonical_virtual_address(uint64_t address)
 {
     const uint64_t upper_bits = address >> 48;
     return (0 == upper_bits) || (0xFFFFull == upper_bits);
 }
 
-[[nodiscard]] bool IsUserAddressRange(uint64_t address, size_t length)
+[[nodiscard]] bool is_user_address_range(uint64_t address, size_t length)
 {
     if(0 == length)
     {
         return true;
     }
-    if((0 == address) || !IsCanonicalVirtualAddress(address))
+    if((0 == address) || !is_canonical_virtual_address(address))
     {
         return false;
     }
@@ -31,7 +31,7 @@ namespace
     }
 
     const uint64_t end_address = address + last_byte_offset;
-    if(!IsCanonicalVirtualAddress(end_address))
+    if(!is_canonical_virtual_address(end_address))
     {
         return false;
     }
@@ -39,7 +39,7 @@ namespace
     return (address >= kUserSpaceBase) && (end_address < kUserStackTop);
 }
 
-[[nodiscard]] bool HasRequiredUserFlags(uint64_t flags, bool require_write)
+[[nodiscard]] bool has_required_user_flags(uint64_t flags, bool require_write)
 {
     const PageFlags page_flags = static_cast<PageFlags>(flags);
     if((page_flags & PageFlags::User) != PageFlags::User)
@@ -89,7 +89,7 @@ bool copy_to_user(PageFrameContainer& frames,
     {
         return false;
     }
-    if(!IsUserAddressRange(user_pointer, length))
+    if(!is_user_address_range(user_pointer, length))
     {
         return false;
     }
@@ -105,7 +105,7 @@ bool copy_to_user(PageFrameContainer& frames,
         {
             return false;
         }
-        if(!HasRequiredUserFlags(flags, true))
+        if(!has_required_user_flags(flags, true))
         {
             return false;
         }
@@ -129,7 +129,7 @@ bool copy_from_user(PageFrameContainer& frames,
     {
         return false;
     }
-    if(!IsUserAddressRange(user_pointer, length))
+    if(!is_user_address_range(user_pointer, length))
     {
         return false;
     }
@@ -145,7 +145,7 @@ bool copy_from_user(PageFrameContainer& frames,
         {
             return false;
         }
-        if(!HasRequiredUserFlags(flags, false))
+        if(!has_required_user_flags(flags, false))
         {
             return false;
         }

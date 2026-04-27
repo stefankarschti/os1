@@ -12,7 +12,7 @@ constexpr size_t kShellObserveBufferBytes = 64 * 1024;
 
 alignas(16) uint8_t g_observe_buffer[kShellObserveBufferBytes];
 
-size_t StringLength(const char* text)
+size_t string_length(const char* text)
 {
     size_t length = 0;
     while((nullptr != text) && text[length])
@@ -22,7 +22,7 @@ size_t StringLength(const char* text)
     return length;
 }
 
-void WriteBytes(const char* data, size_t length)
+void write_bytes(const char* data, size_t length)
 {
     if((nullptr == data) || (0 == length))
     {
@@ -31,17 +31,17 @@ void WriteBytes(const char* data, size_t length)
     os1::user::write(1, data, length);
 }
 
-void WriteString(const char* text)
+void write_string(const char* text)
 {
-    WriteBytes(text, StringLength(text));
+    write_bytes(text, string_length(text));
 }
 
-void WriteChar(char c)
+void write_char(char c)
 {
-    WriteBytes(&c, 1);
+    write_bytes(&c, 1);
 }
 
-void WriteUnsignedBase(uint64_t value, uint32_t base, size_t minimum_digits)
+void write_unsigned_base(uint64_t value, uint32_t base, size_t minimum_digits)
 {
     char digits[32];
     size_t index = 0;
@@ -60,37 +60,37 @@ void WriteUnsignedBase(uint64_t value, uint32_t base, size_t minimum_digits)
 
     while(index > 0)
     {
-        WriteChar(digits[--index]);
+        write_char(digits[--index]);
     }
 }
 
-void WriteUnsigned(uint64_t value)
+void write_unsigned(uint64_t value)
 {
-    WriteUnsignedBase(value, 10, 1);
+    write_unsigned_base(value, 10, 1);
 }
 
-void WriteSigned(long value)
+void write_signed(long value)
 {
     if(value < 0)
     {
-        WriteChar('-');
-        WriteUnsigned(static_cast<uint64_t>(-value));
+        write_char('-');
+        write_unsigned(static_cast<uint64_t>(-value));
         return;
     }
-    WriteUnsigned(static_cast<uint64_t>(value));
+    write_unsigned(static_cast<uint64_t>(value));
 }
 
-void WriteHex(uint64_t value, size_t digits = 1)
+void write_hex(uint64_t value, size_t digits = 1)
 {
-    WriteUnsignedBase(value, 16, digits);
+    write_unsigned_base(value, 16, digits);
 }
 
-bool IsSpace(char c)
+bool is_space(char c)
 {
     return (' ' == c) || ('\t' == c) || ('\n' == c) || ('\r' == c);
 }
 
-bool StringsEqual(const char* lhs, const char* rhs)
+bool strings_equal(const char* lhs, const char* rhs)
 {
     if((nullptr == lhs) || (nullptr == rhs))
     {
@@ -109,7 +109,7 @@ bool StringsEqual(const char* lhs, const char* rhs)
     }
 }
 
-size_t NormalizeLine(char* buffer, long count)
+size_t normalize_line(char* buffer, long count)
 {
     size_t length = (count > 0) ? static_cast<size_t>(count) : 0;
     if(length >= kShellLineBytes)
@@ -124,13 +124,13 @@ size_t NormalizeLine(char* buffer, long count)
     return length;
 }
 
-size_t Tokenize(char* buffer, char* tokens[kShellMaxTokens])
+size_t tokenize(char* buffer, char* tokens[kShellMaxTokens])
 {
     size_t count = 0;
     size_t index = 0;
     while(buffer[index])
     {
-        while(buffer[index] && IsSpace(buffer[index]))
+        while(buffer[index] && is_space(buffer[index]))
         {
             buffer[index++] = 0;
         }
@@ -143,7 +143,7 @@ size_t Tokenize(char* buffer, char* tokens[kShellMaxTokens])
             return count;
         }
         tokens[count++] = buffer + index;
-        while(buffer[index] && !IsSpace(buffer[index]))
+        while(buffer[index] && !is_space(buffer[index]))
         {
             ++index;
         }
@@ -151,19 +151,19 @@ size_t Tokenize(char* buffer, char* tokens[kShellMaxTokens])
     return count;
 }
 
-void WritePrompt()
+void write_prompt()
 {
-    WriteString("os1> ");
+    write_string("os1> ");
 }
 
-void WriteObserveFailure(const char* command)
+void write_observe_failure(const char* command)
 {
-    WriteString("observe failed: ");
-    WriteString(command);
-    WriteChar('\n');
+    write_string("observe failed: ");
+    write_string(command);
+    write_char('\n');
 }
 
-const char* BootSourceName(uint32_t source)
+const char* boot_source_name(uint32_t source)
 {
     switch(source)
     {
@@ -178,7 +178,7 @@ const char* BootSourceName(uint32_t source)
     }
 }
 
-const char* ConsoleKindName(uint32_t kind)
+const char* console_kind_name(uint32_t kind)
 {
     switch(kind)
     {
@@ -193,7 +193,7 @@ const char* ConsoleKindName(uint32_t kind)
     }
 }
 
-const char* ProcessStateName(uint32_t state)
+const char* process_state_name(uint32_t state)
 {
     switch(state)
     {
@@ -210,7 +210,7 @@ const char* ProcessStateName(uint32_t state)
     }
 }
 
-const char* ThreadStateName(uint32_t state)
+const char* thread_state_name(uint32_t state)
 {
     switch(state)
     {
@@ -227,7 +227,7 @@ const char* ThreadStateName(uint32_t state)
     }
 }
 
-const char* PciBarTypeName(uint8_t type)
+const char* pci_bar_type_name(uint8_t type)
 {
     switch(type)
     {
@@ -242,13 +242,13 @@ const char* PciBarTypeName(uint8_t type)
     }
 }
 
-void WriteYesNo(bool value)
+void write_yes_no(bool value)
 {
-    WriteString(value ? "yes" : "no");
+    write_string(value ? "yes" : "no");
 }
 
 template<typename Record>
-bool Observe(uint32_t kind, const Record*& records, uint32_t& record_count)
+bool observe(uint32_t kind, const Record*& records, uint32_t& record_count)
 {
     records = nullptr;
     record_count = 0;
@@ -279,170 +279,170 @@ bool Observe(uint32_t kind, const Record*& records, uint32_t& record_count)
     return true;
 }
 
-void RunHelp()
+void run_help()
 {
-    WriteString("help echo pid sys ps cpu pci initrd exec exit\n");
+    write_string("help echo pid sys ps cpu pci initrd exec exit\n");
 }
 
-void RunEcho(size_t argc, char* argv[kShellMaxTokens])
+void run_echo(size_t argc, char* argv[kShellMaxTokens])
 {
-    WriteString("echo:");
+    write_string("echo:");
     for(size_t i = 1; i < argc; ++i)
     {
-        WriteChar(' ');
-        WriteString(argv[i]);
+        write_char(' ');
+        write_string(argv[i]);
     }
-    WriteChar('\n');
+    write_char('\n');
 }
 
-void RunPid()
+void run_pid()
 {
-    WriteString("pid: ");
+    write_string("pid: ");
     const long pid = os1::user::getpid();
     if(pid < 0)
     {
-        WriteString("error\n");
+        write_string("error\n");
         return;
     }
-    WriteUnsigned(static_cast<uint64_t>(pid));
-    WriteChar('\n');
+    write_unsigned(static_cast<uint64_t>(pid));
+    write_char('\n');
 }
 
-void RunSys()
+void run_sys()
 {
     const Os1ObserveSystemRecord* records = nullptr;
     uint32_t record_count = 0;
-    if(!Observe(OS1_OBSERVE_SYSTEM, records, record_count) || (1u != record_count))
+    if(!observe(OS1_OBSERVE_SYSTEM, records, record_count) || (1u != record_count))
     {
-        WriteObserveFailure("sys");
+        write_observe_failure("sys");
         return;
     }
 
     const Os1ObserveSystemRecord& record = records[0];
-    WriteString("sys boot=");
-    WriteString(BootSourceName(record.boot_source));
-    WriteString(" console=");
-    WriteString(ConsoleKindName(record.console_kind));
-    WriteString(" ticks=");
-    WriteUnsigned(record.tick_count);
-    WriteString(" pages=");
-    WriteUnsigned(record.free_pages);
-    WriteChar('/');
-    WriteUnsigned(record.total_pages);
-    WriteString(" procs=");
-    WriteUnsigned(record.process_count);
-    WriteString(" runnable=");
-    WriteUnsigned(record.runnable_thread_count);
-    WriteString(" cpus=");
-    WriteUnsigned(record.cpu_count);
-    WriteString(" pci=");
-    WriteUnsigned(record.pci_device_count);
-    WriteString(" virtio_blk=");
-    WriteYesNo(0 != record.virtio_blk_present);
+    write_string("sys boot=");
+    write_string(boot_source_name(record.boot_source));
+    write_string(" console=");
+    write_string(console_kind_name(record.console_kind));
+    write_string(" ticks=");
+    write_unsigned(record.tick_count);
+    write_string(" pages=");
+    write_unsigned(record.free_pages);
+    write_char('/');
+    write_unsigned(record.total_pages);
+    write_string(" procs=");
+    write_unsigned(record.process_count);
+    write_string(" runnable=");
+    write_unsigned(record.runnable_thread_count);
+    write_string(" cpus=");
+    write_unsigned(record.cpu_count);
+    write_string(" pci=");
+    write_unsigned(record.pci_device_count);
+    write_string(" virtio_blk=");
+    write_yes_no(0 != record.virtio_blk_present);
     if(0 != record.virtio_blk_present)
     {
-        WriteString(" sectors=");
-        WriteUnsigned(record.virtio_blk_capacity_sectors);
+        write_string(" sectors=");
+        write_unsigned(record.virtio_blk_capacity_sectors);
     }
     if(0 != record.bootloader_name[0])
     {
-        WriteString(" bootloader=");
-        WriteString(record.bootloader_name);
+        write_string(" bootloader=");
+        write_string(record.bootloader_name);
     }
-    WriteChar('\n');
+    write_char('\n');
 }
 
-void RunPs()
+void run_ps()
 {
     const Os1ObserveProcessRecord* records = nullptr;
     uint32_t record_count = 0;
-    if(!Observe(OS1_OBSERVE_PROCESSES, records, record_count))
+    if(!observe(OS1_OBSERVE_PROCESSES, records, record_count))
     {
-        WriteObserveFailure("ps");
+        write_observe_failure("ps");
         return;
     }
 
-    WriteString("pid tid pstate tstate mode cr3 name\n");
+    write_string("pid tid pstate tstate mode cr3 name\n");
     for(uint32_t i = 0; i < record_count; ++i)
     {
-        WriteUnsigned(records[i].pid);
-        WriteChar(' ');
-        WriteUnsigned(records[i].tid);
-        WriteChar(' ');
-        WriteString(ProcessStateName(records[i].process_state));
-        WriteChar(' ');
-        WriteString(ThreadStateName(records[i].thread_state));
-        WriteChar(' ');
-        WriteString((0 != (records[i].flags & OS1_OBSERVE_PROCESS_FLAG_USER_MODE)) ? "user"
-                                                                                   : "kernel");
-        WriteString(" 0x");
-        WriteHex(records[i].cr3, 16);
-        WriteChar(' ');
-        WriteString(records[i].name);
-        WriteChar('\n');
+        write_unsigned(records[i].pid);
+        write_char(' ');
+        write_unsigned(records[i].tid);
+        write_char(' ');
+        write_string(process_state_name(records[i].process_state));
+        write_char(' ');
+        write_string(thread_state_name(records[i].thread_state));
+        write_char(' ');
+        write_string((0 != (records[i].flags & OS1_OBSERVE_PROCESS_FLAG_USER_MODE)) ? "user"
+                                                                                    : "kernel");
+        write_string(" 0x");
+        write_hex(records[i].cr3, 16);
+        write_char(' ');
+        write_string(records[i].name);
+        write_char('\n');
     }
 }
 
-void RunCpu()
+void run_cpu()
 {
     const Os1ObserveCpuRecord* records = nullptr;
     uint32_t record_count = 0;
-    if(!Observe(OS1_OBSERVE_CPUS, records, record_count))
+    if(!observe(OS1_OBSERVE_CPUS, records, record_count))
     {
-        WriteObserveFailure("cpu");
+        write_observe_failure("cpu");
         return;
     }
 
-    WriteString("cpu slot apic bsp booted pid tid\n");
+    write_string("cpu slot apic bsp booted pid tid\n");
     for(uint32_t i = 0; i < record_count; ++i)
     {
-        WriteString("cpu ");
-        WriteUnsigned(records[i].logical_index);
-        WriteChar(' ');
-        WriteHex(records[i].apic_id, 2);
-        WriteChar(' ');
-        WriteYesNo(0 != (records[i].flags & OS1_OBSERVE_CPU_FLAG_BSP));
-        WriteChar(' ');
-        WriteYesNo(0 != (records[i].flags & OS1_OBSERVE_CPU_FLAG_BOOTED));
-        WriteChar(' ');
-        WriteUnsigned(records[i].current_pid);
-        WriteChar(' ');
-        WriteUnsigned(records[i].current_tid);
-        WriteChar('\n');
+        write_string("cpu ");
+        write_unsigned(records[i].logical_index);
+        write_char(' ');
+        write_hex(records[i].apic_id, 2);
+        write_char(' ');
+        write_yes_no(0 != (records[i].flags & OS1_OBSERVE_CPU_FLAG_BSP));
+        write_char(' ');
+        write_yes_no(0 != (records[i].flags & OS1_OBSERVE_CPU_FLAG_BOOTED));
+        write_char(' ');
+        write_unsigned(records[i].current_pid);
+        write_char(' ');
+        write_unsigned(records[i].current_tid);
+        write_char('\n');
     }
 }
 
-void RunPci()
+void run_pci()
 {
     const Os1ObservePciRecord* records = nullptr;
     uint32_t record_count = 0;
-    if(!Observe(OS1_OBSERVE_PCI, records, record_count))
+    if(!observe(OS1_OBSERVE_PCI, records, record_count))
     {
-        WriteObserveFailure("pci");
+        write_observe_failure("pci");
         return;
     }
 
-    WriteString("pci bdf vendor:device class irq bars\n");
+    write_string("pci bdf vendor:device class irq bars\n");
     for(uint32_t i = 0; i < record_count; ++i)
     {
-        WriteString("pci ");
-        WriteHex(records[i].bus, 2);
-        WriteChar(':');
-        WriteHex(records[i].slot, 2);
-        WriteChar('.');
-        WriteUnsigned(records[i].function);
-        WriteChar(' ');
-        WriteHex(records[i].vendor_id, 4);
-        WriteChar(':');
-        WriteHex(records[i].device_id, 4);
-        WriteString(" class=");
-        WriteHex(records[i].class_code, 2);
-        WriteChar(':');
-        WriteHex(records[i].subclass, 2);
-        WriteString(" irq=");
-        WriteUnsigned(records[i].interrupt_line);
-        WriteChar('/');
-        WriteUnsigned(records[i].interrupt_pin);
+        write_string("pci ");
+        write_hex(records[i].bus, 2);
+        write_char(':');
+        write_hex(records[i].slot, 2);
+        write_char('.');
+        write_unsigned(records[i].function);
+        write_char(' ');
+        write_hex(records[i].vendor_id, 4);
+        write_char(':');
+        write_hex(records[i].device_id, 4);
+        write_string(" class=");
+        write_hex(records[i].class_code, 2);
+        write_char(':');
+        write_hex(records[i].subclass, 2);
+        write_string(" irq=");
+        write_unsigned(records[i].interrupt_line);
+        write_char('/');
+        write_unsigned(records[i].interrupt_pin);
 
         bool wrote_bar = false;
         for(uint8_t bar_index = 0; bar_index < records[i].bar_count && bar_index < 6; ++bar_index)
@@ -451,56 +451,56 @@ void RunPci()
             {
                 continue;
             }
-            WriteString(wrote_bar ? "," : " bars=");
-            WriteString("bar");
-            WriteUnsigned(bar_index);
-            WriteChar(':');
-            WriteString(PciBarTypeName(records[i].bars[bar_index].type));
-            WriteChar('@');
-            WriteString("0x");
-            WriteHex(records[i].bars[bar_index].base, 1);
-            WriteChar('+');
-            WriteString("0x");
-            WriteHex(records[i].bars[bar_index].size, 1);
+            write_string(wrote_bar ? "," : " bars=");
+            write_string("bar");
+            write_unsigned(bar_index);
+            write_char(':');
+            write_string(pci_bar_type_name(records[i].bars[bar_index].type));
+            write_char('@');
+            write_string("0x");
+            write_hex(records[i].bars[bar_index].base, 1);
+            write_char('+');
+            write_string("0x");
+            write_hex(records[i].bars[bar_index].size, 1);
             wrote_bar = true;
         }
         if(!wrote_bar)
         {
-            WriteString(" bars=none");
+            write_string(" bars=none");
         }
-        WriteChar('\n');
+        write_char('\n');
     }
 }
 
-void RunInitrd()
+void run_initrd()
 {
     const Os1ObserveInitrdRecord* records = nullptr;
     uint32_t record_count = 0;
-    if(!Observe(OS1_OBSERVE_INITRD, records, record_count))
+    if(!observe(OS1_OBSERVE_INITRD, records, record_count))
     {
-        WriteObserveFailure("initrd");
+        write_observe_failure("initrd");
         return;
     }
 
-    WriteString("initrd path size\n");
+    write_string("initrd path size\n");
     for(uint32_t i = 0; i < record_count; ++i)
     {
-        WriteString("initrd ");
-        WriteString(records[i].path);
-        WriteString(" size=");
-        WriteUnsigned(records[i].size);
-        WriteChar('\n');
+        write_string("initrd ");
+        write_string(records[i].path);
+        write_string(" size=");
+        write_unsigned(records[i].size);
+        write_char('\n');
     }
 }
 
-void RunUnknown(const char* command)
+void run_unknown(const char* command)
 {
-    WriteString("unknown command: ");
-    WriteString(command);
-    WriteChar('\n');
+    write_string("unknown command: ");
+    write_string(command);
+    write_char('\n');
 }
 
-bool CopyString(char* destination, size_t destination_size, const char* source)
+bool copy_string(char* destination, size_t destination_size, const char* source)
 {
     if((nullptr == destination) || (0 == destination_size) || (nullptr == source))
     {
@@ -521,7 +521,7 @@ bool CopyString(char* destination, size_t destination_size, const char* source)
     return true;
 }
 
-bool ResolveCommandPath(const char* command, char* path, size_t path_size)
+bool resolve_command_path(const char* command, char* path, size_t path_size)
 {
     if((nullptr == command) || (nullptr == path) || (0 == path_size))
     {
@@ -530,12 +530,12 @@ bool ResolveCommandPath(const char* command, char* path, size_t path_size)
 
     if('/' == command[0])
     {
-        return CopyString(path, path_size, command);
+        return copy_string(path, path_size, command);
     }
 
     static constexpr char kBinPrefix[] = "/bin/";
     const size_t prefix_length = sizeof(kBinPrefix) - 1;
-    const size_t command_length = StringLength(command);
+    const size_t command_length = string_length(command);
     if((prefix_length + command_length + 1) > path_size)
     {
         return false;
@@ -553,57 +553,57 @@ bool ResolveCommandPath(const char* command, char* path, size_t path_size)
     return true;
 }
 
-void WriteSpawnOutcome(const char* command, long pid, int status)
+void write_spawn_outcome(const char* command, long pid, int status)
 {
-    WriteString("shell spawn ");
-    WriteString(command);
-    WriteString(" ok pid=");
-    WriteSigned(pid);
-    WriteString(" status=");
-    WriteSigned(status);
-    WriteChar('\n');
-    WriteString("shell prompt resumed\n");
+    write_string("shell spawn ");
+    write_string(command);
+    write_string(" ok pid=");
+    write_signed(pid);
+    write_string(" status=");
+    write_signed(status);
+    write_char('\n');
+    write_string("shell prompt resumed\n");
 }
 
-void RunExec(size_t argc, char* argv[kShellMaxTokens])
+void run_exec(size_t argc, char* argv[kShellMaxTokens])
 {
     if(argc != 2)
     {
-        WriteString("usage: exec <path>\n");
+        write_string("usage: exec <path>\n");
         return;
     }
 
     char path[OS1_OBSERVE_INITRD_PATH_BYTES];
-    if(!ResolveCommandPath(argv[1], path, sizeof(path)))
+    if(!resolve_command_path(argv[1], path, sizeof(path)))
     {
-        WriteString("exec failed: ");
-        WriteString(argv[1]);
-        WriteChar('\n');
+        write_string("exec failed: ");
+        write_string(argv[1]);
+        write_char('\n');
         return;
     }
 
-    WriteString("shell exec start ");
-    WriteString(path);
-    WriteChar('\n');
+    write_string("shell exec start ");
+    write_string(path);
+    write_char('\n');
     const long result = os1::user::exec(path);
-    WriteString("shell exec returned ");
-    WriteSigned(result);
-    WriteChar('\n');
+    write_string("shell exec returned ");
+    write_signed(result);
+    write_char('\n');
 }
 
-void RunExternal(const char* command)
+void run_external(const char* command)
 {
     char path[OS1_OBSERVE_INITRD_PATH_BYTES];
-    if(!ResolveCommandPath(command, path, sizeof(path)))
+    if(!resolve_command_path(command, path, sizeof(path)))
     {
-        RunUnknown(command);
+        run_unknown(command);
         return;
     }
 
     const long pid = os1::user::spawn(path);
     if(pid < 0)
     {
-        RunUnknown(command);
+        run_unknown(command);
         return;
     }
 
@@ -611,13 +611,13 @@ void RunExternal(const char* command)
     const long waited = os1::user::waitpid(static_cast<uint64_t>(pid), &status);
     if(waited != pid)
     {
-        WriteString("wait failed: ");
-        WriteString(command);
-        WriteChar('\n');
+        write_string("wait failed: ");
+        write_string(command);
+        write_char('\n');
         return;
     }
 
-    WriteSpawnOutcome(command, waited, status);
+    write_spawn_outcome(command, waited, status);
 }
 }  // namespace
 
@@ -626,14 +626,14 @@ int main(void)
     char line[kShellLineBytes];
     char* tokens[kShellMaxTokens];
 
-    WriteString("shell prompt ready\n");
+    write_string("shell prompt ready\n");
     for(;;)
     {
-        WritePrompt();
+        write_prompt();
         const long count = os1::user::read(0, line, sizeof(line));
         if(count <= 0)
         {
-            WriteString("shell read failed\n");
+            write_string("shell read failed\n");
             os1::user::yield();
             continue;
         }
@@ -642,56 +642,56 @@ int main(void)
         {
             tokens[i] = nullptr;
         }
-        NormalizeLine(line, count);
-        const size_t argc = Tokenize(line, tokens);
+        normalize_line(line, count);
+        const size_t argc = tokenize(line, tokens);
         if(0 == argc)
         {
             continue;
         }
 
-        if(StringsEqual(tokens[0], "help"))
+        if(strings_equal(tokens[0], "help"))
         {
-            RunHelp();
+            run_help();
         }
-        else if(StringsEqual(tokens[0], "echo"))
+        else if(strings_equal(tokens[0], "echo"))
         {
-            RunEcho(argc, tokens);
+            run_echo(argc, tokens);
         }
-        else if(StringsEqual(tokens[0], "pid"))
+        else if(strings_equal(tokens[0], "pid"))
         {
-            RunPid();
+            run_pid();
         }
-        else if(StringsEqual(tokens[0], "sys"))
+        else if(strings_equal(tokens[0], "sys"))
         {
-            RunSys();
+            run_sys();
         }
-        else if(StringsEqual(tokens[0], "ps"))
+        else if(strings_equal(tokens[0], "ps"))
         {
-            RunPs();
+            run_ps();
         }
-        else if(StringsEqual(tokens[0], "cpu"))
+        else if(strings_equal(tokens[0], "cpu"))
         {
-            RunCpu();
+            run_cpu();
         }
-        else if(StringsEqual(tokens[0], "pci"))
+        else if(strings_equal(tokens[0], "pci"))
         {
-            RunPci();
+            run_pci();
         }
-        else if(StringsEqual(tokens[0], "initrd"))
+        else if(strings_equal(tokens[0], "initrd"))
         {
-            RunInitrd();
+            run_initrd();
         }
-        else if(StringsEqual(tokens[0], "exec"))
+        else if(strings_equal(tokens[0], "exec"))
         {
-            RunExec(argc, tokens);
+            run_exec(argc, tokens);
         }
-        else if(StringsEqual(tokens[0], "exit"))
+        else if(strings_equal(tokens[0], "exit"))
         {
             return 0;
         }
         else
         {
-            RunExternal(tokens[0]);
+            run_external(tokens[0]);
         }
     }
 }

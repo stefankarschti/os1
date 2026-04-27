@@ -48,23 +48,23 @@ struct Elf64ProgramHeader
     uint64_t align;
 } __attribute__((packed));
 
-[[nodiscard]] uint64_t AlignDown(uint64_t value, uint64_t alignment)
+[[nodiscard]] uint64_t align_down(uint64_t value, uint64_t alignment)
 {
     return value & ~(alignment - 1);
 }
 
-[[nodiscard]] uint64_t AlignUp(uint64_t value, uint64_t alignment)
+[[nodiscard]] uint64_t align_up(uint64_t value, uint64_t alignment)
 {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-bool LoadUserElf(PageFrameContainer& frames,
-                 uint64_t kernel_root_cr3,
-                 const uint8_t* image,
-                 uint64_t image_size,
-                 uint64_t& cr3,
-                 uint64_t& entry,
-                 uint64_t& user_rsp)
+bool load_user_elf(PageFrameContainer& frames,
+                   uint64_t kernel_root_cr3,
+                   const uint8_t* image,
+                   uint64_t image_size,
+                   uint64_t& cr3,
+                   uint64_t& entry,
+                   uint64_t& user_rsp)
 {
     if((nullptr == image) || (image_size < sizeof(Elf64Header)))
     {
@@ -110,8 +110,8 @@ bool LoadUserElf(PageFrameContainer& frames,
             return false;
         }
 
-        const uint64_t segment_start = AlignDown(program->vaddr, kPageSize);
-        const uint64_t segment_end = AlignUp(program->vaddr + program->memsz, kPageSize);
+        const uint64_t segment_start = align_down(program->vaddr, kPageSize);
+        const uint64_t segment_end = align_up(program->vaddr + program->memsz, kPageSize);
         if((segment_start < kUserSpaceBase) || (segment_end > stack_guard_base) ||
            (((segment_start >> 39) & 0x1FFull) != kUserPml4Index))
         {
@@ -165,7 +165,7 @@ bool LoadUserElf(PageFrameContainer& frames,
     entry = header->entry;
     // Like kernel threads, first user entry reaches `_start` via `iretq`, so we
     // reserve one dummy slot to match the SysV function-entry stack shape.
-    user_rsp = AlignDown(kUserStackTop, 16) - sizeof(uint64_t);
+    user_rsp = align_down(kUserStackTop, 16) - sizeof(uint64_t);
     return true;
 }
 }  // namespace
@@ -198,7 +198,7 @@ bool load_user_program_image(PageFrameContainer& frames,
         return false;
     }
 
-    if(!LoadUserElf(frames, kernel_root_cr3, file_data, file_size, user_cr3, entry, user_rsp))
+    if(!load_user_elf(frames, kernel_root_cr3, file_data, file_size, user_cr3, entry, user_rsp))
     {
         debug("user ELF load failed for ")(path)();
         return false;
@@ -228,10 +228,10 @@ void prepare_user_thread_entry(Thread* thread, uint64_t entry, uint64_t user_rsp
     }
 }
 
-Thread* LoadUserProgram(PageFrameContainer& frames,
-                        uint64_t kernel_root_cr3,
-                        const char* path,
-                        Process* parent)
+Thread* load_user_program(PageFrameContainer& frames,
+                          uint64_t kernel_root_cr3,
+                          const char* path,
+                          Process* parent)
 {
     uint64_t user_cr3 = 0;
     uint64_t entry = 0;
@@ -241,7 +241,7 @@ Thread* LoadUserProgram(PageFrameContainer& frames,
         return nullptr;
     }
 
-    Process* process = createUserProcess(path, user_cr3);
+    Process* process = create_user_process(path, user_cr3);
     if(nullptr == process)
     {
         destroy_user_address_space(frames, user_cr3);

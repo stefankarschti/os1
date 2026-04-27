@@ -174,7 +174,7 @@ __attribute__((used,
 __attribute__((used, section(".limine_requests_end"))) volatile uint64_t g_limine_requests_end[2] =
     LIMINE_REQUESTS_END_MARKER;
 
-[[noreturn]] void HaltForever()
+[[noreturn]] void halt_forever()
 {
     for(;;)
     {
@@ -183,19 +183,19 @@ __attribute__((used, section(".limine_requests_end"))) volatile uint64_t g_limin
     }
 }
 
-[[nodiscard]] uint64_t AlignUp(uint64_t value, uint64_t alignment)
+[[nodiscard]] uint64_t align_up(uint64_t value, uint64_t alignment)
 {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-[[nodiscard]] uint64_t ReadCr3()
+[[nodiscard]] uint64_t read_cr3()
 {
     uint64_t value = 0;
     asm volatile("mov %%cr3, %0" : "=r"(value));
     return value;
 }
 
-[[nodiscard]] size_t StringLength(const char* text)
+[[nodiscard]] size_t string_length(const char* text)
 {
     size_t length = 0;
     if(nullptr == text)
@@ -209,7 +209,7 @@ __attribute__((used, section(".limine_requests_end"))) volatile uint64_t g_limin
     return length;
 }
 
-void InitSerial()
+void init_serial()
 {
     constexpr uint16_t kSerialPort = 0x3F8;
     outb(kSerialPort + 1, 0x00);
@@ -221,7 +221,7 @@ void InitSerial()
     outb(kSerialPort + 4, 0x0B);
 }
 
-void WriteSerialChar(char value)
+void write_serial_char(char value)
 {
     constexpr uint16_t kSerialPort = 0x3F8;
     while(0 == (inb(kSerialPort + 5) & 0x20))
@@ -230,7 +230,7 @@ void WriteSerialChar(char value)
     outb(kSerialPort, (uint8_t)value);
 }
 
-void WriteSerial(const char* text)
+void write_serial(const char* text)
 {
     if(nullptr == text)
     {
@@ -238,27 +238,27 @@ void WriteSerial(const char* text)
     }
     while(*text)
     {
-        WriteSerialChar(*text++);
+        write_serial_char(*text++);
     }
 }
 
-void WriteSerialLn(const char* text)
+void write_serial_ln(const char* text)
 {
-    WriteSerial(text);
-    WriteSerial("\n");
+    write_serial(text);
+    write_serial("\n");
 }
 
-void WriteSerialHex(uint64_t value)
+void write_serial_hex(uint64_t value)
 {
     static const char hexdigits[] = "0123456789ABCDEF";
     for(int nibble = 15; nibble >= 0; --nibble)
     {
         const uint8_t digit = (value >> (nibble * 4)) & 0xFu;
-        WriteSerialChar(hexdigits[digit]);
+        write_serial_char(hexdigits[digit]);
     }
 }
 
-void CopyBytes(void* destination, const void* source, size_t length)
+void copy_bytes(void* destination, const void* source, size_t length)
 {
     uint8_t* dest = (uint8_t*)destination;
     const uint8_t* src = (const uint8_t*)source;
@@ -268,7 +268,7 @@ void CopyBytes(void* destination, const void* source, size_t length)
     }
 }
 
-void ZeroBytes(void* destination, size_t length)
+void zero_bytes(void* destination, size_t length)
 {
     uint8_t* dest = (uint8_t*)destination;
     for(size_t i = 0; i < length; ++i)
@@ -277,7 +277,7 @@ void ZeroBytes(void* destination, size_t length)
     }
 }
 
-void CopyString(char* destination, size_t capacity, const char* source)
+void copy_string(char* destination, size_t capacity, const char* source)
 {
     if((nullptr == destination) || (0 == capacity))
     {
@@ -290,20 +290,20 @@ void CopyString(char* destination, size_t capacity, const char* source)
         return;
     }
 
-    const size_t source_length = StringLength(source);
+    const size_t source_length = string_length(source);
     const size_t copy_length = (source_length < (capacity - 1)) ? source_length : (capacity - 1);
-    CopyBytes(destination, source, copy_length);
+    copy_bytes(destination, source, copy_length);
     destination[copy_length] = 0;
 }
 
-void AppendString(char* destination, size_t capacity, const char* suffix)
+void append_string(char* destination, size_t capacity, const char* suffix)
 {
     if((nullptr == destination) || (nullptr == suffix) || (0 == capacity))
     {
         return;
     }
 
-    size_t destination_length = StringLength(destination);
+    size_t destination_length = string_length(destination);
     while((destination_length + 1) < capacity && *suffix)
     {
         destination[destination_length++] = *suffix++;
@@ -311,7 +311,7 @@ void AppendString(char* destination, size_t capacity, const char* suffix)
     destination[destination_length] = 0;
 }
 
-[[nodiscard]] bool StringsEqual(const char* left, const char* right)
+[[nodiscard]] bool strings_equal(const char* left, const char* right)
 {
     if((nullptr == left) || (nullptr == right))
     {
@@ -331,29 +331,29 @@ void AppendString(char* destination, size_t capacity, const char* suffix)
     return left[index] == right[index];
 }
 
-[[nodiscard]] bool PathEndsWith(const char* path, const char* suffix)
+[[nodiscard]] bool path_ends_with(const char* path, const char* suffix)
 {
     if((nullptr == path) || (nullptr == suffix))
     {
         return false;
     }
 
-    const size_t path_length = StringLength(path);
-    const size_t suffix_length = StringLength(suffix);
+    const size_t path_length = string_length(path);
+    const size_t suffix_length = string_length(suffix);
     if(path_length < suffix_length)
     {
         return false;
     }
 
-    return StringsEqual(path + path_length - suffix_length, suffix);
+    return strings_equal(path + path_length - suffix_length, suffix);
 }
 
-[[nodiscard]] uint64_t PageIndex(uint64_t virtual_address, unsigned shift)
+[[nodiscard]] uint64_t page_index(uint64_t virtual_address, unsigned shift)
 {
     return (virtual_address >> shift) & 0x1FFull;
 }
 
-[[nodiscard]] const uint64_t* MapPhysicalTable(uint64_t physical_address)
+[[nodiscard]] const uint64_t* map_physical_table(uint64_t physical_address)
 {
     if(!g_hhdm_offset_valid)
     {
@@ -363,7 +363,7 @@ void AppendString(char* destination, size_t capacity, const char* suffix)
 }
 
 template<typename T>
-[[nodiscard]] T* MapPhysicalPointer(uint64_t physical_address)
+[[nodiscard]] T* map_physical_pointer(uint64_t physical_address)
 {
     if(!g_hhdm_offset_valid)
     {
@@ -372,26 +372,26 @@ template<typename T>
     return (T*)(physical_address + g_hhdm_offset);
 }
 
-[[nodiscard]] bool TranslateLimineVirtual(uint64_t virtual_address, uint64_t& physical_address)
+[[nodiscard]] bool translate_limine_virtual(uint64_t virtual_address, uint64_t& physical_address)
 {
-    const uint64_t* pml4 = MapPhysicalTable(ReadCr3() & kPageMask);
+    const uint64_t* pml4 = map_physical_table(read_cr3() & kPageMask);
     if(nullptr == pml4)
     {
         return false;
     }
 
-    const uint64_t pml4e = pml4[PageIndex(virtual_address, 39)];
+    const uint64_t pml4e = pml4[page_index(virtual_address, 39)];
     if(0 == (pml4e & 1ull))
     {
         return false;
     }
 
-    const uint64_t* pml3 = MapPhysicalTable(pml4e & kPageEntryAddressMask);
+    const uint64_t* pml3 = map_physical_table(pml4e & kPageEntryAddressMask);
     if(nullptr == pml3)
     {
         return false;
     }
-    const uint64_t pml3e = pml3[PageIndex(virtual_address, 30)];
+    const uint64_t pml3e = pml3[page_index(virtual_address, 30)];
     if(0 == (pml3e & 1ull))
     {
         return false;
@@ -403,12 +403,12 @@ template<typename T>
         return true;
     }
 
-    const uint64_t* pml2 = MapPhysicalTable(pml3e & kPageEntryAddressMask);
+    const uint64_t* pml2 = map_physical_table(pml3e & kPageEntryAddressMask);
     if(nullptr == pml2)
     {
         return false;
     }
-    const uint64_t pml2e = pml2[PageIndex(virtual_address, 21)];
+    const uint64_t pml2e = pml2[page_index(virtual_address, 21)];
     if(0 == (pml2e & 1ull))
     {
         return false;
@@ -420,12 +420,12 @@ template<typename T>
         return true;
     }
 
-    const uint64_t* pml1 = MapPhysicalTable(pml2e & kPageEntryAddressMask);
+    const uint64_t* pml1 = map_physical_table(pml2e & kPageEntryAddressMask);
     if(nullptr == pml1)
     {
         return false;
     }
-    const uint64_t pml1e = pml1[PageIndex(virtual_address, 12)];
+    const uint64_t pml1e = pml1[page_index(virtual_address, 12)];
     if(0 == (pml1e & 1ull))
     {
         return false;
@@ -435,27 +435,27 @@ template<typename T>
     return true;
 }
 
-[[nodiscard]] bool TranslateShimPointer(const void* pointer, uint64_t& physical_address)
+[[nodiscard]] bool translate_shim_pointer(const void* pointer, uint64_t& physical_address)
 {
-    return TranslateLimineVirtual((uint64_t)pointer, physical_address);
+    return translate_limine_virtual((uint64_t)pointer, physical_address);
 }
 
-void ReloadCr3()
+void reload_cr3()
 {
-    const uint64_t value = ReadCr3();
+    const uint64_t value = read_cr3();
     asm volatile("mov %0, %%cr3" : : "r"(value) : "memory");
 }
 
-[[nodiscard]] bool EnsureLowIdentityWindow(uint64_t required_bytes)
+[[nodiscard]] bool ensure_low_identity_window(uint64_t required_bytes)
 {
-    const uint64_t mapped_bytes = AlignUp(required_bytes, kTwoMiBPageSize);
+    const uint64_t mapped_bytes = align_up(required_bytes, kTwoMiBPageSize);
     if((0 == mapped_bytes) || (mapped_bytes > kMaxIdentityMapBytes))
     {
         return false;
     }
 
-    uint64_t pml4_physical = ReadCr3() & kPageMask;
-    uint64_t* pml4 = MapPhysicalPointer<uint64_t>(pml4_physical);
+    uint64_t pml4_physical = read_cr3() & kPageMask;
+    uint64_t* pml4 = map_physical_pointer<uint64_t>(pml4_physical);
     if(nullptr == pml4)
     {
         return false;
@@ -465,8 +465,8 @@ void ReloadCr3()
     uint64_t* pml3 = nullptr;
     if(0 == (pml4[0] & 1ull))
     {
-        ZeroBytes(g_low_identity_pml3, sizeof(g_low_identity_pml3));
-        if(!TranslateShimPointer(g_low_identity_pml3, pml3_physical))
+        zero_bytes(g_low_identity_pml3, sizeof(g_low_identity_pml3));
+        if(!translate_shim_pointer(g_low_identity_pml3, pml3_physical))
         {
             return false;
         }
@@ -476,7 +476,7 @@ void ReloadCr3()
     else
     {
         pml3_physical = pml4[0] & kPageEntryAddressMask;
-        pml3 = MapPhysicalPointer<uint64_t>(pml3_physical);
+        pml3 = map_physical_pointer<uint64_t>(pml3_physical);
         if(nullptr == pml3)
         {
             return false;
@@ -492,8 +492,8 @@ void ReloadCr3()
     uint64_t* pml2 = nullptr;
     if(0 == (pml3[0] & 1ull))
     {
-        ZeroBytes(g_low_identity_pml2, sizeof(g_low_identity_pml2));
-        if(!TranslateShimPointer(g_low_identity_pml2, pml2_physical))
+        zero_bytes(g_low_identity_pml2, sizeof(g_low_identity_pml2));
+        if(!translate_shim_pointer(g_low_identity_pml2, pml2_physical))
         {
             return false;
         }
@@ -503,7 +503,7 @@ void ReloadCr3()
     else
     {
         pml2_physical = pml3[0] & kPageEntryAddressMask;
-        pml2 = MapPhysicalPointer<uint64_t>(pml2_physical);
+        pml2 = map_physical_pointer<uint64_t>(pml2_physical);
         if(nullptr == pml2)
         {
             return false;
@@ -522,12 +522,12 @@ void ReloadCr3()
         }
     }
 
-    ReloadCr3();
+    reload_cr3();
     return true;
 }
 
 template<typename T>
-[[nodiscard]] bool LiminePointerMapped(const T* pointer)
+[[nodiscard]] bool limine_pointer_mapped(const T* pointer)
 {
     if(nullptr == pointer)
     {
@@ -535,10 +535,10 @@ template<typename T>
     }
 
     uint64_t physical_address = 0;
-    return TranslateShimPointer(pointer, physical_address);
+    return translate_shim_pointer(pointer, physical_address);
 }
 
-[[nodiscard]] BootMemoryType TranslateMemoryType(uint64_t limine_type)
+[[nodiscard]] BootMemoryType translate_memory_type(uint64_t limine_type)
 {
     switch(limine_type)
     {
@@ -565,7 +565,7 @@ template<typename T>
     }
 }
 
-[[nodiscard]] BootFramebufferPixelFormat DetectFramebufferPixelFormat(
+[[nodiscard]] BootFramebufferPixelFormat detect_framebuffer_pixel_format(
     const limine_framebuffer* framebuffer)
 {
     if((nullptr == framebuffer) || (LIMINE_FRAMEBUFFER_RGB != framebuffer->memory_model))
@@ -594,10 +594,10 @@ template<typename T>
     return BootFramebufferPixelFormat::Unknown;
 }
 
-[[nodiscard]] const limine_file* FindModule(const char* name)
+[[nodiscard]] const limine_file* find_module(const char* name)
 {
     const auto* response = g_module_request.response;
-    if(!LiminePointerMapped(response) || !LiminePointerMapped(response->modules))
+    if(!limine_pointer_mapped(response) || !limine_pointer_mapped(response->modules))
     {
         return nullptr;
     }
@@ -605,18 +605,19 @@ template<typename T>
     for(uint64_t i = 0; i < response->module_count; ++i)
     {
         const limine_file* module = response->modules[i];
-        if(!LiminePointerMapped(module))
+        if(!limine_pointer_mapped(module))
         {
             continue;
         }
-        const char* path = LiminePointerMapped(module->path) ? module->path : nullptr;
-        const char* string = LiminePointerMapped(module->string) ? module->string : nullptr;
+        const char* path = limine_pointer_mapped(module->path) ? module->path : nullptr;
+        const char* string = limine_pointer_mapped(module->string) ? module->string : nullptr;
         if((nullptr == path) && (nullptr == string))
         {
             continue;
         }
 
-        if(PathEndsWith(path, name) || StringsEqual(string, name) || PathEndsWith(string, name))
+        if(path_ends_with(path, name) || strings_equal(string, name) ||
+           path_ends_with(string, name))
         {
             return module;
         }
@@ -625,7 +626,7 @@ template<typename T>
     return nullptr;
 }
 
-[[nodiscard]] const Elf64Header* ValidateKernelFile(const limine_file& kernel_file)
+[[nodiscard]] const Elf64Header* validate_kernel_file(const limine_file& kernel_file)
 {
     if((nullptr == kernel_file.address) || (kernel_file.size < sizeof(Elf64Header)))
     {
@@ -641,22 +642,22 @@ template<typename T>
     return header;
 }
 
-[[nodiscard]] bool InspectKernelImage(const limine_file& kernel_file,
-                                      uint64_t& entry_point,
-                                      uint64_t& kernel_physical_start,
-                                      uint64_t& kernel_physical_end)
+[[nodiscard]] bool inspect_kernel_image(const limine_file& kernel_file,
+                                        uint64_t& entry_point,
+                                        uint64_t& kernel_physical_start,
+                                        uint64_t& kernel_physical_end)
 {
-    const auto* header = ValidateKernelFile(kernel_file);
+    const auto* header = validate_kernel_file(kernel_file);
     if(nullptr == header)
     {
         return false;
     }
 
-    WriteSerial("[limine-shim] kernel module @ 0x");
-    WriteSerialHex((uint64_t)kernel_file.address);
-    WriteSerial(" size=0x");
-    WriteSerialHex(kernel_file.size);
-    WriteSerialLn("");
+    write_serial("[limine-shim] kernel module @ 0x");
+    write_serial_hex((uint64_t)kernel_file.address);
+    write_serial(" size=0x");
+    write_serial_hex(kernel_file.size);
+    write_serial_ln("");
 
     kernel_physical_start = ~0ull;
     kernel_physical_end = 0;
@@ -680,13 +681,13 @@ template<typename T>
             return false;
         }
 
-        WriteSerial("[limine-shim] PT_LOAD vaddr=0x");
-        WriteSerialHex(program->vaddr);
-        WriteSerial(" filesz=0x");
-        WriteSerialHex(program->filesz);
-        WriteSerial(" memsz=0x");
-        WriteSerialHex(program->memsz);
-        WriteSerialLn("");
+        write_serial("[limine-shim] PT_LOAD vaddr=0x");
+        write_serial_hex(program->vaddr);
+        write_serial(" filesz=0x");
+        write_serial_hex(program->filesz);
+        write_serial(" memsz=0x");
+        write_serial_hex(program->memsz);
+        write_serial_ln("");
 
         if(program->vaddr < kernel_physical_start)
         {
@@ -698,11 +699,11 @@ template<typename T>
         }
     }
 
-    WriteSerial("[limine-shim] loaded range 0x");
-    WriteSerialHex(kernel_physical_start);
-    WriteSerial("-0x");
-    WriteSerialHex(kernel_physical_end);
-    WriteSerialLn("");
+    write_serial("[limine-shim] loaded range 0x");
+    write_serial_hex(kernel_physical_start);
+    write_serial("-0x");
+    write_serial_hex(kernel_physical_end);
+    write_serial_ln("");
 
     if((~0ull == kernel_physical_start) || (kernel_physical_end <= kernel_physical_start))
     {
@@ -713,9 +714,9 @@ template<typename T>
     return true;
 }
 
-[[nodiscard]] bool LoadKernelSegments(const limine_file& kernel_file)
+[[nodiscard]] bool load_kernel_segments(const limine_file& kernel_file)
 {
-    const auto* header = ValidateKernelFile(kernel_file);
+    const auto* header = validate_kernel_file(kernel_file);
     if(nullptr == header)
     {
         return false;
@@ -745,39 +746,39 @@ template<typename T>
         // tables. The shared kernel image is still low-linked, so the shim writes
         // it by physical address through the HHDM mapping instead of assuming an
         // identity map already exists.
-        uint8_t* segment = MapPhysicalPointer<uint8_t>(program->vaddr);
+        uint8_t* segment = map_physical_pointer<uint8_t>(program->vaddr);
         if(nullptr == segment)
         {
             return false;
         }
-        ZeroBytes(segment, (size_t)program->memsz);
-        CopyBytes(segment,
-                  (const uint8_t*)kernel_file.address + program->offset,
-                  (size_t)program->filesz);
+        zero_bytes(segment, (size_t)program->memsz);
+        copy_bytes(segment,
+                   (const uint8_t*)kernel_file.address + program->offset,
+                   (size_t)program->filesz);
     }
 
     return true;
 }
 
-[[nodiscard]] bool PrepareKernelHandoff(uint64_t kernel_physical_end,
-                                        cpu*& cpu_boot,
-                                        uint64_t& boot_info_storage_physical)
+[[nodiscard]] bool prepare_kernel_handoff(uint64_t kernel_physical_end,
+                                          cpu*& cpu_boot,
+                                          uint64_t& boot_info_storage_physical)
 {
-    cpu_boot = (cpu*)AlignUp(kernel_physical_end, kPageSize);
-    uint8_t* cpu_boot_page = MapPhysicalPointer<uint8_t>((uint64_t)cpu_boot);
+    cpu_boot = (cpu*)align_up(kernel_physical_end, kPageSize);
+    uint8_t* cpu_boot_page = map_physical_pointer<uint8_t>((uint64_t)cpu_boot);
     if(nullptr == cpu_boot_page)
     {
         return false;
     }
-    ZeroBytes(cpu_boot_page, kPageSize);
+    zero_bytes(cpu_boot_page, kPageSize);
 
-    boot_info_storage_physical = AlignUp((uint64_t)cpu_boot + kPageSize, kPageSize);
+    boot_info_storage_physical = align_up((uint64_t)cpu_boot + kPageSize, kPageSize);
     const uint64_t boot_info_storage_end =
-        AlignUp(boot_info_storage_physical + sizeof(LowHandoffBootInfoStorage), kPageSize);
+        align_up(boot_info_storage_physical + sizeof(LowHandoffBootInfoStorage), kPageSize);
     return boot_info_storage_end <= kKernelReservedPhysicalEnd;
 }
 
-[[nodiscard]] char* ReserveBootString(BootStringArena& arena, size_t capacity)
+[[nodiscard]] char* reserve_boot_string(BootStringArena& arena, size_t capacity)
 {
     if((nullptr == arena.base) || (0 == capacity))
     {
@@ -789,78 +790,79 @@ template<typename T>
     }
 
     char* storage = arena.base + arena.used;
-    ZeroBytes(storage, capacity);
+    zero_bytes(storage, capacity);
     arena.used += capacity;
     return storage;
 }
 
-[[nodiscard]] const char* CopyBootString(BootStringArena& arena,
-                                         size_t capacity,
-                                         const char* source)
+[[nodiscard]] const char* copy_boot_string(BootStringArena& arena,
+                                           size_t capacity,
+                                           const char* source)
 {
-    char* storage = ReserveBootString(arena, capacity);
+    char* storage = reserve_boot_string(arena, capacity);
     if(nullptr == storage)
     {
         return nullptr;
     }
-    CopyString(storage, capacity, source);
+    copy_string(storage, capacity, source);
     return storage;
 }
 
-[[nodiscard]] bool PopulateBootloaderInfo(BootInfo& boot_info, BootStringArena& arena)
+[[nodiscard]] bool populate_bootloader_info(BootInfo& boot_info, BootStringArena& arena)
 {
     const auto* response = g_bootloader_info_request.response;
     const char* name = "limine";
     const char* version = nullptr;
-    if(LiminePointerMapped(response))
+    if(limine_pointer_mapped(response))
     {
-        if(LiminePointerMapped(response->name))
+        if(limine_pointer_mapped(response->name))
         {
             name = response->name;
         }
-        if(LiminePointerMapped(response->version))
+        if(limine_pointer_mapped(response->version))
         {
             version = response->version;
         }
     }
 
-    char* storage = ReserveBootString(arena, kBootInfoMaxBootloaderNameBytes);
+    char* storage = reserve_boot_string(arena, kBootInfoMaxBootloaderNameBytes);
     if(nullptr == storage)
     {
         return false;
     }
-    CopyString(storage, kBootInfoMaxBootloaderNameBytes, name);
+    copy_string(storage, kBootInfoMaxBootloaderNameBytes, name);
     if((nullptr != version) && version[0])
     {
-        AppendString(storage, kBootInfoMaxBootloaderNameBytes, " ");
-        AppendString(storage, kBootInfoMaxBootloaderNameBytes, version);
+        append_string(storage, kBootInfoMaxBootloaderNameBytes, " ");
+        append_string(storage, kBootInfoMaxBootloaderNameBytes, version);
     }
     boot_info.bootloader_name = storage;
     return true;
 }
 
-bool PopulateCommandLine(BootInfo& boot_info, BootStringArena& arena)
+bool populate_command_line(BootInfo& boot_info, BootStringArena& arena)
 {
     const auto* response = g_cmdline_request.response;
-    if(!LiminePointerMapped(response) || !LiminePointerMapped(response->cmdline) ||
+    if(!limine_pointer_mapped(response) || !limine_pointer_mapped(response->cmdline) ||
        (0 == response->cmdline[0]))
     {
         return true;
     }
 
-    boot_info.command_line = CopyBootString(arena, kBootInfoMaxCommandLineBytes, response->cmdline);
+    boot_info.command_line =
+        copy_boot_string(arena, kBootInfoMaxCommandLineBytes, response->cmdline);
     return nullptr != boot_info.command_line;
 }
 
-[[nodiscard]] bool PopulateMemoryMap(BootInfo& boot_info, BootMemoryRegion* memory_map)
+[[nodiscard]] bool populate_memory_map(BootInfo& boot_info, BootMemoryRegion* memory_map)
 {
     const auto* response = g_memmap_request.response;
-    if((nullptr == memory_map) || !LiminePointerMapped(response) ||
+    if((nullptr == memory_map) || !limine_pointer_mapped(response) ||
        (response->entry_count > kBootInfoMaxMemoryRegions))
     {
         return false;
     }
-    if(!LiminePointerMapped(response->entries))
+    if(!limine_pointer_mapped(response->entries))
     {
         return false;
     }
@@ -868,14 +870,14 @@ bool PopulateCommandLine(BootInfo& boot_info, BootStringArena& arena)
     for(uint64_t i = 0; i < response->entry_count; ++i)
     {
         const auto* entry = response->entries[i];
-        if(!LiminePointerMapped(entry))
+        if(!limine_pointer_mapped(entry))
         {
             return false;
         }
 
         memory_map[i].physical_start = entry->base;
         memory_map[i].length = entry->length;
-        memory_map[i].type = TranslateMemoryType(entry->type);
+        memory_map[i].type = translate_memory_type(entry->type);
         memory_map[i].attributes = 0;
     }
 
@@ -884,10 +886,10 @@ bool PopulateCommandLine(BootInfo& boot_info, BootStringArena& arena)
     return true;
 }
 
-[[nodiscard]] bool PopulateInitrdModule(BootInfo& boot_info,
-                                        BootStringArena& arena,
-                                        const limine_file& initrd_module,
-                                        BootModuleInfo* modules)
+[[nodiscard]] bool populate_initrd_module(BootInfo& boot_info,
+                                          BootStringArena& arena,
+                                          const limine_file& initrd_module,
+                                          BootModuleInfo* modules)
 {
     if(nullptr == modules)
     {
@@ -895,15 +897,15 @@ bool PopulateCommandLine(BootInfo& boot_info, BootStringArena& arena)
     }
 
     uint64_t initrd_physical = 0;
-    if(!TranslateLimineVirtual((uint64_t)initrd_module.address, initrd_physical))
+    if(!translate_limine_virtual((uint64_t)initrd_module.address, initrd_physical))
     {
         return false;
     }
 
-    ZeroBytes(modules, sizeof(BootModuleInfo) * kBootInfoMaxModules);
+    zero_bytes(modules, sizeof(BootModuleInfo) * kBootInfoMaxModules);
     modules[0].physical_start = initrd_physical;
     modules[0].length = initrd_module.size;
-    modules[0].name = CopyBootString(arena, kBootInfoMaxModuleNameBytes, kInitrdModuleName);
+    modules[0].name = copy_boot_string(arena, kBootInfoMaxModuleNameBytes, kInitrdModuleName);
     if(nullptr == modules[0].name)
     {
         return false;
@@ -914,56 +916,56 @@ bool PopulateCommandLine(BootInfo& boot_info, BootStringArena& arena)
     return true;
 }
 
-void PopulateFirmwarePointers(BootInfo& boot_info)
+void populate_firmware_pointers(BootInfo& boot_info)
 {
     uint64_t translated = 0;
     const auto* rsdp = g_rsdp_request.response;
 
-    if(LiminePointerMapped(rsdp) && (nullptr != rsdp->address) &&
-       TranslateLimineVirtual((uint64_t)rsdp->address, translated))
+    if(limine_pointer_mapped(rsdp) && (nullptr != rsdp->address) &&
+       translate_limine_virtual((uint64_t)rsdp->address, translated))
     {
         boot_info.rsdp_physical = translated;
     }
 
     const auto* smbios = g_smbios_request.response;
-    if(!LiminePointerMapped(smbios))
+    if(!limine_pointer_mapped(smbios))
     {
         return;
     }
 
     if((nullptr != smbios->entry_64) &&
-       TranslateLimineVirtual((uint64_t)smbios->entry_64, translated))
+       translate_limine_virtual((uint64_t)smbios->entry_64, translated))
     {
         boot_info.smbios_physical = translated;
         return;
     }
     if((nullptr != smbios->entry_32) &&
-       TranslateLimineVirtual((uint64_t)smbios->entry_32, translated))
+       translate_limine_virtual((uint64_t)smbios->entry_32, translated))
     {
         boot_info.smbios_physical = translated;
     }
 }
 
-[[nodiscard]] bool PopulateFramebuffer(BootInfo& boot_info)
+[[nodiscard]] bool populate_framebuffer(BootInfo& boot_info)
 {
     const auto* response = g_framebuffer_request.response;
-    if(!LiminePointerMapped(response) || (0 == response->framebuffer_count))
+    if(!limine_pointer_mapped(response) || (0 == response->framebuffer_count))
     {
         return true;
     }
-    if(!LiminePointerMapped(response->framebuffers))
+    if(!limine_pointer_mapped(response->framebuffers))
     {
         return true;
     }
 
     const auto* framebuffer = response->framebuffers[0];
-    if(!LiminePointerMapped(framebuffer))
+    if(!limine_pointer_mapped(framebuffer))
     {
         return true;
     }
 
     uint64_t framebuffer_physical = 0;
-    if(!TranslateLimineVirtual((uint64_t)framebuffer->address, framebuffer_physical))
+    if(!translate_limine_virtual((uint64_t)framebuffer->address, framebuffer_physical))
     {
         return true;
     }
@@ -973,31 +975,31 @@ void PopulateFirmwarePointers(BootInfo& boot_info)
     boot_info.framebuffer.height = (uint32_t)framebuffer->height;
     boot_info.framebuffer.pitch_bytes = (uint32_t)framebuffer->pitch;
     boot_info.framebuffer.bits_per_pixel = framebuffer->bpp;
-    boot_info.framebuffer.pixel_format = DetectFramebufferPixelFormat(framebuffer);
+    boot_info.framebuffer.pixel_format = detect_framebuffer_pixel_format(framebuffer);
     return true;
 }
 
-__attribute__((noinline, optimize("O1"))) [[nodiscard]] BootInfo* BuildBootInfo(
+[[nodiscard]] __attribute__((noinline, optimize("O1"))) BootInfo* build_boot_info(
     const limine_file& initrd_module,
     uint64_t kernel_physical_start,
     uint64_t kernel_physical_end,
     uint64_t boot_info_storage_physical)
 {
-    WriteSerialLn("[limine-shim] BuildBootInfo start");
+    write_serial_ln("[limine-shim] BuildBootInfo start");
     if(!g_hhdm_offset_valid)
     {
-        WriteSerialLn("[limine-shim] handoff storage unavailable");
+        write_serial_ln("[limine-shim] handoff storage unavailable");
         return nullptr;
     }
 
     auto* storage = (LowHandoffBootInfoStorage*)(boot_info_storage_physical + g_hhdm_offset);
-    WriteSerialLn("[limine-shim] bootinfo storage ok");
+    write_serial_ln("[limine-shim] bootinfo storage ok");
 
     // The shared low-half kernel copies BootInfo immediately on entry, so a
     // small staging area carved out of the already-reserved kernel low-memory
     // window is sufficient and avoids depending on shim-owned higher-half .bss.
-    ZeroBytes(storage, sizeof(*storage));
-    WriteSerialLn("[limine-shim] bootinfo storage cleared");
+    zero_bytes(storage, sizeof(*storage));
+    write_serial_ln("[limine-shim] bootinfo storage cleared");
 
     BootInfo* boot_info = &storage->info;
     BootMemoryRegion* memory_map = storage->memory_map;
@@ -1019,38 +1021,38 @@ __attribute__((noinline, optimize("O1"))) [[nodiscard]] BootInfo* BuildBootInfo(
     boot.text_console.cursor_x = 0;
     boot.text_console.cursor_y = 0;
 
-    if(!PopulateBootloaderInfo(boot, arena))
+    if(!populate_bootloader_info(boot, arena))
     {
-        WriteSerialLn("[limine-shim] bootloader info handoff failed");
+        write_serial_ln("[limine-shim] bootloader info handoff failed");
         return nullptr;
     }
-    WriteSerialLn("[limine-shim] bootinfo bootloader ok");
-    if(!PopulateCommandLine(boot, arena))
+    write_serial_ln("[limine-shim] bootinfo bootloader ok");
+    if(!populate_command_line(boot, arena))
     {
-        WriteSerialLn("[limine-shim] command line handoff failed");
+        write_serial_ln("[limine-shim] command line handoff failed");
         return nullptr;
     }
-    WriteSerialLn("[limine-shim] bootinfo cmdline ok");
-    if(!PopulateMemoryMap(boot, memory_map))
+    write_serial_ln("[limine-shim] bootinfo cmdline ok");
+    if(!populate_memory_map(boot, memory_map))
     {
-        WriteSerialLn("[limine-shim] memory map handoff failed");
+        write_serial_ln("[limine-shim] memory map handoff failed");
         return nullptr;
     }
-    WriteSerialLn("[limine-shim] bootinfo memmap ok");
-    if(!PopulateInitrdModule(boot, arena, initrd_module, modules))
+    write_serial_ln("[limine-shim] bootinfo memmap ok");
+    if(!populate_initrd_module(boot, arena, initrd_module, modules))
     {
-        WriteSerialLn("[limine-shim] initrd handoff failed");
+        write_serial_ln("[limine-shim] initrd handoff failed");
         return nullptr;
     }
-    WriteSerialLn("[limine-shim] bootinfo initrd ok");
-    if(!PopulateFramebuffer(boot))
+    write_serial_ln("[limine-shim] bootinfo initrd ok");
+    if(!populate_framebuffer(boot))
     {
-        WriteSerialLn("[limine-shim] framebuffer handoff failed");
+        write_serial_ln("[limine-shim] framebuffer handoff failed");
         return nullptr;
     }
-    WriteSerialLn("[limine-shim] bootinfo framebuffer ok");
-    PopulateFirmwarePointers(boot);
-    WriteSerialLn("[limine-shim] bootinfo ready");
+    write_serial_ln("[limine-shim] bootinfo framebuffer ok");
+    populate_firmware_pointers(boot);
+    write_serial_ln("[limine-shim] bootinfo ready");
     return boot_info;
 }
 }  // namespace
@@ -1073,33 +1075,33 @@ _start:
 
 extern "C" [[noreturn]] void limine_start_main()
 {
-    InitSerial();
+    init_serial();
     asm volatile("cli");
     asm volatile("cld");
-    WriteSerialLn("[limine-shim] start");
+    write_serial_ln("[limine-shim] start");
     if(!LIMINE_BASE_REVISION_SUPPORTED(g_limine_base_revision))
     {
-        WriteSerialLn("[limine-shim] unsupported base revision");
-        HaltForever();
+        write_serial_ln("[limine-shim] unsupported base revision");
+        halt_forever();
     }
 
     const auto* hhdm = g_hhdm_request.response;
     if(nullptr == hhdm)
     {
-        WriteSerialLn("[limine-shim] missing HHDM response");
-        HaltForever();
+        write_serial_ln("[limine-shim] missing HHDM response");
+        halt_forever();
     }
     g_hhdm_offset = hhdm->offset;
     g_hhdm_offset_valid = true;
 
-    const limine_file* kernel_file = FindModule(kKernelModuleName);
-    const limine_file* initrd_file = FindModule(kInitrdModuleName);
+    const limine_file* kernel_file = find_module(kKernelModuleName);
+    const limine_file* initrd_file = find_module(kInitrdModuleName);
     if((nullptr == kernel_file) || (nullptr == initrd_file))
     {
-        WriteSerialLn("[limine-shim] missing required modules");
-        HaltForever();
+        write_serial_ln("[limine-shim] missing required modules");
+        halt_forever();
     }
-    WriteSerialLn("[limine-shim] modules discovered");
+    write_serial_ln("[limine-shim] modules discovered");
     const limine_file kernel_module = *kernel_file;
     const limine_file initrd_module = *initrd_file;
 
@@ -1108,42 +1110,43 @@ extern "C" [[noreturn]] void limine_start_main()
     uint64_t kernel_physical_end = 0;
     uint64_t boot_info_storage_physical = 0;
     cpu* cpu_boot = nullptr;
-    if(!InspectKernelImage(kernel_module, entry_point, kernel_physical_start, kernel_physical_end))
+    if(!inspect_kernel_image(
+           kernel_module, entry_point, kernel_physical_start, kernel_physical_end))
     {
-        WriteSerialLn("[limine-shim] low kernel inspect failed");
-        HaltForever();
+        write_serial_ln("[limine-shim] low kernel inspect failed");
+        halt_forever();
     }
-    if(!PrepareKernelHandoff(kernel_physical_end, cpu_boot, boot_info_storage_physical))
+    if(!prepare_kernel_handoff(kernel_physical_end, cpu_boot, boot_info_storage_physical))
     {
-        WriteSerialLn("[limine-shim] low kernel handoff prep failed");
-        HaltForever();
+        write_serial_ln("[limine-shim] low kernel handoff prep failed");
+        halt_forever();
     }
 
-    WriteSerialLn("[limine-shim] building BootInfo");
-    BootInfo* boot_info = BuildBootInfo(
+    write_serial_ln("[limine-shim] building BootInfo");
+    BootInfo* boot_info = build_boot_info(
         initrd_module, kernel_physical_start, kernel_physical_end, boot_info_storage_physical);
     if(nullptr == boot_info)
     {
-        WriteSerialLn("[limine-shim] BootInfo build failed");
-        HaltForever();
+        write_serial_ln("[limine-shim] BootInfo build failed");
+        halt_forever();
     }
-    if(!LoadKernelSegments(kernel_module))
+    if(!load_kernel_segments(kernel_module))
     {
-        WriteSerialLn("[limine-shim] low kernel load failed");
-        HaltForever();
+        write_serial_ln("[limine-shim] low kernel load failed");
+        halt_forever();
     }
-    const uint64_t low_handoff_end = AlignUp((uint64_t)cpu_boot + ::kPageSize, ::kPageSize);
-    if(!EnsureLowIdentityWindow(low_handoff_end))
+    const uint64_t low_handoff_end = align_up((uint64_t)cpu_boot + ::kPageSize, ::kPageSize);
+    if(!ensure_low_identity_window(low_handoff_end))
     {
-        WriteSerialLn("[limine-shim] low identity map failed");
-        HaltForever();
+        write_serial_ln("[limine-shim] low identity map failed");
+        halt_forever();
     }
-    WriteSerial("[limine-shim] loaded low kernel entry=0x");
-    WriteSerialHex(entry_point);
-    WriteSerial(" cpu=0x");
-    WriteSerialHex((uint64_t)cpu_boot);
-    WriteSerialLn("");
-    WriteSerialLn("[limine-shim] entering kernel_main");
+    write_serial("[limine-shim] loaded low kernel entry=0x");
+    write_serial_hex(entry_point);
+    write_serial(" cpu=0x");
+    write_serial_hex((uint64_t)cpu_boot);
+    write_serial_ln("");
+    write_serial_ln("[limine-shim] entering kernel_main");
 
     limine_enter_kernel((void (*)(BootInfo*, cpu*))entry_point, boot_info, cpu_boot);
 }

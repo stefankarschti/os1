@@ -15,7 +15,7 @@ constexpr size_t kThreadTablePageCount = (kMaxThreads * sizeof(Thread) + kPageSi
 uint64_t g_next_tid = 1;
 Thread* g_idle_thread = nullptr;
 
-Thread* nextFreeThread()
+Thread* next_free_thread()
 {
     for(size_t i = 0; i < kMaxThreads; ++i)
     {
@@ -27,7 +27,7 @@ Thread* nextFreeThread()
     return nullptr;
 }
 
-bool InitializeThreadTable(PageFrameContainer& frames)
+bool initialize_thread_table(PageFrameContainer& frames)
 {
     g_next_tid = 1;
     g_idle_thread = nullptr;
@@ -57,7 +57,7 @@ Thread* threadTable = nullptr;
 
 bool init_tasks(PageFrameContainer& frames)
 {
-    if(!initialize_process_table(frames) || !InitializeThreadTable(frames))
+    if(!initialize_process_table(frames) || !initialize_thread_table(frames))
     {
         return false;
     }
@@ -103,7 +103,7 @@ void clear_thread(Thread* thread)
 
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames)
 {
-    Thread* thread = nextFreeThread();
+    Thread* thread = next_free_thread();
     if((nullptr == thread) || (nullptr == process) || (nullptr == entry))
     {
         return nullptr;
@@ -154,7 +154,7 @@ Thread* create_user_thread(Process* process,
                            uint64_t user_rsp,
                            PageFrameContainer& frames)
 {
-    Thread* thread = nextFreeThread();
+    Thread* thread = next_free_thread();
     if(nullptr == thread)
     {
         return nullptr;

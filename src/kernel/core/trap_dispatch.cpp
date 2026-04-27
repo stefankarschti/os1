@@ -14,11 +14,11 @@ extern "C" Thread* trap_dispatch(TrapFrame* frame)
 
     if((frame->vector >= T_IRQ0) && (frame->vector < (T_IRQ0 + 16)))
     {
-        return HandleIrq(frame);
+        return handle_irq(frame);
     }
     if(frame->vector == T_SYSCALL)
     {
         return handle_syscall(frame);
     }
-    return HandleException(frame);
+    return handle_exception(frame);
 }

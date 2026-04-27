@@ -12,8 +12,8 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
         return true;
     }
 
-    const uint64_t start = AlignDown(physical_start, kPageSize);
-    const uint64_t end = AlignUp(physical_start + length, kPageSize);
+    const uint64_t start = align_down(physical_start, kPageSize);
+    const uint64_t end = align_up(physical_start + length, kPageSize);
     return vm.map_physical(
         start, start, (end - start) / kPageSize, PageFlags::Present | PageFlags::Write);
 }

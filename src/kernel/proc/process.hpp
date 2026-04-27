@@ -43,10 +43,10 @@ struct Process
 bool initialize_process_table(PageFrameContainer& frames);
 
 // Create the immortal kernel process that owns kernel threads.
-Process* createKernelProcess(uint64_t kernel_cr3);
+Process* create_kernel_process(uint64_t kernel_cr3);
 
 // Create a user process record bound to an already-built address space.
-Process* createUserProcess(const char* name, uint64_t cr3);
+Process* create_user_process(const char* name, uint64_t cr3);
 
 // Return true if any non-free thread still belongs to `process`.
 bool process_has_threads(Process* process);

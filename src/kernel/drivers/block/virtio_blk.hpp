@@ -21,4 +21,4 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
 // Run the current read-only sector smoke check against the bound device.
 bool run_virtio_blk_smoke();
 // Return the generic block facade for filesystem/storage code.
-const BlockDevice* VirtioBlkBlockDevice();
+const BlockDevice* virtio_blk_block_device();

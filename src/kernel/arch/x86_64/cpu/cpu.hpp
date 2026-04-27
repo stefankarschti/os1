@@ -101,7 +101,7 @@ static inline cpu* cpu_cur()
 }
 
 // Return true when running on the bootstrap CPU.
-static inline int cpu_onboot()
+static inline int cpu_on_boot()
 {
     return cpu_cur() == g_cpu_boot;
 }
@@ -111,6 +111,6 @@ void cpu_init(void);
 // allocate a CPU record plus kernel stack from physical pages.
 cpu* cpu_alloc(void);
 // Start application processors using the AP trampoline.
-void cpu_bootothers(uint64_t cr3);
+void cpu_boot_others(uint64_t cr3);
 // Publish the kernel stack loaded into TSS.RSP0 for ring transitions.
 void cpu_set_kernel_stack(uint64_t stack_top);

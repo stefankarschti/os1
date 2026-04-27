@@ -36,12 +36,12 @@ struct InitrdLookupContext
     uint64_t size;
 };
 
-[[nodiscard]] uint64_t AlignUp(uint64_t value, uint64_t alignment)
+[[nodiscard]] uint64_t align_up(uint64_t value, uint64_t alignment)
 {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-const char* NormalizeArchivePath(const char* path)
+const char* normalize_archive_path(const char* path)
 {
     if(nullptr == path)
     {
@@ -58,10 +58,10 @@ const char* NormalizeArchivePath(const char* path)
     return path;
 }
 
-bool PathsEqual(const char* archive_name, const char* wanted)
+bool paths_equal(const char* archive_name, const char* wanted)
 {
-    const char* normalized_archive = NormalizeArchivePath(archive_name);
-    const char* normalized_wanted = NormalizeArchivePath(wanted);
+    const char* normalized_archive = normalize_archive_path(archive_name);
+    const char* normalized_wanted = normalize_archive_path(wanted);
     if((nullptr == normalized_archive) || (nullptr == normalized_wanted))
     {
         return false;
@@ -79,12 +79,12 @@ bool PathsEqual(const char* archive_name, const char* wanted)
     }
 }
 
-[[nodiscard]] bool IsRegularInitrdEntry(uint32_t mode)
+[[nodiscard]] bool is_regular_initrd_entry(uint32_t mode)
 {
     return (mode & kCpioModeTypeMask) == kCpioModeRegular;
 }
 
-uint32_t ParseHex(const char* text, size_t digits)
+uint32_t parse_hex(const char* text, size_t digits)
 {
     uint32_t value = 0;
     for(size_t i = 0; i < digits; ++i)
@@ -106,13 +106,13 @@ uint32_t ParseHex(const char* text, size_t digits)
     return value;
 }
 
-bool MatchInitrdFile(const char* archive_name,
-                     const uint8_t* file_data,
-                     uint64_t file_size,
-                     void* context)
+bool match_initrd_file(const char* archive_name,
+                       const uint8_t* file_data,
+                       uint64_t file_size,
+                       void* context)
 {
     auto* lookup = static_cast<InitrdLookupContext*>(context);
-    if((nullptr == lookup) || !PathsEqual(archive_name, lookup->path))
+    if((nullptr == lookup) || !paths_equal(archive_name, lookup->path))
     {
         return true;
     }
@@ -155,29 +155,29 @@ bool for_each_initrd_file(InitrdFileVisitor visitor, void* context)
             return false;
         }
 
-        const uint32_t mode = ParseHex(header->mode, 8);
-        const uint32_t name_size = ParseHex(header->namesize, 8);
-        const uint32_t file_size = ParseHex(header->filesize, 8);
+        const uint32_t mode = parse_hex(header->mode, 8);
+        const uint32_t name_size = parse_hex(header->namesize, 8);
+        const uint32_t file_size = parse_hex(header->filesize, 8);
         const char* name = reinterpret_cast<const char*>(cursor + sizeof(CpioNewcHeader));
         const uint8_t* file_data = reinterpret_cast<const uint8_t*>(
-            AlignUp(reinterpret_cast<uint64_t>(cursor + sizeof(CpioNewcHeader) + name_size), 4));
+            align_up(reinterpret_cast<uint64_t>(cursor + sizeof(CpioNewcHeader) + name_size), 4));
         if((reinterpret_cast<const uint8_t*>(name) > end) || ((file_data + file_size) > end))
         {
             return false;
         }
 
-        if(PathsEqual(name, "TRAILER!!!"))
+        if(paths_equal(name, "TRAILER!!!"))
         {
             return true;
         }
 
-        if(IsRegularInitrdEntry(mode) && !visitor(name, file_data, file_size, context))
+        if(is_regular_initrd_entry(mode) && !visitor(name, file_data, file_size, context))
         {
             return false;
         }
 
         cursor = reinterpret_cast<const uint8_t*>(
-            AlignUp(reinterpret_cast<uint64_t>(file_data + file_size), 4));
+            align_up(reinterpret_cast<uint64_t>(file_data + file_size), 4));
     }
 
     return false;
@@ -186,7 +186,7 @@ bool for_each_initrd_file(InitrdFileVisitor visitor, void* context)
 bool find_initrd_file(const char* path, const uint8_t*& data, uint64_t& size)
 {
     InitrdLookupContext lookup{path, nullptr, 0};
-    (void)for_each_initrd_file(MatchInitrdFile, &lookup);
+    (void)for_each_initrd_file(match_initrd_file, &lookup);
     data = lookup.data;
     size = lookup.size;
     return (nullptr != data);
@@ -199,7 +199,7 @@ void copy_initrd_path(char* destination, size_t destination_size, const char* ar
         return;
     }
 
-    const char* normalized = NormalizeArchivePath(archive_name);
+    const char* normalized = normalize_archive_path(archive_name);
     size_t index = 0;
     if((nullptr != normalized) && (0 != normalized[0]))
     {

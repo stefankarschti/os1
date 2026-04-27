@@ -117,12 +117,12 @@ struct AcpiOutput
     size_t& ecam_region_count;
 };
 
-[[nodiscard]] inline uint64_t AlignDown(uint64_t value, uint64_t alignment)
+[[nodiscard]] inline uint64_t align_down(uint64_t value, uint64_t alignment)
 {
     return value & ~(alignment - 1);
 }
 
-[[nodiscard]] inline uint64_t AlignUp(uint64_t value, uint64_t alignment)
+[[nodiscard]] inline uint64_t align_up(uint64_t value, uint64_t alignment)
 {
     return (value + alignment - 1) & ~(alignment - 1);
 }
@@ -134,13 +134,13 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
         return true;
     }
 
-    const uint64_t start = AlignDown(physical_start, kPageSize);
-    const uint64_t end = AlignUp(physical_start + length, kPageSize);
+    const uint64_t start = align_down(physical_start, kPageSize);
+    const uint64_t end = align_up(physical_start + length, kPageSize);
     return vm.map_physical(
         start, start, (end - start) / kPageSize, PageFlags::Present | PageFlags::Write);
 }
 
-[[nodiscard]] bool ValidateChecksum(const void* base, size_t length)
+[[nodiscard]] bool validate_checksum(const void* base, size_t length)
 {
     const auto* bytes = static_cast<const uint8_t*>(base);
     uint8_t sum = 0;
@@ -151,21 +151,21 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
     return 0 == sum;
 }
 
-[[nodiscard]] bool SignatureEquals(const char* left, const char* right, size_t length)
+[[nodiscard]] bool signature_equals(const char* left, const char* right, size_t length)
 {
     return 0 == memcmp(left, right, length);
 }
 
-[[nodiscard]] uint8_t CurrentApicId()
+[[nodiscard]] uint8_t current_apic_id()
 {
     cpuinfo info{};
     cpuid(1, &info);
     return static_cast<uint8_t>((info.ebx >> 24) & 0xFFu);
 }
 
-[[nodiscard]] bool MapAcpiRange(VirtualMemory& kernel_vm,
-                                uint64_t physical_address,
-                                uint64_t length)
+[[nodiscard]] bool map_acpi_range(VirtualMemory& kernel_vm,
+                                  uint64_t physical_address,
+                                  uint64_t length)
 {
     if((0 == physical_address) || (0 == length))
     {
@@ -175,25 +175,25 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
 }
 
 template<typename T>
-[[nodiscard]] const T* MapAcpiObject(VirtualMemory& kernel_vm, uint64_t physical_address)
+[[nodiscard]] const T* map_acpi_object(VirtualMemory& kernel_vm, uint64_t physical_address)
 {
-    if(!MapAcpiRange(kernel_vm, physical_address, sizeof(T)))
+    if(!map_acpi_range(kernel_vm, physical_address, sizeof(T)))
     {
         return nullptr;
     }
     return reinterpret_cast<const T*>(physical_address);
 }
 
-[[nodiscard]] const AcpiSdtHeader* MapAcpiTable(VirtualMemory& kernel_vm,
-                                                uint64_t physical_address,
-                                                const char* expected_signature)
+[[nodiscard]] const AcpiSdtHeader* map_acpi_table(VirtualMemory& kernel_vm,
+                                                  uint64_t physical_address,
+                                                  const char* expected_signature)
 {
-    const AcpiSdtHeader* header = MapAcpiObject<AcpiSdtHeader>(kernel_vm, physical_address);
+    const AcpiSdtHeader* header = map_acpi_object<AcpiSdtHeader>(kernel_vm, physical_address);
     if(nullptr == header)
     {
         return nullptr;
     }
-    if(expected_signature && !SignatureEquals(header->signature, expected_signature, 4))
+    if(expected_signature && !signature_equals(header->signature, expected_signature, 4))
     {
         debug("acpi: unexpected signature at 0x")(physical_address, 16)();
         return nullptr;
@@ -204,12 +204,12 @@ template<typename T>
                                                                              16)();
         return nullptr;
     }
-    if(!MapAcpiRange(kernel_vm, physical_address, header->length))
+    if(!map_acpi_range(kernel_vm, physical_address, header->length))
     {
         return nullptr;
     }
     header = reinterpret_cast<const AcpiSdtHeader*>(physical_address);
-    if(!ValidateChecksum(header, header->length))
+    if(!validate_checksum(header, header->length))
     {
         debug("acpi: checksum failed at 0x")(physical_address, 16)();
         return nullptr;
@@ -217,10 +217,10 @@ template<typename T>
     return header;
 }
 
-[[nodiscard]] bool AddInterruptOverride(AcpiOutput& output,
-                                        uint8_t bus_irq,
-                                        uint32_t global_irq,
-                                        uint16_t flags)
+[[nodiscard]] bool add_interrupt_override(AcpiOutput& output,
+                                          uint8_t bus_irq,
+                                          uint32_t global_irq,
+                                          uint16_t flags)
 {
     if(output.override_count >= kPlatformMaxInterruptOverrides)
     {
@@ -234,11 +234,11 @@ template<typename T>
     return true;
 }
 
-[[nodiscard]] bool ParseMadt(VirtualMemory& kernel_vm,
-                             uint64_t physical_address,
-                             AcpiOutput& output)
+[[nodiscard]] bool parse_madt(VirtualMemory& kernel_vm,
+                              uint64_t physical_address,
+                              AcpiOutput& output)
 {
-    const auto* header = MapAcpiTable(kernel_vm, physical_address, "APIC");
+    const auto* header = map_acpi_table(kernel_vm, physical_address, "APIC");
     if(nullptr == header)
     {
         return false;
@@ -302,7 +302,7 @@ template<typename T>
                 const auto* entry = reinterpret_cast<const AcpiMadtInterruptOverride*>(cursor);
                 if(entry->bus == kAcpiIsaBus)
                 {
-                    if(!AddInterruptOverride(
+                    if(!add_interrupt_override(
                            output, entry->source_irq, entry->global_irq, entry->flags))
                     {
                         return false;
@@ -329,7 +329,7 @@ template<typename T>
         return false;
     }
 
-    const uint8_t bsp_apic_id = CurrentApicId();
+    const uint8_t bsp_apic_id = current_apic_id();
     bool found_bsp = false;
     for(size_t i = 0; i < output.cpu_count; ++i)
     {
@@ -351,11 +351,11 @@ template<typename T>
     return true;
 }
 
-[[nodiscard]] bool ParseMcfg(VirtualMemory& kernel_vm,
-                             uint64_t physical_address,
-                             AcpiOutput& output)
+[[nodiscard]] bool parse_mcfg(VirtualMemory& kernel_vm,
+                              uint64_t physical_address,
+                              AcpiOutput& output)
 {
-    const auto* header = MapAcpiTable(kernel_vm, physical_address, "MCFG");
+    const auto* header = map_acpi_table(kernel_vm, physical_address, "MCFG");
     if(nullptr == header)
     {
         return false;
@@ -407,10 +407,10 @@ template<typename T>
     return true;
 }
 
-[[nodiscard]] bool ResolveAcpiTables(VirtualMemory& kernel_vm,
-                                     const BootInfo& boot_info,
-                                     uint64_t& madt_physical,
-                                     uint64_t& mcfg_physical)
+[[nodiscard]] bool resolve_acpi_tables(VirtualMemory& kernel_vm,
+                                       const BootInfo& boot_info,
+                                       uint64_t& madt_physical,
+                                       uint64_t& mcfg_physical)
 {
     madt_physical = 0;
     mcfg_physical = 0;
@@ -419,18 +419,18 @@ template<typename T>
         debug("acpi: boot did not supply an RSDP")();
         return false;
     }
-    if(!MapAcpiRange(kernel_vm, boot_info.rsdp_physical, sizeof(AcpiRsdp)))
+    if(!map_acpi_range(kernel_vm, boot_info.rsdp_physical, sizeof(AcpiRsdp)))
     {
         return false;
     }
 
     const auto* rsdp = reinterpret_cast<const AcpiRsdp*>(boot_info.rsdp_physical);
-    if(!SignatureEquals(rsdp->signature, "RSD PTR ", 8))
+    if(!signature_equals(rsdp->signature, "RSD PTR ", 8))
     {
         debug("acpi: RSDP signature invalid")();
         return false;
     }
-    if(!ValidateChecksum(rsdp, 20))
+    if(!validate_checksum(rsdp, 20))
     {
         debug("acpi: RSDP checksum invalid")();
         return false;
@@ -441,7 +441,7 @@ template<typename T>
     bool use_xsdt = false;
     if((rsdp->revision >= 2) && (rsdp->length >= sizeof(AcpiRsdp)) && (0 != rsdp->xsdt_address))
     {
-        if(!ValidateChecksum(rsdp, rsdp->length))
+        if(!validate_checksum(rsdp, rsdp->length))
         {
             debug("acpi: XSDP extended checksum invalid")();
             return false;
@@ -460,11 +460,11 @@ template<typename T>
     }
 
     const AcpiSdtHeader* root =
-        MapAcpiTable(kernel_vm, root_table_physical, use_xsdt ? "XSDT" : "RSDT");
+        map_acpi_table(kernel_vm, root_table_physical, use_xsdt ? "XSDT" : "RSDT");
     if((nullptr == root) && use_xsdt && (0 != rsdp->rsdt_address))
     {
         debug("acpi: XSDT unavailable, falling back to RSDT")();
-        root = MapAcpiTable(kernel_vm, rsdp->rsdt_address, "RSDT");
+        root = map_acpi_table(kernel_vm, rsdp->rsdt_address, "RSDT");
         use_xsdt = false;
     }
     if(nullptr == root)
@@ -490,16 +490,16 @@ template<typename T>
     {
         const uint64_t entry_physical = use_xsdt ? reinterpret_cast<const uint64_t*>(cursor)[i]
                                                  : reinterpret_cast<const uint32_t*>(cursor)[i];
-        const auto* entry_header = MapAcpiObject<AcpiSdtHeader>(kernel_vm, entry_physical);
+        const auto* entry_header = map_acpi_object<AcpiSdtHeader>(kernel_vm, entry_physical);
         if(nullptr == entry_header)
         {
             return false;
         }
-        if(SignatureEquals(entry_header->signature, "APIC", 4))
+        if(signature_equals(entry_header->signature, "APIC", 4))
         {
             madt_physical = entry_physical;
         }
-        else if(SignatureEquals(entry_header->signature, "MCFG", 4))
+        else if(signature_equals(entry_header->signature, "MCFG", 4))
         {
             mcfg_physical = entry_physical;
         }
@@ -529,7 +529,7 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
 
     uint64_t madt_physical = 0;
     uint64_t mcfg_physical = 0;
-    if(!ResolveAcpiTables(kernel_vm, boot_info, madt_physical, mcfg_physical))
+    if(!resolve_acpi_tables(kernel_vm, boot_info, madt_physical, mcfg_physical))
     {
         return false;
     }
@@ -545,6 +545,6 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
         .ecam_regions = ecam_regions,
         .ecam_region_count = ecam_region_count,
     };
-    return ParseMadt(kernel_vm, madt_physical, output) &&
-           ParseMcfg(kernel_vm, mcfg_physical, output);
+    return parse_madt(kernel_vm, madt_physical, output) &&
+           parse_mcfg(kernel_vm, mcfg_physical, output);
 }

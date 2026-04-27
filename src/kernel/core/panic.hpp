@@ -3,4 +3,4 @@
 #pragma once
 
 // Disable interrupts and halt forever.
-[[noreturn]] void HaltForever();
+[[noreturn]] void halt_forever();

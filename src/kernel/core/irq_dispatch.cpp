@@ -12,7 +12,7 @@
 
 namespace
 {
-void AcknowledgeLegacyIrq(int irq)
+void acknowledge_legacy_irq(int irq)
 {
     lapic_eoi();
     outb(0x20, 0x20);
@@ -23,7 +23,7 @@ void AcknowledgeLegacyIrq(int irq)
 }
 }  // namespace
 
-Thread* HandleIrq(TrapFrame* frame)
+Thread* handle_irq(TrapFrame* frame)
 {
     const int irq = (int)(frame->vector - T_IRQ0);
     if(IRQ_KBD == irq)
@@ -36,7 +36,7 @@ Thread* HandleIrq(TrapFrame* frame)
         ++g_timer_ticks;
     }
 
-    AcknowledgeLegacyIrq(irq);
+    acknowledge_legacy_irq(irq);
     wake_console_readers(page_frames);
 
     if(nullptr == current_thread())

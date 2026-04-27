@@ -4,7 +4,7 @@
 
 #include "mm/page_frame.hpp"
 
-uint64_t BootFramebufferLengthBytes(const BootFramebufferInfo& framebuffer)
+uint64_t boot_framebuffer_length_bytes(const BootFramebufferInfo& framebuffer)
 {
     return (uint64_t)framebuffer.pitch_bytes * (uint64_t)framebuffer.height;
 }
