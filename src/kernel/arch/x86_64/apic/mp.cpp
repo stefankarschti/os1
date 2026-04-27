@@ -12,16 +12,16 @@
 
 //#include <inc/types.h>
 //#include <inc/string.h>
-#include "util/assert.h"
+#include "util/assert.hpp"
 
-#include "arch/x86_64/cpu/cpu.h"
-#include "arch/x86_64/apic/mp.h"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/apic/mp.hpp"
 
-#include "arch/x86_64/apic/lapic.h"
-#include "arch/x86_64/apic/ioapic.h"
+#include "arch/x86_64/apic/lapic.hpp"
+#include "arch/x86_64/apic/ioapic.hpp"
 
 #include "util/string.h"
-#include "arch/x86_64/cpu/x86.h"
+#include "arch/x86_64/cpu/x86.hpp"
 
 int ismp;
 int ncpu;

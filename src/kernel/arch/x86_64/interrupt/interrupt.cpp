@@ -1,7 +1,7 @@
-#include "arch/x86_64/interrupt/interrupt.h"
+#include "arch/x86_64/interrupt/interrupt.hpp"
 
-#include "arch/x86_64/cpu/cpu.h"
-#include "arch/x86_64/cpu/io_port.h"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/cpu/io_port.hpp"
 #include "util/memory.h"
 
 extern "C" {
@@ -63,7 +63,7 @@ static inline void lidt(void* base, uint16_t size)
 }
 }
 
-void DispatchIRQHook(int number)
+void dispatch_irq_hook(int number)
 {
 	if((number >= 0) && (number < 16) && irq_hook[number])
 	{
@@ -71,7 +71,7 @@ void DispatchIRQHook(int number)
 	}
 }
 
-void DispatchExceptionHandler(int number, TrapFrame *frame)
+void dispatch_exception_handler(int number, TrapFrame *frame)
 {
 	if((number >= 0) && (number < 256) && exception_handler_function[number])
 	{
@@ -79,7 +79,7 @@ void DispatchExceptionHandler(int number, TrapFrame *frame)
 	}
 }
 
-void Interrupts::SetIDT(int index, uint64_t address, uint8_t type_attr)
+void Interrupts::set_idt(int index, uint64_t address, uint8_t type_attr)
 {
 	IDT[index].offset_1 = address & 0xffff;
 	IDT[index].selector = CPU_GDT_KCODE;
@@ -90,7 +90,7 @@ void Interrupts::SetIDT(int index, uint64_t address, uint8_t type_attr)
 	IDT[index].zero = 0;
 }
 
-void Interrupts::ClearIDT(int index)
+void Interrupts::clear_idt(int index)
 {
 	IDT[index].offset_1 = 0;
 	IDT[index].selector = 0;
@@ -101,12 +101,12 @@ void Interrupts::ClearIDT(int index)
 	IDT[index].zero = 0;
 }
 
-bool Interrupts::Initialize()
+bool Interrupts::initialize()
 {
 	asm volatile("cli");
 	for(int i = 0; i < 256; i++)
 	{
-		ClearIDT(i);
+		clear_idt(i);
 	}
 
 	outb(0x20, 0x11);
@@ -120,45 +120,45 @@ bool Interrupts::Initialize()
 	outb(0x21, 0x0);
 	outb(0xA1, 0x0);
 
-	SetIDT(32, (uint64_t)irq0);
-	SetIDT(33, (uint64_t)irq1);
-	SetIDT(34, (uint64_t)irq2);
-	SetIDT(35, (uint64_t)irq3);
-	SetIDT(36, (uint64_t)irq4);
-	SetIDT(37, (uint64_t)irq5);
-	SetIDT(38, (uint64_t)irq6);
-	SetIDT(39, (uint64_t)irq7);
-	SetIDT(40, (uint64_t)irq8);
-	SetIDT(41, (uint64_t)irq9);
-	SetIDT(42, (uint64_t)irq10);
-	SetIDT(43, (uint64_t)irq11);
-	SetIDT(44, (uint64_t)irq12);
-	SetIDT(45, (uint64_t)irq13);
-	SetIDT(46, (uint64_t)irq14);
-	SetIDT(47, (uint64_t)irq15);
+	set_idt(32, (uint64_t)irq0);
+	set_idt(33, (uint64_t)irq1);
+	set_idt(34, (uint64_t)irq2);
+	set_idt(35, (uint64_t)irq3);
+	set_idt(36, (uint64_t)irq4);
+	set_idt(37, (uint64_t)irq5);
+	set_idt(38, (uint64_t)irq6);
+	set_idt(39, (uint64_t)irq7);
+	set_idt(40, (uint64_t)irq8);
+	set_idt(41, (uint64_t)irq9);
+	set_idt(42, (uint64_t)irq10);
+	set_idt(43, (uint64_t)irq11);
+	set_idt(44, (uint64_t)irq12);
+	set_idt(45, (uint64_t)irq13);
+	set_idt(46, (uint64_t)irq14);
+	set_idt(47, (uint64_t)irq15);
 
-	SetIDT(0x00, (uint64_t)int_00h);
-	SetIDT(0x01, (uint64_t)int_01h);
-	SetIDT(0x02, (uint64_t)int_02h);
-	SetIDT(0x03, (uint64_t)int_03h);
-	SetIDT(0x04, (uint64_t)int_04h);
-	SetIDT(0x05, (uint64_t)int_05h);
-	SetIDT(0x06, (uint64_t)int_06h);
-	SetIDT(0x07, (uint64_t)int_07h);
-	SetIDT(0x08, (uint64_t)int_08h);
-	SetIDT(0x09, (uint64_t)int_09h);
-	SetIDT(0x0A, (uint64_t)int_0Ah);
-	SetIDT(0x0B, (uint64_t)int_0Bh);
-	SetIDT(0x0C, (uint64_t)int_0Ch);
-	SetIDT(0x0D, (uint64_t)int_0Dh);
-	SetIDT(0x0E, (uint64_t)int_0Eh);
-	SetIDT(0x10, (uint64_t)int_10h);
-	SetIDT(0x11, (uint64_t)int_11h);
-	SetIDT(0x12, (uint64_t)int_12h);
-	SetIDT(0x13, (uint64_t)int_13h);
-	SetIDT(0x1D, (uint64_t)int_1Dh);
-	SetIDT(0x1E, (uint64_t)int_1Eh);
-	SetIDT(T_SYSCALL, (uint64_t)int_80h, 0xEE);
+	set_idt(0x00, (uint64_t)int_00h);
+	set_idt(0x01, (uint64_t)int_01h);
+	set_idt(0x02, (uint64_t)int_02h);
+	set_idt(0x03, (uint64_t)int_03h);
+	set_idt(0x04, (uint64_t)int_04h);
+	set_idt(0x05, (uint64_t)int_05h);
+	set_idt(0x06, (uint64_t)int_06h);
+	set_idt(0x07, (uint64_t)int_07h);
+	set_idt(0x08, (uint64_t)int_08h);
+	set_idt(0x09, (uint64_t)int_09h);
+	set_idt(0x0A, (uint64_t)int_0Ah);
+	set_idt(0x0B, (uint64_t)int_0Bh);
+	set_idt(0x0C, (uint64_t)int_0Ch);
+	set_idt(0x0D, (uint64_t)int_0Dh);
+	set_idt(0x0E, (uint64_t)int_0Eh);
+	set_idt(0x10, (uint64_t)int_10h);
+	set_idt(0x11, (uint64_t)int_11h);
+	set_idt(0x12, (uint64_t)int_12h);
+	set_idt(0x13, (uint64_t)int_13h);
+	set_idt(0x1D, (uint64_t)int_1Dh);
+	set_idt(0x1E, (uint64_t)int_1Eh);
+	set_idt(T_SYSCALL, (uint64_t)int_80h, 0xEE);
 
 	for(int i = 0; i < 16; ++i)
 	{
@@ -175,7 +175,7 @@ bool Interrupts::Initialize()
 	return true;
 }
 
-void Interrupts::SetIRQHandler(int number, void (*pFunction)(void *), void *data)
+void Interrupts::set_irq_handler(int number, void (*pFunction)(void *), void *data)
 {
 	if((number >= 0) && (number < 16))
 	{
@@ -184,7 +184,7 @@ void Interrupts::SetIRQHandler(int number, void (*pFunction)(void *), void *data
 	}
 }
 
-void Interrupts::SetExceptionHandler(int number, ExceptionHandler handler)
+void Interrupts::set_exception_handler(int number, ExceptionHandler handler)
 {
 	if((number >= 0) && (number < 256))
 	{

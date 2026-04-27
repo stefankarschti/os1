@@ -1,14 +1,14 @@
 // Platform topology normalization for CPU and APIC structures.
-#include "platform/topology.h"
+#include "platform/topology.hpp"
 
-#include "arch/x86_64/apic/ioapic.h"
-#include "arch/x86_64/apic/lapic.h"
-#include "arch/x86_64/apic/mp.h"
-#include "arch/x86_64/cpu/cpu.h"
-#include "debug/debug.h"
-#include "platform/state.h"
+#include "arch/x86_64/apic/ioapic.hpp"
+#include "arch/x86_64/apic/lapic.hpp"
+#include "arch/x86_64/apic/mp.hpp"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "debug/debug.hpp"
+#include "platform/state.hpp"
 
-bool AllocateCpusFromTopology()
+bool allocate_cpus_from_topology()
 {
 	ismp = 1;
 	ncpu = 0;
@@ -47,7 +47,7 @@ bool AllocateCpusFromTopology()
 	return true;
 }
 
-void ResetMpStateForFallback()
+void reset_mp_state_for_fallback()
 {
 	ismp = 0;
 	ncpu = 0;

@@ -12,7 +12,7 @@ set(KERNEL_ARCH_SOURCES
 )
 
 set(KERNEL_HANDOFF_SOURCES
-  handoff/bootinfo.cpp
+  handoff/boot_info.cpp
 )
 
 set(KERNEL_MM_SOURCES
@@ -202,14 +202,14 @@ os1_add_nasm_object(KERNEL_MEMORY_OBJECT "arch/x86_64/asm/memory.asm" "elf64")
 os1_add_nasm_object(KERNEL_IRQHANDLER_OBJECT "arch/x86_64/interrupt/irqhandler.asm" "elf64")
 os1_add_nasm_object(KERNEL_INTHANDLER_OBJECT "arch/x86_64/interrupt/inthandler.asm" "elf64")
 os1_add_nasm_object(KERNEL_MULTITASK_OBJECT "arch/x86_64/asm/multitask.asm" "elf64")
-os1_add_nasm_object(KERNEL_CPUSTART_OBJECT "arch/x86_64/asm/cpustart.asm" "elf64")
+os1_add_nasm_object(KERNEL_CPU_START_OBJECT "arch/x86_64/asm/cpu_start.asm" "elf64")
 
 set(KERNEL_ASM_OBJECTS
   "${KERNEL_MEMORY_OBJECT}"
   "${KERNEL_IRQHANDLER_OBJECT}"
   "${KERNEL_INTHANDLER_OBJECT}"
   "${KERNEL_MULTITASK_OBJECT}"
-  "${KERNEL_CPUSTART_OBJECT}"
+  "${KERNEL_CPU_START_OBJECT}"
 )
 
 add_custom_command(
@@ -238,15 +238,15 @@ add_custom_command(
 )
 
 add_custom_command(
-  OUTPUT "${OS1_CPUSTART_BIN}"
+  OUTPUT "${OS1_CPU_START_BIN}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_NASM_EXECUTABLE}" -fbin
     -I "${KERNEL_ARCH_DIR}/include/"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/handoff/"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/proc/"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/"
-    "${KERNEL_ARCH_DIR}/asm/cpustart.asm"
-    -o "${OS1_CPUSTART_BIN}"
+    "${KERNEL_ARCH_DIR}/asm/cpu_start.asm"
+    -o "${OS1_CPU_START_BIN}"
   DEPENDS ${KERNEL_ASM_DEPENDENCIES}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   VERBATIM
@@ -254,4 +254,4 @@ add_custom_command(
 
 add_custom_target(kernel_bios_elf DEPENDS "${OS1_KERNEL_BIOS_ELF}")
 add_custom_target(kernel_limine_elf DEPENDS "${OS1_KERNEL_LIMINE_ELF}")
-add_custom_target(cpustart_bin DEPENDS "${OS1_CPUSTART_BIN}")
+add_custom_target(cpu_start_bin DEPENDS "${OS1_CPU_START_BIN}")

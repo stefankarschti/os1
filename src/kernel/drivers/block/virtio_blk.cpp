@@ -1,13 +1,13 @@
 // Modern virtio-blk PCI driver with a single synchronous queue path. It is kept
 // hardware-specific and publishes only the generic BlockDevice facade upward.
-#include "drivers/block/virtio_blk.h"
+#include "drivers/block/virtio_blk.hpp"
 
-#include "debug/debug.h"
-#include "storage/block_device.h"
+#include "debug/debug.hpp"
+#include "storage/block_device.hpp"
 #include "handoff/memory_layout.h"
 #include "util/string.h"
-#include "mm/virtual_memory.h"
-#include "arch/x86_64/cpu/x86.h"
+#include "mm/virtual_memory.hpp"
+#include "arch/x86_64/cpu/x86.hpp"
 
 namespace
 {
@@ -170,7 +170,7 @@ void WriteDeviceStatus(volatile VirtioPciCommonCfg *common_cfg, uint8_t status)
 	}
 }
 
-bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
+bool map_identity_range(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
 {
 	if((0 == length) || (0 == physical_start))
 	{
@@ -179,7 +179,7 @@ bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t lengt
 
 	const uint64_t start = AlignDown(physical_start, kPageSize);
 	const uint64_t end = AlignUp(physical_start + length, kPageSize);
-	return vm.MapPhysical(start,
+	return vm.map_physical(start,
 			start,
 			(end - start) / kPageSize,
 			PageFlags::Present | PageFlags::Write);
@@ -200,7 +200,7 @@ bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t lengt
 	{
 		return false;
 	}
-	return MapIdentityRange(kernel_vm, bar.base, bar.size);
+	return map_identity_range(kernel_vm, bar.base, bar.size);
 }
 
 [[nodiscard]] bool VirtioBlkReadSector(uint64_t sector, uint8_t *buffer, size_t length)
@@ -304,7 +304,7 @@ bool WriteBlockDevice(BlockDevice &, uint64_t, const void *, size_t)
 }
 }
 
-bool ProbeVirtioBlkDevice(VirtualMemory &kernel_vm,
+bool probe_virtio_blk_device(VirtualMemory &kernel_vm,
 		PageFrameContainer &frames,
 		const PciDevice &device,
 		size_t device_index,
@@ -457,7 +457,7 @@ bool ProbeVirtioBlkDevice(VirtualMemory &kernel_vm,
 	state.common_cfg->queue_size = state.queue_size;
 	state.common_cfg->queue_msix_vector = kVirtioNoVector;
 
-	if(!frames.Allocate(state.queue_memory, 3))
+	if(!frames.allocate(state.queue_memory, 3))
 	{
 		debug("virtio-blk: queue memory allocation failed")();
 		return false;
@@ -482,7 +482,7 @@ bool ProbeVirtioBlkDevice(VirtualMemory &kernel_vm,
 	state.notify_register = reinterpret_cast<volatile uint16_t *>(notify_physical);
 
 	state.common_cfg->queue_enable = 1;
-	if(!frames.Allocate(state.request_memory))
+	if(!frames.allocate(state.request_memory))
 	{
 		debug("virtio-blk: request memory allocation failed")();
 		return false;
@@ -525,7 +525,7 @@ const BlockDevice *VirtioBlkBlockDevice()
 	return g_virtio_blk.present ? &g_virtio_blk_device : nullptr;
 }
 
-bool RunVirtioBlkSmoke()
+bool run_virtio_blk_smoke()
 {
 	if(!g_virtio_blk.present)
 	{

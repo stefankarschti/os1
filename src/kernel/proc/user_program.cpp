@@ -1,12 +1,12 @@
 // Initrd-backed ELF64 user-program loader. It owns user address-space creation,
 // segment permission mapping, initial stack setup, and exec image replacement.
-#include "proc/user_program.h"
+#include "proc/user_program.hpp"
 
-#include "debug/debug.h"
-#include "fs/initrd.h"
+#include "debug/debug.hpp"
+#include "fs/initrd.hpp"
 #include "handoff/memory_layout.h"
-#include "mm/user_copy.h"
-#include "mm/virtual_memory.h"
+#include "mm/user_copy.hpp"
+#include "mm/virtual_memory.hpp"
 
 namespace
 {
@@ -83,7 +83,7 @@ bool LoadUserElf(PageFrameContainer &frames,
 	}
 
 	VirtualMemory vm(frames);
-	if(!vm.CloneKernelPml4Entry(0, kernel_root_cr3))
+	if(!vm.clone_kernel_pml4_entry(0, kernel_root_cr3))
 	{
 		return false;
 	}
@@ -94,7 +94,7 @@ bool LoadUserElf(PageFrameContainer &frames,
 		const uint64_t ph_offset = header->phoff + i * sizeof(Elf64ProgramHeader);
 		if((ph_offset + sizeof(Elf64ProgramHeader)) > image_size)
 		{
-			DestroyUserAddressSpace(frames, vm.Root());
+			destroy_user_address_space(frames, vm.root());
 			return false;
 		}
 
@@ -110,7 +110,7 @@ bool LoadUserElf(PageFrameContainer &frames,
 		if((program->memsz < program->filesz)
 			|| ((program->offset + program->filesz) > image_size))
 		{
-			DestroyUserAddressSpace(frames, vm.Root());
+			destroy_user_address_space(frames, vm.root());
 			return false;
 		}
 
@@ -120,7 +120,7 @@ bool LoadUserElf(PageFrameContainer &frames,
 			|| (segment_end > stack_guard_base)
 			|| (((segment_start >> 39) & 0x1FFull) != kUserPml4Index))
 		{
-			DestroyUserAddressSpace(frames, vm.Root());
+			destroy_user_address_space(frames, vm.root());
 			return false;
 		}
 
@@ -134,36 +134,36 @@ bool LoadUserElf(PageFrameContainer &frames,
 			page_flags |= PageFlags::NoExecute;
 		}
 
-		if(!vm.AllocateAndMap(segment_start, (segment_end - segment_start) / kPageSize, page_flags))
+		if(!vm.allocate_and_map(segment_start, (segment_end - segment_start) / kPageSize, page_flags))
 		{
-			DestroyUserAddressSpace(frames, vm.Root());
+			destroy_user_address_space(frames, vm.root());
 			return false;
 		}
 
-		if(!CopyIntoAddressSpace(vm, program->vaddr, image + program->offset, program->filesz))
+		if(!copy_into_address_space(vm, program->vaddr, image + program->offset, program->filesz))
 		{
-			DestroyUserAddressSpace(frames, vm.Root());
+			destroy_user_address_space(frames, vm.root());
 			return false;
 		}
 	}
 
 	const uint64_t user_stack_base = kUserStackTop - kUserStackPages * kPageSize;
-	if(!vm.AllocateAndMap(user_stack_base, kUserStackPages,
+	if(!vm.allocate_and_map(user_stack_base, kUserStackPages,
 		PageFlags::Present | PageFlags::Write | PageFlags::User | PageFlags::NoExecute))
 	{
-		DestroyUserAddressSpace(frames, vm.Root());
+		destroy_user_address_space(frames, vm.root());
 		return false;
 	}
 
 	uint64_t stack_physical = 0;
 	uint64_t stack_flags = 0;
-	if(!vm.Translate(kUserStackTop - 8, stack_physical, stack_flags))
+	if(!vm.translate(kUserStackTop - 8, stack_physical, stack_flags))
 	{
 		debug("user stack translation missing at 0x")(kUserStackTop - 8, 16)();
-		DestroyUserAddressSpace(frames, vm.Root());
+		destroy_user_address_space(frames, vm.root());
 		return false;
 	}
-	cr3 = vm.Root();
+	cr3 = vm.root();
 	entry = header->entry;
 	// Like kernel threads, first user entry reaches `_start` via `iretq`, so we
 	// reserve one dummy slot to match the SysV function-entry stack shape.
@@ -172,20 +172,20 @@ bool LoadUserElf(PageFrameContainer &frames,
 }
 }
 
-bool DestroyUserAddressSpace(PageFrameContainer &frames, uint64_t cr3)
+bool destroy_user_address_space(PageFrameContainer &frames, uint64_t cr3)
 {
 	if(0 == cr3)
 	{
 		return false;
 	}
 	VirtualMemory vm(frames, cr3);
-	vm.DestroyUserSlot(kUserPml4Index);
+	vm.destroy_user_slot(kUserPml4Index);
 	uint64_t *pml4 = (uint64_t*)cr3;
 	pml4[0] = 0;
-	return frames.Free(cr3);
+	return frames.free(cr3);
 }
 
-bool LoadUserProgramImage(PageFrameContainer &frames,
+bool load_user_program_image(PageFrameContainer &frames,
 		uint64_t kernel_root_cr3,
 		const char *path,
 		uint64_t &user_cr3,
@@ -194,7 +194,7 @@ bool LoadUserProgramImage(PageFrameContainer &frames,
 {
 	const uint8_t *file_data = nullptr;
 	uint64_t file_size = 0;
-	if(!FindInitrdFile(path, file_data, file_size))
+	if(!find_initrd_file(path, file_data, file_size))
 	{
 		debug("initrd missing ")(path)();
 		return false;
@@ -209,7 +209,7 @@ bool LoadUserProgramImage(PageFrameContainer &frames,
 	return true;
 }
 
-void PrepareUserThreadEntry(Thread *thread, uint64_t entry, uint64_t user_rsp)
+void prepare_user_thread_entry(Thread *thread, uint64_t entry, uint64_t user_rsp)
 {
 	if(nullptr == thread)
 	{
@@ -217,7 +217,7 @@ void PrepareUserThreadEntry(Thread *thread, uint64_t entry, uint64_t user_rsp)
 	}
 
 	thread->exit_status = 0;
-	clearThreadWait(thread);
+	clear_thread_wait(thread);
 	thread->frame = {};
 	thread->frame.rip = entry;
 	thread->frame.cs = kUserCodeSegment;
@@ -235,7 +235,7 @@ Thread *LoadUserProgram(PageFrameContainer &frames, uint64_t kernel_root_cr3, co
 	uint64_t user_cr3 = 0;
 	uint64_t entry = 0;
 	uint64_t user_rsp = 0;
-	if(!LoadUserProgramImage(frames, kernel_root_cr3, path, user_cr3, entry, user_rsp))
+	if(!load_user_program_image(frames, kernel_root_cr3, path, user_cr3, entry, user_rsp))
 	{
 		return nullptr;
 	}
@@ -243,18 +243,18 @@ Thread *LoadUserProgram(PageFrameContainer &frames, uint64_t kernel_root_cr3, co
 	Process *process = createUserProcess(path, user_cr3);
 	if(nullptr == process)
 	{
-		DestroyUserAddressSpace(frames, user_cr3);
+		destroy_user_address_space(frames, user_cr3);
 		return nullptr;
 	}
 	process->parent = parent;
 
-	Thread *thread = createUserThread(process, entry, user_rsp, frames);
+	Thread *thread = create_user_thread(process, entry, user_rsp, frames);
 	if(nullptr == thread)
 	{
-		reapProcess(process, frames);
+		reap_process(process, frames);
 		return nullptr;
 	}
-	PrepareUserThreadEntry(thread, entry, user_rsp);
+	prepare_user_thread_entry(thread, entry, user_rsp);
 
 	debug("user thread ready pid ")(process->pid)(" tid ")(thread->tid)(" entry 0x")(entry, 16)(" rsp 0x")(user_rsp, 16)();
 	return thread;

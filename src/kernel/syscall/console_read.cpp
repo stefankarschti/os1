@@ -1,9 +1,9 @@
-#include "syscall/console_read.h"
+#include "syscall/console_read.hpp"
 
-#include "console/console_input.h"
-#include "mm/user_copy.h"
+#include "console/console_input.hpp"
+#include "mm/user_copy.hpp"
 
-bool TryCompleteConsoleRead(PageFrameContainer &frames,
+bool try_complete_console_read(PageFrameContainer &frames,
 		Thread *thread,
 		uint64_t user_buffer,
 		size_t length,
@@ -18,18 +18,18 @@ bool TryCompleteConsoleRead(PageFrameContainer &frames,
 	{
 		return true;
 	}
-	if(!ConsoleInputHasLine())
+	if(!console_input_has_line())
 	{
 		return false;
 	}
 
 	char line[kConsoleInputMaxLineBytes];
 	size_t line_length = 0;
-	if(!ConsoleInputPopLine(line, sizeof(line), line_length))
+	if(!console_input_pop_line(line, sizeof(line), line_length))
 	{
 		return false;
 	}
-	if((line_length > length) || !CopyToUser(frames, thread, user_buffer, line, line_length))
+	if((line_length > length) || !copy_to_user(frames, thread, user_buffer, line, line_length))
 	{
 		return true;
 	}
@@ -39,24 +39,24 @@ bool TryCompleteConsoleRead(PageFrameContainer &frames,
 }
 
 
-void WakeConsoleReaders(PageFrameContainer &frames)
+void wake_console_readers(PageFrameContainer &frames)
 {
-	while(ConsoleInputHasLine())
+	while(console_input_has_line())
 	{
-		Thread *thread = firstBlockedThread(ThreadWaitReason::ConsoleRead);
+		Thread *thread = first_blocked_thread(ThreadWaitReason::ConsoleRead);
 		if(nullptr == thread)
 		{
 			return;
 		}
 
 		long result = -1;
-		if(!TryCompleteConsoleRead(frames, thread, thread->wait_address, (size_t)thread->wait_length, result))
+		if(!try_complete_console_read(frames, thread, thread->wait_address, (size_t)thread->wait_length, result))
 		{
 			return;
 		}
 
-		clearThreadWait(thread);
+		clear_thread_wait(thread);
 		thread->frame.rax = (uint64_t)result;
-		markThreadReady(thread);
+		mark_thread_ready(thread);
 	}
 }

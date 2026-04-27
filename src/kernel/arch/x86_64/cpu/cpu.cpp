@@ -1,10 +1,10 @@
-#include "arch/x86_64/cpu/cpu.h"
+#include "arch/x86_64/cpu/cpu.hpp"
 
-#include "mm/page_frame.h"
+#include "mm/page_frame.hpp"
 #include "util/memory.h"
-#include "arch/x86_64/cpu/x86.h"
-#include "arch/x86_64/apic/ioapic.h"
-#include "arch/x86_64/apic/lapic.h"
+#include "arch/x86_64/cpu/x86.hpp"
+#include "arch/x86_64/apic/ioapic.hpp"
+#include "arch/x86_64/apic/lapic.hpp"
 #include "handoff/memory_layout.h"
 
 namespace
@@ -108,7 +108,7 @@ cpu *cpu_alloc(void)
 	}
 
 	uint64_t page = 0;
-	if(!page_frames.Allocate(page, 1))
+	if(!page_frames.allocate(page, 1))
 	{
 		debug("alloc cpu failed")();
 		return nullptr;
@@ -149,10 +149,10 @@ void cpu_bootothers(uint64_t cr3)
 		return;
 	}
 
-	extern uint8_t cpustart_begin[];
-	extern uint8_t cpustart_end[];
+	extern uint8_t cpu_start_begin[];
+	extern uint8_t cpu_start_end[];
 	uint8_t *code = (uint8_t*)kApTrampolineAddress;
-	memcpy(code, cpustart_begin, (cpustart_end - cpustart_begin));
+	memcpy(code, cpu_start_begin, (cpu_start_end - cpu_start_begin));
 
 	for(cpu *c = g_cpu_boot; c; c = c->next)
 	{

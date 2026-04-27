@@ -1,14 +1,14 @@
-#include "syscall/observe.h"
+#include "syscall/observe.hpp"
 
 #include <os1/observe.h>
 
-#include "arch/x86_64/cpu/cpu.h"
-#include "fs/initrd.h"
-#include "mm/user_copy.h"
-#include "arch/x86_64/apic/mp.h"
-#include "platform/platform.h"
-#include "proc/thread.h"
-#include "util/fixed_string.h"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "fs/initrd.hpp"
+#include "mm/user_copy.hpp"
+#include "arch/x86_64/apic/mp.hpp"
+#include "platform/platform.hpp"
+#include "proc/thread.hpp"
+#include "util/fixed_string.hpp"
 
 namespace
 {
@@ -78,7 +78,7 @@ bool BeginObserveTransfer(const ObserveContext &context,
 		.record_size = record_size,
 		.record_count = record_count,
 	};
-	if(!CopyToUser(*context.frames, thread, user_buffer, &header, sizeof(header)))
+	if(!copy_to_user(*context.frames, thread, user_buffer, &header, sizeof(header)))
 	{
 		return false;
 	}
@@ -99,7 +99,7 @@ bool WriteObserveRecord(const ObserveContext &context,
 	{
 		return false;
 	}
-	if(!CopyToUser(*context.frames, thread, user_buffer + offset, record, record_size))
+	if(!copy_to_user(*context.frames, thread, user_buffer + offset, record, record_size))
 	{
 		return false;
 	}
@@ -128,16 +128,16 @@ long SysObserveSystem(const ObserveContext &context, Thread *thread, uint64_t us
 	record.boot_source = context.boot_info ? static_cast<uint32_t>(context.boot_info->source) : 0;
 	record.console_kind = ObserveConsoleKind(context.text_display);
 	record.tick_count = context.timer_ticks;
-	record.total_pages = context.frames ? context.frames->PageCount() : 0;
-	record.free_pages = context.frames ? context.frames->FreePageCount() : 0;
+	record.total_pages = context.frames ? context.frames->page_count() : 0;
+	record.free_pages = context.frames ? context.frames->free_page_count() : 0;
 	record.process_count = static_cast<uint32_t>(CountActiveProcesses());
-	record.runnable_thread_count = static_cast<uint32_t>(runnableThreadCount());
+	record.runnable_thread_count = static_cast<uint32_t>(runnable_thread_count());
 	record.cpu_count = static_cast<uint32_t>(ncpu);
 	record.pci_device_count = static_cast<uint32_t>(platform_pci_device_count());
 	const VirtioBlkDevice *virtio_blk = platform_virtio_blk();
 	record.virtio_blk_present = (nullptr != virtio_blk) ? 1u : 0u;
 	record.virtio_blk_capacity_sectors = (nullptr != virtio_blk) ? virtio_blk->capacity_sectors : 0;
-	CopyFixedString(record.bootloader_name,
+	copy_fixed_string(record.bootloader_name,
 		sizeof(record.bootloader_name),
 		(context.boot_info && context.boot_info->bootloader_name) ? context.boot_info->bootloader_name : "");
 	return WriteObserveRecord(context, thread, user_buffer, offset, &record, sizeof(record)) ? result : -1;
@@ -184,7 +184,7 @@ long SysObserveProcesses(const ObserveContext &context, Thread *thread, uint64_t
 		record.process_state = static_cast<uint32_t>(entry.process->state);
 		record.thread_state = static_cast<uint32_t>(entry.state);
 		record.flags = entry.user_mode ? static_cast<uint32_t>(OS1_OBSERVE_PROCESS_FLAG_USER_MODE) : 0u;
-		CopyFixedString(record.name, sizeof(record.name), entry.process->name);
+		copy_fixed_string(record.name, sizeof(record.name), entry.process->name);
 		if(!WriteObserveRecord(context, thread, user_buffer, offset, &record, sizeof(record)))
 		{
 			return -1;
@@ -327,7 +327,7 @@ bool WriteInitrdRecordCallback(const char *archive_name, const uint8_t *, uint64
 	}
 
 	Os1ObserveInitrdRecord record{};
-	CopyInitrdPath(record.path, sizeof(record.path), archive_name);
+	copy_initrd_path(record.path, sizeof(record.path), archive_name);
 	record.size = file_size;
 	return WriteObserveRecord(*write->observe_context,
 		write->thread,
@@ -342,7 +342,7 @@ long SysObserveInitrd(const ObserveContext &context, Thread *thread, uint64_t us
 	InitrdCountContext count{};
 	if((nullptr != context.boot_info) && (context.boot_info->module_count > 0))
 	{
-		if(!ForEachInitrdFile(CountInitrdRecord, &count))
+		if(!for_each_initrd_file(CountInitrdRecord, &count))
 		{
 			return -1;
 		}
@@ -374,7 +374,7 @@ long SysObserveInitrd(const ObserveContext &context, Thread *thread, uint64_t us
 		.user_buffer = user_buffer,
 		.offset = offset,
 	};
-	if(!ForEachInitrdFile(WriteInitrdRecordCallback, &write))
+	if(!for_each_initrd_file(WriteInitrdRecordCallback, &write))
 	{
 		return -1;
 	}
@@ -382,9 +382,9 @@ long SysObserveInitrd(const ObserveContext &context, Thread *thread, uint64_t us
 }
 }
 
-long SysObserve(const ObserveContext &context, uint64_t kind, uint64_t user_buffer, size_t length)
+long sys_observe(const ObserveContext &context, uint64_t kind, uint64_t user_buffer, size_t length)
 {
-	Thread *thread = currentThread();
+	Thread *thread = current_thread();
 	if(nullptr == thread)
 	{
 		return -1;

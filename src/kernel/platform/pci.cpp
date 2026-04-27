@@ -1,12 +1,12 @@
 // PCI ECAM enumerator. It walks buses/functions from ACPI MCFG windows, sizes
 // BARs, maps MMIO ranges needed by drivers, and records normalized PciDevice
 // entries for platform probing.
-#include "platform/pci.h"
+#include "platform/pci.hpp"
 
-#include "debug/debug.h"
+#include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "util/string.h"
-#include "mm/virtual_memory.h"
+#include "mm/virtual_memory.hpp"
 
 namespace
 {
@@ -21,7 +21,7 @@ namespace
 	return (value + alignment - 1) & ~(alignment - 1);
 }
 
-bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
+bool map_identity_range(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
 {
 	if((0 == length) || (0 == physical_start))
 	{
@@ -30,7 +30,7 @@ bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t lengt
 
 	const uint64_t start = AlignDown(physical_start, kPageSize);
 	const uint64_t end = AlignUp(physical_start + length, kPageSize);
-	return vm.MapPhysical(start,
+	return vm.map_physical(start,
 			start,
 			(end - start) / kPageSize,
 			PageFlags::Present | PageFlags::Write);
@@ -193,7 +193,7 @@ void SizePciBars(PciDevice &device)
 }
 }
 
-bool EnumeratePci(VirtualMemory &kernel_vm,
+bool enumerate_pci(VirtualMemory &kernel_vm,
 		const PciEcamRegion *regions,
 		size_t region_count,
 		PciDevice *devices,
@@ -209,7 +209,7 @@ bool EnumeratePci(VirtualMemory &kernel_vm,
 	{
 		const PciEcamRegion &region = regions[region_index];
 		const uint64_t region_size = static_cast<uint64_t>(region.bus_end - region.bus_start + 1u) << 20;
-		if(!MapIdentityRange(kernel_vm, region.base_address, region_size))
+		if(!map_identity_range(kernel_vm, region.base_address, region_size))
 		{
 			return false;
 		}

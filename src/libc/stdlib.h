@@ -1,5 +1,4 @@
-#ifndef _STDLIB_H_
-#define _STDLIB_H_
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
@@ -17,6 +16,4 @@ T max(T a, T b)
 {
 	return a < b ? b : a;
 }
-
-#endif
 

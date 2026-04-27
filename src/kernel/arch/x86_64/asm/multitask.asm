@@ -8,11 +8,11 @@
 
 %define KERNEL_DATA_SEGMENT 0x10
 
-global startMultiTask
+global start_multi_task
 global restore_thread
 global restore_frame_ptr
 
-startMultiTask:
+start_multi_task:
 	jmp restore_thread
 
 ; Install the selected thread into per-CPU state, load its CR3/RSP0, and resume

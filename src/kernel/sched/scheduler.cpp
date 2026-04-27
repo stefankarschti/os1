@@ -1,24 +1,24 @@
 // Round-robin scheduler handoff wrapper around the current task-table API.
-#include "sched/scheduler.h"
+#include "sched/scheduler.hpp"
 
-#include "core/kernel_state.h"
-#include "syscall/wait.h"
-#include "proc/thread.h"
+#include "core/kernel_state.hpp"
+#include "syscall/wait.hpp"
+#include "proc/thread.hpp"
 
-Thread *ScheduleNext(bool keep_current)
+Thread *schedule_next(bool keep_current)
 {
-	reapDeadThreads(page_frames);
-	WakeChildWaiters(page_frames);
-	Thread *current = currentThread();
+	reap_dead_threads(page_frames);
+	wake_child_waiters(page_frames);
+	Thread *current = current_thread();
 	if(keep_current && current)
 	{
-		markThreadReady(current);
+		mark_thread_ready(current);
 	}
 
-	Thread *next = nextRunnableThread(current);
+	Thread *next = next_runnable_thread(current);
 	if(nullptr == next)
 	{
-		next = idleThread();
+		next = idle_thread();
 	}
 	return next;
 }

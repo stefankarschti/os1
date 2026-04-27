@@ -1,7 +1,7 @@
 // Platform-state storage and read-only public accessors.
-#include "platform/state.h"
+#include "platform/state.hpp"
 
-#include "storage/block_device.h"
+#include "storage/block_device.hpp"
 
 constinit PlatformState g_platform{};
 

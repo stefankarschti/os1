@@ -9,11 +9,11 @@
  * Adapted for PIOS by Bryan Ford at Yale University.
  */
 
-#include "arch/x86_64/cpu/x86.h"
-#include "util/assert.h"
-#include "arch/x86_64/cpu/cpu.h"
-#include "arch/x86_64/apic/lapic.h"
-#include "arch/x86_64/interrupt/interrupt.h"
+#include "arch/x86_64/cpu/x86.hpp"
+#include "util/assert.hpp"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/apic/lapic.hpp"
+#include "arch/x86_64/interrupt/interrupt.hpp"
 
 volatile uint32_t *lapic;  // Initialized in mp.c
 
@@ -59,7 +59,7 @@ lapic_init()
 	lapicw(DFR, 0xf << 28);		// Flat model
 	lapicw(TPR, 0x00);		// Task priority 0, no intrs masked
 
-	// Clear error status register (requires back-to-back writes).
+	// clear error status register (requires back-to-back writes).
 	lapicw(ESR, 0);
 	lapicw(ESR, 0);
 

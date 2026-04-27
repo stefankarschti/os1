@@ -1,98 +1,98 @@
 // Logical terminal implementation: cell-buffer mutation, cursor movement,
 // scrolling, and presentation through an attached TextDisplayBackend.
-#include "util/ctype.h"
+#include "util/ctype.hpp"
 #include "util/memory.h"
 #include <stdlib.h>
-#include "debug/debug.h"
-#include "drivers/display/text_display.h"
-#include "console/terminal.h"
+#include "debug/debug.hpp"
+#include "drivers/display/text_display.hpp"
+#include "console/terminal.hpp"
 
-void Terminal::Clear()
+void Terminal::clear()
 {
 	if(!buffer_) return;
 	memsetw(buffer_, 0x0720, 80 * 25 * 2);
-	MoveCursor(0, 0);
+	move_cursor(0, 0);
 }
 
-void Terminal::SetBuffer(uint16_t *buffer)
+void Terminal::set_buffer(uint16_t *buffer)
 {
 	buffer_ = buffer;
 	display_ = nullptr;
 }
 
-void Terminal::Copy(const uint16_t *buffer)
+void Terminal::copy(const uint16_t *buffer)
 {
 	if(!buffer_ || !buffer) return;
 	memcpy(buffer_, buffer, 80 * 25 * 2);
 }
 
-void Terminal::Link(TextDisplayBackend *display)
+void Terminal::link(TextDisplayBackend *display)
 {
 	if(!buffer_) return;
 	display_ = display;
-	MoveCursor(row_, col_);
+	move_cursor(row_, col_);
 }
 
-void Terminal::Unlink()
+void Terminal::unlink()
 {
 	if(display_)
 	{
-		DetachTextDisplay(display_);
+		detach_text_display(display_);
 		display_ = nullptr;
 	}
 }
 
-void Terminal::MoveCursor(int row, int col)
+void Terminal::move_cursor(int row, int col)
 {
 	row_ = row;
 	col_ = col;
 	if(display_)
 	{
-		PresentTextDisplay(display_, buffer_, width_, height_, col_, row_);
+		present_text_display(display_, buffer_, width_, height_, col_, row_);
 	}
 }
 
-void Terminal::Write(const char* str)
+void Terminal::write(const char* str)
 {
 	while(*str)
 	{
-		InternalWrite(*str);
+		internal_write(*str);
 		str++;
 	}
-	MoveCursor(row_, col_);
+	move_cursor(row_, col_);
 }
 
-void Terminal::Write(const char c)
+void Terminal::write(const char c)
 {
-	InternalWrite(c);
-	MoveCursor(row_, col_);
+	internal_write(c);
+	move_cursor(row_, col_);
 }
 
-void Terminal::WriteLn(const char *str)
+void Terminal::write_line(const char *str)
 {
 	while(*str)
 	{
-		InternalWrite(*str);
+		internal_write(*str);
 		str++;
 	}
-	InternalWrite('\n');
-	MoveCursor(row_, col_);
+	internal_write('\n');
+	move_cursor(row_, col_);
 }
 
-void Terminal::WriteInt(uint64_t value, int base, int minimum_digits)
+void Terminal::write_int(uint64_t value, int base, int minimum_digits)
 {
 	char temp[256];
 	utoa(value, temp, base, minimum_digits);
-	Write(temp);
+	write(temp);
 }
 
-void Terminal::WriteIntLn(uint64_t value, int base, int minimum_digits)
+void Terminal::write_int_line(uint64_t value, int base, int minimum_digits)
 {
-	WriteInt(value, base, minimum_digits);
-	Write('\n');
+	write_int(value, base, minimum_digits);
+	write('\n');
 }
 
-void Terminal::ReadLn(char *line)
+void Terminal::read_line(char *line)
 {
 	char *p = line;
 	while(p - line < 256)
@@ -119,15 +119,15 @@ void Terminal::ReadLn(char *line)
 	}
 }
 
-void Terminal::KeyPress(char ascii, uint16_t scancode)
+void Terminal::key_press(char ascii, uint16_t scancode)
 {
 	(void)scancode;
 	ascii_char_ = ascii;
 	if('\n' == ascii || isprint(ascii))
-		Write(ascii);
+		write(ascii);
 }
 
-void Terminal::InternalWrite(char c)
+void Terminal::internal_write(char c)
 {
 	if(!buffer_) return;
 	if('\n' == c)

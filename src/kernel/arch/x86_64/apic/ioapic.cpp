@@ -10,12 +10,12 @@
  * Adapted for PIOS by Bryan Ford at Yale University.
  */
 
-#include "arch/x86_64/interrupt/interrupt.h"
+#include "arch/x86_64/interrupt/interrupt.hpp"
 #include "stdint.h"
-#include "util/assert.h"
-#include "debug/debug.h"
-#include "arch/x86_64/apic/mp.h"
-#include "arch/x86_64/apic/ioapic.h"
+#include "util/assert.hpp"
+#include "debug/debug.hpp"
+#include "arch/x86_64/apic/mp.hpp"
+#include "arch/x86_64/apic/ioapic.hpp"
 
 
 #define IOAPIC  0xFEC00000   // Default physical address of IO APIC

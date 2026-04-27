@@ -1,7 +1,6 @@
 // Fixed early physical layout used by BIOS assembly, Limine handoff code, and
 // kernel C++ before the page-frame allocator owns memory lifetime.
-#ifndef OS1_KERNEL_HANDOFF_MEMORY_LAYOUT_H
-#define OS1_KERNEL_HANDOFF_MEMORY_LAYOUT_H
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
@@ -75,4 +74,3 @@ constexpr size_t kKernelThreadStackPages = 4;
 constexpr uint16_t kBootTextColumns = 80;
 constexpr uint16_t kBootTextRows = 25;
 
-#endif // OS1_KERNEL_HANDOFF_MEMORY_LAYOUT_H

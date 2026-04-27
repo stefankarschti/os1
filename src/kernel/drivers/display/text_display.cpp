@@ -1,10 +1,10 @@
 // Text rendering backends for logical terminals. VGA text mode and framebuffer
 // text rendering share the same 80x25 cell-buffer input contract.
-#include "drivers/display/text_display.h"
+#include "drivers/display/text_display.hpp"
 
-#include "arch/x86_64/cpu/io_port.h"
-#include "debug/debug.h"
-#include "util/ctype.h"
+#include "arch/x86_64/cpu/io_port.hpp"
+#include "debug/debug.hpp"
+#include "util/ctype.hpp"
 #include "util/memory.h"
 #include "font8x8_basic.h"
 
@@ -187,14 +187,14 @@ TextDisplayBackend *SelectTextDisplay(const BootInfo &boot_info)
 		return &g_vga_backend;
 	}
 
-	if(InitializeFramebufferTextDisplay(g_framebuffer_text_display, boot_info.framebuffer))
+	if(initialize_framebuffer_text_display(g_framebuffer_text_display, boot_info.framebuffer))
 	{
 		debug("framebuffer console active")();
 		debug("framebuffer ")(boot_info.framebuffer.width)
 			("x")(boot_info.framebuffer.height)
 			(" pitch ")(boot_info.framebuffer.pitch_bytes)
 			(" bpp ")(boot_info.framebuffer.bits_per_pixel)
-			(" format ")(BootFramebufferPixelFormatName(boot_info.framebuffer.pixel_format))();
+			(" format ")(boot_framebuffer_pixel_format_name(boot_info.framebuffer.pixel_format))();
 		return &g_framebuffer_backend;
 	}
 
@@ -210,7 +210,7 @@ TextDisplayBackend *SelectTextDisplay(const BootInfo &boot_info)
 	return nullptr;
 }
 
-bool InitializeFramebufferTextDisplay(FramebufferTextDisplay &display, const BootFramebufferInfo &framebuffer)
+bool initialize_framebuffer_text_display(FramebufferTextDisplay &display, const BootFramebufferInfo &framebuffer)
 {
 	display.available = false;
 	display.framebuffer = nullptr;
@@ -245,7 +245,7 @@ bool InitializeFramebufferTextDisplay(FramebufferTextDisplay &display, const Boo
 	return true;
 }
 
-void PresentTextDisplay(const TextDisplayBackend *backend,
+void present_text_display(const TextDisplayBackend *backend,
 		const uint16_t *buffer,
 		uint16_t columns,
 		uint16_t rows,
@@ -275,7 +275,7 @@ void PresentTextDisplay(const TextDisplayBackend *backend,
 	}
 }
 
-void DetachTextDisplay(const TextDisplayBackend *backend)
+void detach_text_display(const TextDisplayBackend *backend)
 {
 	if(nullptr == backend)
 	{

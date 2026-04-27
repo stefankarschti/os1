@@ -1,10 +1,10 @@
 // Simple fixed-table runnable selection. This file owns scheduler policy that
 // scans threadTable; object lifetime remains in proc/thread.cpp and proc/reaper.cpp.
-#include "proc/thread.h"
+#include "proc/thread.hpp"
 
-Thread *nextRunnableThread(Thread *after)
+Thread *next_runnable_thread(Thread *after)
 {
-	relinkRunnableThreads();
+	relink_runnable_threads();
 	auto is_runnable = [](const Thread *thread) -> bool
 	{
 		return (nullptr != thread)
@@ -26,7 +26,7 @@ Thread *nextRunnableThread(Thread *after)
 		{
 			continue;
 		}
-		if(candidate == idleThread())
+		if(candidate == idle_thread())
 		{
 			if(nullptr == idle_candidate)
 			{
@@ -40,7 +40,7 @@ Thread *nextRunnableThread(Thread *after)
 	return idle_candidate;
 }
 
-size_t runnableThreadCount(void)
+size_t runnable_thread_count(void)
 {
 	size_t count = 0;
 	for(size_t i = 0; i < kMaxThreads; ++i)
@@ -54,7 +54,7 @@ size_t runnableThreadCount(void)
 	return count;
 }
 
-Thread *firstRunnableUserThread(void)
+Thread *first_runnable_user_thread(void)
 {
 	for(size_t i = 0; i < kMaxThreads; ++i)
 	{

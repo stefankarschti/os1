@@ -8,8 +8,7 @@
  * Adapted for PIOS by Bryan Ford at Yale University.
  */
 
-#ifndef _string_h_
-#define _string_h_
+#pragma once
 
 #include "stddef.h"
 #include "stdint.h"
@@ -45,4 +44,3 @@ long	strtol(const char *s, char **endptr, int base);
 // Return a static error string for a libc errno value.
 char *	strerror(int err);
 
-#endif// _string_h_

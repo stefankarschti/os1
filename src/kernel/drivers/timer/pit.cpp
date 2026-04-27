@@ -1,9 +1,9 @@
 // 8253/8254 PIT setup used by the current timer IRQ source.
-#include "drivers/timer/pit.h"
+#include "drivers/timer/pit.hpp"
 
-#include "arch/x86_64/cpu/io_port.h"
+#include "arch/x86_64/cpu/io_port.hpp"
 
-uint16_t SetTimer(uint16_t frequency)
+uint16_t set_timer(uint16_t frequency)
 {
 	uint32_t divisor = 1193180 / frequency;
 	if(divisor > 65536)

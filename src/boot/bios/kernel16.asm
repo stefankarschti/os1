@@ -404,7 +404,7 @@ loader_main64:
 	; jump
 	mov rax, [e_entry]
 	mov rdi, boot_info
-	call rax		; call KernelMain
+	call rax		; call kernel_main
 .l3:		
 	hlt
         jmp .l3 ; stop here

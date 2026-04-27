@@ -1,5 +1,5 @@
 #include <os1/observe.h>
-#include <os1/syscall.h>
+#include <os1/syscall.hpp>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -28,7 +28,7 @@ void WriteBytes(const char *data, size_t length)
 	{
 		return;
 	}
-	os1_write(1, data, length);
+	os1::user::write(1, data, length);
 }
 
 void WriteString(const char *text)
@@ -233,7 +233,7 @@ bool Observe(uint32_t kind, const Record *&records, uint32_t &record_count)
 	records = nullptr;
 	record_count = 0;
 
-	const long bytes = os1_observe(kind, g_observe_buffer, sizeof(g_observe_buffer));
+	const long bytes = os1::user::observe(kind, g_observe_buffer, sizeof(g_observe_buffer));
 	if(bytes < static_cast<long>(sizeof(Os1ObserveHeader)))
 	{
 		return false;
@@ -278,7 +278,7 @@ void RunEcho(size_t argc, char *argv[kShellMaxTokens])
 void RunPid()
 {
 	WriteString("pid: ");
-	const long pid = os1_getpid();
+	const long pid = os1::user::getpid();
 	if(pid < 0)
 	{
 		WriteString("error\n");
@@ -564,7 +564,7 @@ void RunExec(size_t argc, char *argv[kShellMaxTokens])
 	WriteString("shell exec start ");
 	WriteString(path);
 	WriteChar('\n');
-	const long result = os1_exec(path);
+	const long result = os1::user::exec(path);
 	WriteString("shell exec returned ");
 	WriteSigned(result);
 	WriteChar('\n');
@@ -579,7 +579,7 @@ void RunExternal(const char *command)
 		return;
 	}
 
-	const long pid = os1_spawn(path);
+	const long pid = os1::user::spawn(path);
 	if(pid < 0)
 	{
 		RunUnknown(command);
@@ -587,7 +587,7 @@ void RunExternal(const char *command)
 	}
 
 	int status = 0;
-	const long waited = os1_waitpid(static_cast<uint64_t>(pid), &status);
+	const long waited = os1::user::waitpid(static_cast<uint64_t>(pid), &status);
 	if(waited != pid)
 	{
 		WriteString("wait failed: ");
@@ -609,11 +609,11 @@ int main(void)
 	for(;;)
 	{
 		WritePrompt();
-		const long count = os1_read(0, line, sizeof(line));
+		const long count = os1::user::read(0, line, sizeof(line));
 		if(count <= 0)
 		{
 			WriteString("shell read failed\n");
-			os1_yield();
+			os1::user::yield();
 			continue;
 		}
 

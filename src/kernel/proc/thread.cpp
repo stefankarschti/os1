@@ -1,10 +1,10 @@
 // Thread-table implementation. This file owns thread IDs, kernel stacks, saved
 // TrapFrame initialization, wait-state transitions, and CPU-local current-thread
 // publication.
-#include "proc/thread.h"
+#include "proc/thread.hpp"
 
-#include "arch/x86_64/cpu/cpu.h"
-#include "debug/debug.h"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "util/memory.h"
 
@@ -36,7 +36,7 @@ bool InitializeThreadTable(PageFrameContainer &frames)
 	if(nullptr == threadTable)
 	{
 		uint64_t thread_table_address = 0;
-		if(!frames.Allocate(thread_table_address, kThreadTablePageCount))
+		if(!frames.allocate(thread_table_address, kThreadTablePageCount))
 		{
 			debug("thread table allocation failed")();
 			return false;
@@ -56,17 +56,17 @@ bool InitializeThreadTable(PageFrameContainer &frames)
 
 Thread *threadTable = nullptr;
 
-bool initTasks(PageFrameContainer &frames)
+bool init_tasks(PageFrameContainer &frames)
 {
-	if(!InitializeProcessTable(frames) || !InitializeThreadTable(frames))
+	if(!initialize_process_table(frames) || !InitializeThreadTable(frames))
 	{
 		return false;
 	}
-	setCurrentThread(nullptr);
+	set_current_thread(nullptr);
 	return true;
 }
 
-void relinkRunnableThreads()
+void relink_runnable_threads()
 {
 	Thread *first = nullptr;
 	Thread *last = nullptr;
@@ -93,7 +93,7 @@ void relinkRunnableThreads()
 	}
 }
 
-void clearThread(Thread *thread)
+void clear_thread(Thread *thread)
 {
 	if(thread)
 	{
@@ -102,7 +102,7 @@ void clearThread(Thread *thread)
 	}
 }
 
-Thread *createKernelThread(Process *process, void (*entry)(void), PageFrameContainer &frames)
+Thread *create_kernel_thread(Process *process, void (*entry)(void), PageFrameContainer &frames)
 {
 	Thread *thread = nextFreeThread();
 	if((nullptr == thread) || (nullptr == process) || (nullptr == entry))
@@ -111,7 +111,7 @@ Thread *createKernelThread(Process *process, void (*entry)(void), PageFrameConta
 	}
 
 	uint64_t stack_base = 0;
-	if(!frames.Allocate(stack_base, kKernelThreadStackPages))
+	if(!frames.allocate(stack_base, kKernelThreadStackPages))
 	{
 		return nullptr;
 	}
@@ -146,11 +146,11 @@ Thread *createKernelThread(Process *process, void (*entry)(void), PageFrameConta
 		g_idle_thread = thread;
 	}
 
-	relinkRunnableThreads();
+	relink_runnable_threads();
 	return thread;
 }
 
-Thread *createUserThread(Process *process, uint64_t user_rip, uint64_t user_rsp, PageFrameContainer &frames)
+Thread *create_user_thread(Process *process, uint64_t user_rip, uint64_t user_rsp, PageFrameContainer &frames)
 {
 	Thread *thread = nextFreeThread();
 	if(nullptr == thread)
@@ -159,7 +159,7 @@ Thread *createUserThread(Process *process, uint64_t user_rip, uint64_t user_rsp,
 	}
 
 	uint64_t stack_base = 0;
-	if(!frames.Allocate(stack_base, kKernelThreadStackPages))
+	if(!frames.allocate(stack_base, kKernelThreadStackPages))
 	{
 		return nullptr;
 	}
@@ -180,21 +180,21 @@ Thread *createUserThread(Process *process, uint64_t user_rip, uint64_t user_rsp,
 	thread->frame.rsp = user_rsp;
 	thread->frame.ss = kUserDataSegment;
 
-	relinkRunnableThreads();
+	relink_runnable_threads();
 	return thread;
 }
 
-Thread *currentThread(void)
+Thread *current_thread(void)
 {
 	return cpu_cur()->current_thread;
 }
 
-Thread *idleThread(void)
+Thread *idle_thread(void)
 {
 	return g_idle_thread;
 }
 
-void setCurrentThread(Thread *thread)
+void set_current_thread(Thread *thread)
 {
 	cpu_cur()->current_thread = thread;
 	if(thread)
@@ -208,7 +208,7 @@ void setCurrentThread(Thread *thread)
 	}
 }
 
-void markThreadReady(Thread *thread)
+void mark_thread_ready(Thread *thread)
 {
 	if((nullptr != thread)
 		&& (ThreadState::Dying != thread->state)
@@ -222,9 +222,9 @@ void markThreadReady(Thread *thread)
 	}
 }
 
-void blockCurrentThread(ThreadWaitReason reason, uint64_t wait_address, uint64_t wait_length)
+void block_current_thread(ThreadWaitReason reason, uint64_t wait_address, uint64_t wait_length)
 {
-	Thread *thread = currentThread();
+	Thread *thread = current_thread();
 	if((nullptr == thread) || (ThreadState::Dying == thread->state) || (ThreadState::Free == thread->state))
 	{
 		return;
@@ -238,10 +238,10 @@ void blockCurrentThread(ThreadWaitReason reason, uint64_t wait_address, uint64_t
 	{
 		thread->process->state = ProcessState::Ready;
 	}
-	relinkRunnableThreads();
+	relink_runnable_threads();
 }
 
-void clearThreadWait(Thread *thread)
+void clear_thread_wait(Thread *thread)
 {
 	if(nullptr == thread)
 	{
@@ -253,7 +253,7 @@ void clearThreadWait(Thread *thread)
 	thread->wait_length = 0;
 }
 
-Thread *firstBlockedThread(ThreadWaitReason reason)
+Thread *first_blocked_thread(ThreadWaitReason reason)
 {
 	for(size_t i = 0; i < kMaxThreads; ++i)
 	{
@@ -266,9 +266,9 @@ Thread *firstBlockedThread(ThreadWaitReason reason)
 	return nullptr;
 }
 
-void markCurrentThreadDying(int exit_status)
+void mark_current_thread_dying(int exit_status)
 {
-	Thread *thread = currentThread();
+	Thread *thread = current_thread();
 	if(nullptr == thread)
 	{
 		return;
@@ -276,7 +276,7 @@ void markCurrentThreadDying(int exit_status)
 
 	thread->exit_status = exit_status;
 	thread->state = ThreadState::Dying;
-	clearThreadWait(thread);
+	clear_thread_wait(thread);
 	if(thread->process)
 	{
 		thread->process->exit_status = exit_status;
@@ -284,5 +284,5 @@ void markCurrentThreadDying(int exit_status)
 			? ProcessState::Zombie
 			: ProcessState::Dying;
 	}
-	relinkRunnableThreads();
+	relink_runnable_threads();
 }

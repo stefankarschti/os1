@@ -1,6 +1,6 @@
 // Definitions for the narrow set of global kernel objects that still span
 // multiple modules after the source-tree split.
-#include "core/kernel_state.h"
+#include "core/kernel_state.hpp"
 
 Interrupts interrupts;
 PageFrameContainer page_frames;

@@ -1,14 +1,14 @@
 // ACPI table parser for platform discovery. It normalizes RSDP/XSDT/RSDT,
 // MADT, and MCFG content into platform-state records consumed by topology,
 // interrupt routing, and PCI enumeration.
-#include "platform/acpi.h"
+#include "platform/acpi.hpp"
 
-#include "arch/x86_64/cpu/cpu.h"
-#include "debug/debug.h"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "util/string.h"
-#include "mm/virtual_memory.h"
-#include "arch/x86_64/cpu/x86.h"
+#include "mm/virtual_memory.hpp"
+#include "arch/x86_64/cpu/x86.hpp"
 
 namespace
 {
@@ -128,7 +128,7 @@ struct AcpiOutput
 	return (value + alignment - 1) & ~(alignment - 1);
 }
 
-bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
+bool map_identity_range(VirtualMemory &vm, uint64_t physical_start, uint64_t length)
 {
 	if((0 == length) || (0 == physical_start))
 	{
@@ -137,7 +137,7 @@ bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t lengt
 
 	const uint64_t start = AlignDown(physical_start, kPageSize);
 	const uint64_t end = AlignUp(physical_start + length, kPageSize);
-	return vm.MapPhysical(start,
+	return vm.map_physical(start,
 			start,
 			(end - start) / kPageSize,
 			PageFlags::Present | PageFlags::Write);
@@ -172,7 +172,7 @@ bool MapIdentityRange(VirtualMemory &vm, uint64_t physical_start, uint64_t lengt
 	{
 		return false;
 	}
-	return MapIdentityRange(kernel_vm, physical_address, length);
+	return map_identity_range(kernel_vm, physical_address, length);
 }
 
 template<typename T>
@@ -507,7 +507,7 @@ template<typename T>
 }
 }
 
-bool DiscoverAcpiPlatform(VirtualMemory &kernel_vm,
+bool discover_acpi_platform(VirtualMemory &kernel_vm,
 		const BootInfo &boot_info,
 		uint64_t &lapic_base,
 		CpuInfo *cpus,

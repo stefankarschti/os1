@@ -1,5 +1,4 @@
-#ifndef OS1_OBSERVE_H
-#define OS1_OBSERVE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -104,4 +103,3 @@ struct Os1ObserveInitrdRecord
 
 #pragma pack(pop)
 
-#endif

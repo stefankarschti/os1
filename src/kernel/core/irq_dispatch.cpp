@@ -1,14 +1,14 @@
 // Generic IRQ flow around the current legacy PIC/APIC hybrid routing.
-#include "core/irq_dispatch.h"
+#include "core/irq_dispatch.hpp"
 
-#include "arch/x86_64/apic/lapic.h"
-#include "arch/x86_64/cpu/io_port.h"
-#include "arch/x86_64/interrupt/interrupt.h"
-#include "console/console_input.h"
-#include "core/kernel_state.h"
-#include "sched/scheduler.h"
-#include "syscall/console_read.h"
-#include "proc/thread.h"
+#include "arch/x86_64/apic/lapic.hpp"
+#include "arch/x86_64/cpu/io_port.hpp"
+#include "arch/x86_64/interrupt/interrupt.hpp"
+#include "console/console_input.hpp"
+#include "core/kernel_state.hpp"
+#include "sched/scheduler.hpp"
+#include "syscall/console_read.hpp"
+#include "proc/thread.hpp"
 
 namespace
 {
@@ -28,31 +28,31 @@ Thread *HandleIrq(TrapFrame *frame)
 	const int irq = (int)(frame->vector - T_IRQ0);
 	if(IRQ_KBD == irq)
 	{
-		DispatchIRQHook(irq);
+		dispatch_irq_hook(irq);
 	}
 	else if(IRQ_TIMER == irq)
 	{
-		ConsoleInputPollSerial();
+		console_input_poll_serial();
 		++g_timer_ticks;
 	}
 
 	AcknowledgeLegacyIrq(irq);
-	WakeConsoleReaders(page_frames);
+	wake_console_readers(page_frames);
 
-	if(nullptr == currentThread())
+	if(nullptr == current_thread())
 	{
 		return nullptr;
 	}
 
 	if(IRQ_TIMER == irq)
 	{
-		return ScheduleNext(true);
+		return schedule_next(true);
 	}
 
-	reapDeadThreads(page_frames);
-	if((currentThread() == idleThread()) && (nullptr != firstRunnableUserThread()))
+	reap_dead_threads(page_frames);
+	if((current_thread() == idle_thread()) && (nullptr != first_runnable_user_thread()))
 	{
-		return ScheduleNext(true);
+		return schedule_next(true);
 	}
-	return currentThread();
+	return current_thread();
 }

@@ -1,5 +1,5 @@
 // Minimal halt loop used after unrecoverable kernel failures.
-#include "core/panic.h"
+#include "core/panic.hpp"
 
 [[noreturn]] void HaltForever()
 {

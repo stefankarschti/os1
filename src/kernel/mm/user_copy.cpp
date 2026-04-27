@@ -1,6 +1,6 @@
 // Audited syscall copy boundary. Every user pointer is canonicalized, range
 // checked, translated, and permission checked before bytes cross into kernel code.
-#include "mm/user_copy.h"
+#include "mm/user_copy.hpp"
 
 #include "util/memory.h"
 #include "handoff/memory_layout.h"
@@ -55,14 +55,14 @@ namespace
 }
 }
 
-bool CopyIntoAddressSpace(VirtualMemory &vm, uint64_t virtual_address, const uint8_t *source, uint64_t length)
+bool copy_into_address_space(VirtualMemory &vm, uint64_t virtual_address, const uint8_t *source, uint64_t length)
 {
 	uint64_t copied = 0;
 	while(copied < length)
 	{
 		uint64_t physical = 0;
 		uint64_t flags = 0;
-		if(!vm.Translate(virtual_address + copied, physical, flags))
+		if(!vm.translate(virtual_address + copied, physical, flags))
 		{
 			return false;
 		}
@@ -77,7 +77,7 @@ bool CopyIntoAddressSpace(VirtualMemory &vm, uint64_t virtual_address, const uin
 	return true;
 }
 
-bool CopyToUser(PageFrameContainer &frames, const Thread *thread, uint64_t user_pointer, const void *source, size_t length)
+bool copy_to_user(PageFrameContainer &frames, const Thread *thread, uint64_t user_pointer, const void *source, size_t length)
 {
 	if((nullptr == thread) || (nullptr == source))
 	{
@@ -95,7 +95,7 @@ bool CopyToUser(PageFrameContainer &frames, const Thread *thread, uint64_t user_
 	{
 		uint64_t physical = 0;
 		uint64_t flags = 0;
-		if(!vm.Translate(user_pointer + copied, physical, flags))
+		if(!vm.translate(user_pointer + copied, physical, flags))
 		{
 			return false;
 		}
@@ -113,7 +113,7 @@ bool CopyToUser(PageFrameContainer &frames, const Thread *thread, uint64_t user_
 	return true;
 }
 
-bool CopyFromUser(PageFrameContainer &frames, const Thread *thread, uint64_t user_pointer, void *destination, size_t length)
+bool copy_from_user(PageFrameContainer &frames, const Thread *thread, uint64_t user_pointer, void *destination, size_t length)
 {
 	if((nullptr == thread) || (nullptr == destination))
 	{
@@ -131,7 +131,7 @@ bool CopyFromUser(PageFrameContainer &frames, const Thread *thread, uint64_t use
 	{
 		uint64_t physical = 0;
 		uint64_t flags = 0;
-		if(!vm.Translate(user_pointer + copied, physical, flags))
+		if(!vm.translate(user_pointer + copied, physical, flags))
 		{
 			return false;
 		}
@@ -149,7 +149,7 @@ bool CopyFromUser(PageFrameContainer &frames, const Thread *thread, uint64_t use
 	return true;
 }
 
-bool CopyUserString(PageFrameContainer &frames,
+bool copy_user_string(PageFrameContainer &frames,
 		const Thread *thread,
 		uint64_t user_pointer,
 		char *destination,
@@ -163,7 +163,7 @@ bool CopyUserString(PageFrameContainer &frames,
 	for(size_t index = 0; index < destination_size; ++index)
 	{
 		char ch = 0;
-		if(!CopyFromUser(frames, thread, user_pointer + index, &ch, sizeof(ch)))
+		if(!copy_from_user(frames, thread, user_pointer + index, &ch, sizeof(ch)))
 		{
 			return false;
 		}

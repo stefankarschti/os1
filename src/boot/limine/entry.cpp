@@ -1,9 +1,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "handoff/bootinfo.h"
-#include "arch/x86_64/cpu/cpu.h"
-#include "arch/x86_64/cpu/io_port.h"
+#include "handoff/boot_info.hpp"
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/cpu/io_port.hpp"
 #include "limine.h"
 #include "handoff/memory_layout.h"
 #include "util/memory.h"
@@ -1153,7 +1153,7 @@ extern "C" [[noreturn]] void limine_start_main()
 	WriteSerial(" cpu=0x");
 	WriteSerialHex((uint64_t)cpu_boot);
 	WriteSerialLn("");
-	WriteSerialLn("[limine-shim] entering KernelMain");
+	WriteSerialLn("[limine-shim] entering kernel_main");
 
 	limine_enter_kernel((void (*)(BootInfo *, cpu *))entry_point, boot_info, cpu_boot);
 }

@@ -1,8 +1,7 @@
 // Generic byte and word memory primitives shared by the freestanding kernel and
 // the Limine shim. Architecture-specific helpers such as port I/O intentionally
 // live under arch/x86_64 so generic subsystems do not depend on x86 details.
-#ifndef OS1_KERNEL_UTIL_MEMORY_H
-#define OS1_KERNEL_UTIL_MEMORY_H
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -30,4 +29,3 @@ void memcpy(void *dest, const void *src, uint64_t len);
 }
 #endif // OS1_KERNEL_UTIL_MEMORY_H
 
-#endif

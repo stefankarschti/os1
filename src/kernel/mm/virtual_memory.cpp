@@ -1,8 +1,8 @@
 // Long-mode page-table implementation. This module owns root allocation,
 // four-level walks, permission updates, user-slot teardown, and CR3 activation.
-#include "mm/virtual_memory.h"
+#include "mm/virtual_memory.hpp"
 
-#include "debug/debug.h"
+#include "debug/debug.hpp"
 #include "util/memory.h"
 #include "handoff/memory_layout.h"
 
@@ -27,20 +27,20 @@ VirtualMemory::VirtualMemory(PageFrameContainer &frames, uint64_t existing_root)
 {
 }
 
-void VirtualMemory::Attach(uint64_t root)
+void VirtualMemory::attach(uint64_t root)
 {
 	root_ = root;
 	initialized_ = (root != ~0ull);
 }
 
-bool VirtualMemory::EnsureRoot(void)
+bool VirtualMemory::ensure_root(void)
 {
 	if(initialized_)
 	{
 		return true;
 	}
 
-	if(!frames_.Allocate(root_))
+	if(!frames_.allocate(root_))
 	{
 		return false;
 	}
@@ -51,12 +51,12 @@ bool VirtualMemory::EnsureRoot(void)
 	return true;
 }
 
-uint64_t VirtualMemory::FlagsToEntry(PageFlags flags)
+uint64_t VirtualMemory::flags_to_entry(PageFlags flags)
 {
 	return static_cast<uint64_t>(flags);
 }
 
-uint64_t VirtualMemory::TableEntryFlags(bool user_visible)
+uint64_t VirtualMemory::table_entry_flags(bool user_visible)
 {
 	uint64_t entry = static_cast<uint64_t>(PageFlags::Present | PageFlags::Write);
 	if(user_visible)
@@ -66,17 +66,17 @@ uint64_t VirtualMemory::TableEntryFlags(bool user_visible)
 	return entry;
 }
 
-bool VirtualMemory::EnsureTableEntry(uint64_t &entry, bool user_visible)
+bool VirtualMemory::ensure_table_entry(uint64_t &entry, bool user_visible)
 {
 	if(0 == entry)
 	{
 		uint64_t new_page = 0;
-		if(!frames_.Allocate(new_page))
+		if(!frames_.allocate(new_page))
 		{
 			return false;
 		}
 		memsetq((void*)new_page, 0, kPageSize);
-		entry = (new_page & kEntryAddressMask) | TableEntryFlags(user_visible);
+		entry = (new_page & kEntryAddressMask) | table_entry_flags(user_visible);
 		return true;
 	}
 
@@ -88,9 +88,9 @@ bool VirtualMemory::EnsureTableEntry(uint64_t &entry, bool user_visible)
 	return true;
 }
 
-bool VirtualMemory::WalkToLeaf(uint64_t virtual_address, bool create, bool user_visible, uint64_t **leaf_entry)
+bool VirtualMemory::walk_to_leaf(uint64_t virtual_address, bool create, bool user_visible, uint64_t **leaf_entry)
 {
-	if((nullptr == leaf_entry) || !EnsureRoot())
+	if((nullptr == leaf_entry) || !ensure_root())
 	{
 		return false;
 	}
@@ -103,7 +103,7 @@ bool VirtualMemory::WalkToLeaf(uint64_t virtual_address, bool create, bool user_
 	uint64_t &pml4e = pml4[PageIndex(virtual_address, 39)];
 	if(create)
 	{
-		if(!EnsureTableEntry(pml4e, user_visible))
+		if(!ensure_table_entry(pml4e, user_visible))
 		{
 			return false;
 		}
@@ -117,7 +117,7 @@ bool VirtualMemory::WalkToLeaf(uint64_t virtual_address, bool create, bool user_
 	uint64_t &pml3e = pml3[PageIndex(virtual_address, 30)];
 	if(create)
 	{
-		if(!EnsureTableEntry(pml3e, user_visible))
+		if(!ensure_table_entry(pml3e, user_visible))
 		{
 			return false;
 		}
@@ -131,7 +131,7 @@ bool VirtualMemory::WalkToLeaf(uint64_t virtual_address, bool create, bool user_
 	uint64_t &pml2e = pml2[PageIndex(virtual_address, 21)];
 	if(create)
 	{
-		if(!EnsureTableEntry(pml2e, user_visible))
+		if(!ensure_table_entry(pml2e, user_visible))
 		{
 			return false;
 		}
@@ -146,19 +146,19 @@ bool VirtualMemory::WalkToLeaf(uint64_t virtual_address, bool create, bool user_
 	return true;
 }
 
-bool VirtualMemory::Allocate(uint64_t start_address, uint64_t num_pages, bool identity_map)
+bool VirtualMemory::allocate(uint64_t start_address, uint64_t num_pages, bool identity_map)
 {
 	if(identity_map)
 	{
-		return MapPhysical(start_address, start_address, num_pages,
+		return map_physical(start_address, start_address, num_pages,
 			PageFlags::Present | PageFlags::Write);
 	}
 
-	return AllocateAndMap(start_address, num_pages,
+	return allocate_and_map(start_address, num_pages,
 		PageFlags::Present | PageFlags::Write);
 }
 
-bool VirtualMemory::MapPhysical(uint64_t virtual_address, uint64_t physical_address, uint64_t num_pages, PageFlags flags)
+bool VirtualMemory::map_physical(uint64_t virtual_address, uint64_t physical_address, uint64_t num_pages, PageFlags flags)
 {
 	if((0 == num_pages) || (virtual_address & (kPageSize - 1)) || (physical_address & (kPageSize - 1)))
 	{
@@ -169,18 +169,18 @@ bool VirtualMemory::MapPhysical(uint64_t virtual_address, uint64_t physical_addr
 	for(uint64_t i = 0; i < num_pages; ++i)
 	{
 		uint64_t *leaf_entry = nullptr;
-		if(!WalkToLeaf(virtual_address + i * kPageSize, true, user_visible, &leaf_entry))
+		if(!walk_to_leaf(virtual_address + i * kPageSize, true, user_visible, &leaf_entry))
 		{
 			return false;
 		}
 		*leaf_entry = ((physical_address + i * kPageSize) & kEntryAddressMask)
-			| FlagsToEntry(flags | PageFlags::Present);
+			| flags_to_entry(flags | PageFlags::Present);
 	}
 
 	return true;
 }
 
-bool VirtualMemory::AllocateAndMap(uint64_t virtual_address, uint64_t num_pages, PageFlags flags, uint64_t *first_physical)
+bool VirtualMemory::allocate_and_map(uint64_t virtual_address, uint64_t num_pages, PageFlags flags, uint64_t *first_physical)
 {
 	if((0 == num_pages) || (virtual_address & (kPageSize - 1)))
 	{
@@ -191,7 +191,7 @@ bool VirtualMemory::AllocateAndMap(uint64_t virtual_address, uint64_t num_pages,
 	for(uint64_t i = 0; i < num_pages; ++i)
 	{
 		uint64_t physical_page = 0;
-		if(!frames_.Allocate(physical_page))
+		if(!frames_.allocate(physical_page))
 		{
 			return false;
 		}
@@ -200,7 +200,7 @@ bool VirtualMemory::AllocateAndMap(uint64_t virtual_address, uint64_t num_pages,
 			first_page = physical_page;
 		}
 		memsetq((void*)physical_page, 0, kPageSize);
-		if(!MapPhysical(virtual_address + i * kPageSize, physical_page, 1, flags | PageFlags::Present))
+		if(!map_physical(virtual_address + i * kPageSize, physical_page, 1, flags | PageFlags::Present))
 		{
 			return false;
 		}
@@ -214,7 +214,7 @@ bool VirtualMemory::AllocateAndMap(uint64_t virtual_address, uint64_t num_pages,
 	return true;
 }
 
-bool VirtualMemory::Protect(uint64_t virtual_address, uint64_t num_pages, PageFlags flags)
+bool VirtualMemory::protect(uint64_t virtual_address, uint64_t num_pages, PageFlags flags)
 {
 	if((0 == num_pages) || (virtual_address & (kPageSize - 1)))
 	{
@@ -224,18 +224,18 @@ bool VirtualMemory::Protect(uint64_t virtual_address, uint64_t num_pages, PageFl
 	for(uint64_t i = 0; i < num_pages; ++i)
 	{
 		uint64_t *leaf_entry = nullptr;
-		if(!WalkToLeaf(virtual_address + i * kPageSize, false, false, &leaf_entry) || (nullptr == leaf_entry) || (0 == *leaf_entry))
+		if(!walk_to_leaf(virtual_address + i * kPageSize, false, false, &leaf_entry) || (nullptr == leaf_entry) || (0 == *leaf_entry))
 		{
 			return false;
 		}
 		const uint64_t physical_page = *leaf_entry & kEntryAddressMask;
-		*leaf_entry = physical_page | FlagsToEntry(flags | PageFlags::Present);
+		*leaf_entry = physical_page | flags_to_entry(flags | PageFlags::Present);
 	}
 
 	return true;
 }
 
-bool VirtualMemory::Translate(uint64_t virtual_address, uint64_t &physical_address, uint64_t &flags) const
+bool VirtualMemory::translate(uint64_t virtual_address, uint64_t &physical_address, uint64_t &flags) const
 {
 	if(!initialized_)
 	{
@@ -272,9 +272,9 @@ bool VirtualMemory::Translate(uint64_t virtual_address, uint64_t &physical_addre
 	return true;
 }
 
-bool VirtualMemory::CloneKernelPml4Entry(uint64_t slot, uint64_t source_root)
+bool VirtualMemory::clone_kernel_pml4_entry(uint64_t slot, uint64_t source_root)
 {
-	if(!EnsureRoot())
+	if(!ensure_root())
 	{
 		return false;
 	}
@@ -288,7 +288,7 @@ bool VirtualMemory::CloneKernelPml4Entry(uint64_t slot, uint64_t source_root)
 	return true;
 }
 
-void VirtualMemory::DestroyTable(uint64_t &entry, int level, bool free_leaf_pages)
+void VirtualMemory::destroy_table(uint64_t &entry, int level, bool free_leaf_pages)
 {
 	if(0 == entry)
 	{
@@ -302,7 +302,7 @@ void VirtualMemory::DestroyTable(uint64_t &entry, int level, bool free_leaf_page
 		{
 			if(table[i])
 			{
-				DestroyTable(table[i], level - 1, free_leaf_pages);
+				destroy_table(table[i], level - 1, free_leaf_pages);
 			}
 		}
 	}
@@ -312,17 +312,17 @@ void VirtualMemory::DestroyTable(uint64_t &entry, int level, bool free_leaf_page
 		{
 			if(table[i])
 			{
-				frames_.Free(table[i] & kEntryAddressMask);
+				frames_.free(table[i] & kEntryAddressMask);
 				table[i] = 0;
 			}
 		}
 	}
 
-	frames_.Free(entry & kEntryAddressMask);
+	frames_.free(entry & kEntryAddressMask);
 	entry = 0;
 }
 
-bool VirtualMemory::DestroyUserSlot(uint64_t slot)
+bool VirtualMemory::destroy_user_slot(uint64_t slot)
 {
 	if(!initialized_ || (slot >= 512))
 	{
@@ -330,11 +330,11 @@ bool VirtualMemory::DestroyUserSlot(uint64_t slot)
 	}
 
 	uint64_t *pml4 = (uint64_t*)root_;
-	DestroyTable(pml4[slot], 4, true);
+	destroy_table(pml4[slot], 4, true);
 	return true;
 }
 
-bool VirtualMemory::Free(uint64_t start_address, uint64_t num_pages)
+bool VirtualMemory::free(uint64_t start_address, uint64_t num_pages)
 {
 	if((0 == num_pages) || (start_address & (kPageSize - 1)))
 	{
@@ -344,18 +344,18 @@ bool VirtualMemory::Free(uint64_t start_address, uint64_t num_pages)
 	for(uint64_t i = 0; i < num_pages; ++i)
 	{
 		uint64_t *leaf_entry = nullptr;
-		if(!WalkToLeaf(start_address + i * kPageSize, false, false, &leaf_entry) || (nullptr == leaf_entry) || (0 == *leaf_entry))
+		if(!walk_to_leaf(start_address + i * kPageSize, false, false, &leaf_entry) || (nullptr == leaf_entry) || (0 == *leaf_entry))
 		{
 			return false;
 		}
-		frames_.Free(*leaf_entry & kEntryAddressMask);
+		frames_.free(*leaf_entry & kEntryAddressMask);
 		*leaf_entry = 0;
 	}
 
 	return true;
 }
 
-bool VirtualMemory::Free()
+bool VirtualMemory::free()
 {
 	if(initialized_)
 	{
@@ -364,26 +364,26 @@ bool VirtualMemory::Free()
 		{
 			if(pml4[i])
 			{
-				DestroyTable(pml4[i], 4, true);
+				destroy_table(pml4[i], 4, true);
 			}
 		}
-		frames_.Free(root_);
+		frames_.free(root_);
 		root_ = ~0ull;
 		initialized_ = false;
 	}
 	return true;
 }
 
-uint64_t VirtualMemory::Root()
+uint64_t VirtualMemory::root()
 {
 	if(!initialized_)
 	{
-		debug("VirtualMemory::Root() warning: VirtualMemory not initialized")();
+		debug("VirtualMemory::root() warning: VirtualMemory not initialized")();
 	}
 	return root_;
 }
 
-bool VirtualMemory::Activate()
+bool VirtualMemory::activate()
 {
 	if(!initialized_)
 	{

@@ -203,7 +203,7 @@ The build writes outputs under `build/artifacts/`:
 - `kernel16.bin` — BIOS stage-1 loader with E820, EDD reads, long-mode entry, and ELF expansion
 - `kernel_bios.elf` — shared low-half kernel core used by the BIOS path and loaded as a module by the Limine path
 - `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state and enters the shared kernel
-- `cpustart.bin` — AP trampoline blob used for debugging / disassembly
+- `cpu_start.bin` — AP trampoline blob used for debugging / disassembly
 - `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/sh`, `/bin/yield`, `/bin/fault`, and `/bin/copycheck`
 - `virtio-test-disk.raw` — generated raw disk image used to validate the `virtio-blk` path during boot and smoke tests
 - `user/*.elf` — statically linked user-space ELF inputs used to build the initrd
@@ -215,7 +215,7 @@ The build writes outputs under `build/artifacts/`:
 - `smoke-observe.log` / `smoke-observe-bios.log` — captured observability smoke serial logs
 - `smoke-spawn.log` / `smoke-spawn-bios.log` — captured child-launch smoke serial logs
 - `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
-- `dump.asm` / `cpustart.asm` — disassembly outputs
+- `dump.asm` / `cpu_start.asm` — disassembly outputs
 
 The helper wrapper scripts remain available as thin CMake frontends:
 

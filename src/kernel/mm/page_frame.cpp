@@ -1,8 +1,8 @@
 // Bitmap page-frame allocator implementation. Boot memory-map regions seed the
 // bitmap; later subsystems allocate physical pages through this single owner.
-#include "mm/page_frame.h"
+#include "mm/page_frame.hpp"
 #include "util/memory.h"
-#include "debug/debug.h"
+#include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 
 PageFrameContainer::PageFrameContainer()
@@ -10,7 +10,7 @@ PageFrameContainer::PageFrameContainer()
 {
 }
 
-bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_regions, uint64_t bitmap_address, uint64_t bitmap_limit)
+bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_regions, uint64_t bitmap_address, uint64_t bitmap_limit)
 {
 	if(initialized_) return false;
 	bool result = false;
@@ -20,10 +20,10 @@ bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_reg
 	for(size_t i = 0; i < memory_regions.size(); i++)
 	{
 		const BootMemoryRegion &b = memory_regions[i];
-		debug.WriteInt(b.physical_start, 16, 16); debug.Write(' ');
-		debug.WriteInt(b.length, 16, 16); debug.Write(' ');
-		debug.WriteIntLn(static_cast<uint64_t>(b.type));
-		if(BootMemoryRegionIsUsable(b))
+		debug.write_int(b.physical_start, 16, 16); debug.write(' ');
+		debug.write_int(b.length, 16, 16); debug.write(' ');
+		debug.write_int_line(static_cast<uint64_t>(b.type));
+		if(boot_memory_region_is_usable(b))
 		{
 			// add to usable memory size
 			memory_size_ += b.length;
@@ -70,7 +70,7 @@ bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_reg
 		for(size_t i = 0; i < memory_regions.size(); i++)
 		{
 			const BootMemoryRegion &b = memory_regions[i];
-			if(BootMemoryRegionIsUsable(b))
+			if(boot_memory_region_is_usable(b))
 			{
 				// check page start aligned
 				if(b.physical_start & (kPageSize - 1))
@@ -152,7 +152,7 @@ bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_reg
 		uint64_t bitmap_end = (uint64_t)(bitmap_ + bitmap_limit_);
 		for(uint64_t vp = (uint64_t)bitmap_; vp < bitmap_end; vp += kPageSize)
 		{
-			SetBusy(vp >> 12);
+			set_busy(vp >> 12);
 		}
 	}
 
@@ -162,13 +162,13 @@ bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_reg
 		// mark kernel low data pages as busy
 		for(uint64_t vp = 0; vp < kEarlyReservedPhysicalEnd; vp += kPageSize)
 		{
-			SetBusy(vp >> 12);
+			set_busy(vp >> 12);
 		}
 
 		// mark kernel code & stack as busy
 		for(uint64_t vp = kKernelReservedPhysicalStart; vp < kKernelReservedPhysicalEnd; vp += kPageSize)
 		{
-			SetBusy(vp >> 12);
+			set_busy(vp >> 12);
 		}
 	}
 
@@ -178,9 +178,9 @@ bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_reg
 		auto bitmap_end = bitmap_ + bitmap_size_;
 		for(auto p = bitmap_; p < bitmap_end; p++)
 		{
-			debug.WriteInt((p - bitmap_) * 64);
-			debug.Write(' ');
-			debug.WriteIntLn(*p, 2, 64);
+			debug.write_int((p - bitmap_) * 64);
+			debug.write(' ');
+			debug.write_int_line(*p, 2, 64);
 		}
 	}
 
@@ -190,7 +190,7 @@ bool PageFrameContainer::Initialize(std::span<const BootMemoryRegion> memory_reg
 	return result;
 }
 
-bool PageFrameContainer::Allocate(uint64_t &address)
+bool PageFrameContainer::allocate(uint64_t &address)
 {
 	// check for successful initialization
 	if(!initialized_)
@@ -234,7 +234,7 @@ bool PageFrameContainer::Allocate(uint64_t &address)
 	return false;
 }
 
-bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
+bool PageFrameContainer::allocate(uint64_t &address, unsigned count)
 {
 	// check for successful initialization
 	if(!initialized_)
@@ -247,7 +247,7 @@ bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
 	uint64_t run_start = page_count_;
 	for(uint64_t i = 0; i < page_count_; i++)
 	{
-		if(IsFree(i))
+		if(is_free(i))
 		{
 			if(run_start == page_count_) run_start = i;
 			if((i - run_start + 1) == count)
@@ -256,7 +256,7 @@ bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
 				address = run_start << 12;
 				for(uint64_t j = run_start; j <= i; ++j)
 				{
-					SetBusy(j);
+					set_busy(j);
 				}
 				if(free_page_count_ >= count)
 				{
@@ -271,7 +271,7 @@ bool PageFrameContainer::Allocate(uint64_t &address, unsigned count)
 	return false;
 }
 
-bool PageFrameContainer::Free(uint64_t address)
+bool PageFrameContainer::free(uint64_t address)
 {
 	if(!initialized_) return false;
 	// check address align
@@ -300,7 +300,7 @@ bool PageFrameContainer::Free(uint64_t address)
 	return result;
 }
 
-bool PageFrameContainer::ReserveRange(uint64_t address, uint64_t length)
+bool PageFrameContainer::reserve_range(uint64_t address, uint64_t length)
 {
 	if(!initialized_ || (0 == length))
 	{
@@ -320,9 +320,9 @@ bool PageFrameContainer::ReserveRange(uint64_t address, uint64_t length)
 		{
 			return false;
 		}
-		if(IsFree(ipage))
+		if(is_free(ipage))
 		{
-			SetBusy(ipage);
+			set_busy(ipage);
 			if(free_page_count_ > 0)
 			{
 				--free_page_count_;
@@ -333,17 +333,17 @@ bool PageFrameContainer::ReserveRange(uint64_t address, uint64_t length)
 	return true;
 }
 
-void PageFrameContainer::SetFree(uint64_t ipage)
+void PageFrameContainer::set_free(uint64_t ipage)
 {
 	bitmap_[ipage / 64] |= (1ull << (ipage % 64));
 }
 
-void PageFrameContainer::SetBusy(uint64_t ipage)
+void PageFrameContainer::set_busy(uint64_t ipage)
 {
 	bitmap_[ipage / 64] &= ~(1ull << (ipage % 64));
 }
 
-bool PageFrameContainer::IsFree(uint64_t ipage)
+bool PageFrameContainer::is_free(uint64_t ipage)
 {
 	return (bitmap_[ipage / 64] & (1ull << (ipage % 64))) != 0;
 }

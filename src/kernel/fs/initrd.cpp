@@ -1,6 +1,6 @@
 // CPIO newc initrd parser. It exposes a tiny archive traversal API until the
 // future VFS can provide path lookup and filesystem-backed exec.
-#include "fs/initrd.h"
+#include "fs/initrd.hpp"
 
 namespace
 {
@@ -121,12 +121,12 @@ bool MatchInitrdFile(const char *archive_name, const uint8_t *file_data, uint64_
 }
 }
 
-void BindInitrdBootInfo(const BootInfo *boot_info)
+void bind_initrd_boot_info(const BootInfo *boot_info)
 {
 	g_boot_info = boot_info;
 }
 
-bool ForEachInitrdFile(InitrdFileVisitor visitor, void *context)
+bool for_each_initrd_file(InitrdFileVisitor visitor, void *context)
 {
 	if((nullptr == visitor) || (nullptr == g_boot_info) || (0 == g_boot_info->module_count))
 	{
@@ -180,16 +180,16 @@ bool ForEachInitrdFile(InitrdFileVisitor visitor, void *context)
 	return false;
 }
 
-bool FindInitrdFile(const char *path, const uint8_t *&data, uint64_t &size)
+bool find_initrd_file(const char *path, const uint8_t *&data, uint64_t &size)
 {
 	InitrdLookupContext lookup{path, nullptr, 0};
-	(void)ForEachInitrdFile(MatchInitrdFile, &lookup);
+	(void)for_each_initrd_file(MatchInitrdFile, &lookup);
 	data = lookup.data;
 	size = lookup.size;
 	return (nullptr != data);
 }
 
-void CopyInitrdPath(char *destination, size_t destination_size, const char *archive_name)
+void copy_initrd_path(char *destination, size_t destination_size, const char *archive_name)
 {
 	if((nullptr == destination) || (0 == destination_size))
 	{

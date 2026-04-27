@@ -1,14 +1,14 @@
 // Canonical line-input implementation shared by serial and keyboard sources.
 // It maintains a small completed-line queue for blocking read syscalls.
-#include "console/console_input.h"
+#include "console/console_input.hpp"
 
 #include <stdlib.h>
 
-#include "debug/debug.h"
-#include "arch/x86_64/cpu/io_port.h"
-#include "util/ctype.h"
+#include "debug/debug.hpp"
+#include "arch/x86_64/cpu/io_port.hpp"
+#include "util/ctype.hpp"
 #include "util/memory.h"
-#include "console/terminal.h"
+#include "console/terminal.hpp"
 
 extern Terminal *active_terminal;
 
@@ -29,21 +29,21 @@ size_t g_completed_count = 0;
 
 void EchoByte(char c)
 {
-	debug.Write(c);
+	debug.write(c);
 	if(active_terminal)
 	{
-		active_terminal->Write(c);
+		active_terminal->write(c);
 	}
 }
 
 void EchoBackspace()
 {
-	debug.Write('\b');
-	debug.Write(' ');
-	debug.Write('\b');
+	debug.write('\b');
+	debug.write(' ');
+	debug.write('\b');
 	if(active_terminal)
 	{
-		active_terminal->Write('\b');
+		active_terminal->write('\b');
 	}
 }
 
@@ -108,7 +108,7 @@ void HandleInputChar(char ascii)
 }
 }
 
-void ConsoleInputInitialize()
+void console_input_initialize()
 {
 	memset(g_pending_line, 0, sizeof(g_pending_line));
 	memset(g_completed_lines, 0, sizeof(g_completed_lines));
@@ -119,12 +119,12 @@ void ConsoleInputInitialize()
 	g_completed_count = 0;
 }
 
-void ConsoleInputOnKeyboardChar(char ascii)
+void console_input_on_keyboard_char(char ascii)
 {
 	HandleInputChar(ascii);
 }
 
-void ConsoleInputPollSerial()
+void console_input_poll_serial()
 {
 	while((inb(kSerialLineStatusPort) & kSerialDataReady) != 0)
 	{
@@ -132,12 +132,12 @@ void ConsoleInputPollSerial()
 	}
 }
 
-bool ConsoleInputHasLine()
+bool console_input_has_line()
 {
 	return g_completed_count > 0;
 }
 
-bool ConsoleInputPopLine(char *buffer, size_t buffer_size, size_t &line_length)
+bool console_input_pop_line(char *buffer, size_t buffer_size, size_t &line_length)
 {
 	line_length = 0;
 	if((nullptr == buffer) || (0 == buffer_size) || (0 == g_completed_count))

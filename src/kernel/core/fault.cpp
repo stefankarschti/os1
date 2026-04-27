@@ -1,14 +1,14 @@
 // User and kernel exception policy extracted from the kernel entry file.
-#include "core/fault.h"
+#include "core/fault.hpp"
 
-#include "arch/x86_64/cpu/control_regs.h"
-#include "arch/x86_64/interrupt/interrupt.h"
-#include "console/terminal.h"
-#include "core/kernel_state.h"
-#include "core/panic.h"
-#include "debug/debug.h"
-#include "sched/scheduler.h"
-#include "proc/thread.h"
+#include "arch/x86_64/cpu/control_regs.hpp"
+#include "arch/x86_64/interrupt/interrupt.hpp"
+#include "console/terminal.hpp"
+#include "core/kernel_state.hpp"
+#include "core/panic.hpp"
+#include "debug/debug.hpp"
+#include "sched/scheduler.hpp"
+#include "proc/thread.hpp"
 
 const char *KernelFaultName(uint64_t vector)
 {
@@ -37,7 +37,7 @@ const char *KernelFaultName(uint64_t vector)
 	}
 }
 
-void DumpTrapFrame(const TrapFrame &frame)
+void dump_trap_frame(const TrapFrame &frame)
 {
 	debug("vector=")(frame.vector)(" error=0x")(frame.error_code, 16)
 		(" rip=0x")(frame.rip, 16)
@@ -55,29 +55,29 @@ void DumpTrapFrame(const TrapFrame &frame)
 		(" r14=0x")(frame.r14, 16)(" r15=0x")(frame.r15, 16)();
 }
 
-void OnKernelException(TrapFrame *frame)
+void on_kernel_exception(TrapFrame *frame)
 {
 	const char *name = KernelFaultName(frame->vector);
 	if(active_terminal)
 	{
-		active_terminal->WriteLn(name);
+		active_terminal->write_line(name);
 	}
-	debug(name)(" cr2=0x")(ReadCr2(), 16)(" cr3=0x")(ReadCr3(), 16)();
-	DumpTrapFrame(*frame);
+	debug(name)(" cr2=0x")(read_cr2(), 16)(" cr3=0x")(read_cr3(), 16)();
+	dump_trap_frame(*frame);
 	HaltForever();
 }
 
 Thread *HandleException(TrapFrame *frame)
 {
-	if(TrapFrameIsUser(*frame))
+	if(trap_frame_is_user(*frame))
 	{
-		const uint64_t pid = currentThread() && currentThread()->process
-			? currentThread()->process->pid
+		const uint64_t pid = current_thread() && current_thread()->process
+			? current_thread()->process->pid
 			: 0;
 		debug("user trap vector ")(frame->vector)(" pid ")(pid)
-			(" cr2 0x")(ReadCr2(), 16)
+			(" cr2 0x")(read_cr2(), 16)
 			(" error 0x")(frame->error_code, 16)
-			(" cr3 0x")(ReadCr3(), 16)();
+			(" cr3 0x")(read_cr3(), 16)();
 		if(frame->vector == T_PGFLT)
 		{
 			debug("user page fault killed pid ")(pid)();
@@ -86,11 +86,11 @@ Thread *HandleException(TrapFrame *frame)
 		{
 			debug("user exception killed pid ")(pid)();
 		}
-		markCurrentThreadDying((int)frame->vector);
-		return ScheduleNext(false);
+		mark_current_thread_dying((int)frame->vector);
+		return schedule_next(false);
 	}
 
-	DispatchExceptionHandler((int)frame->vector, frame);
-	OnKernelException(frame);
+	dispatch_exception_handler((int)frame->vector, frame);
+	on_kernel_exception(frame);
 	return nullptr;
 }

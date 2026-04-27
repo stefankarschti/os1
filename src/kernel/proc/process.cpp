@@ -1,12 +1,12 @@
 // Fixed process-table implementation. This file owns process IDs, parent/child
 // metadata, address-space ownership, and process reaping once threads are gone.
-#include "proc/process.h"
+#include "proc/process.hpp"
 
-#include "debug/debug.h"
+#include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
-#include "mm/page_frame.h"
-#include "mm/virtual_memory.h"
-#include "proc/thread.h"
+#include "mm/page_frame.hpp"
+#include "mm/virtual_memory.hpp"
+#include "proc/thread.hpp"
 #include "util/memory.h"
 
 namespace
@@ -77,7 +77,7 @@ void fillProcessName(Process *process, const char *name)
 
 Process *processTable = nullptr;
 
-bool InitializeProcessTable(PageFrameContainer &frames)
+bool initialize_process_table(PageFrameContainer &frames)
 {
 	g_next_pid = 1;
 	g_kernel_process = nullptr;
@@ -85,7 +85,7 @@ bool InitializeProcessTable(PageFrameContainer &frames)
 	if(nullptr == processTable)
 	{
 		uint64_t process_table_address = 0;
-		if(!frames.Allocate(process_table_address, kProcessTablePageCount))
+		if(!frames.allocate(process_table_address, kProcessTablePageCount))
 		{
 			debug("process table allocation failed")();
 			return false;
@@ -135,7 +135,7 @@ Process *createUserProcess(const char *name, uint64_t cr3)
 	return process;
 }
 
-bool processHasThreads(Process *process)
+bool process_has_threads(Process *process)
 {
 	if((nullptr == process) || (nullptr == threadTable))
 	{
@@ -153,9 +153,9 @@ bool processHasThreads(Process *process)
 	return false;
 }
 
-bool reapProcess(Process *process, PageFrameContainer &frames)
+bool reap_process(Process *process, PageFrameContainer &frames)
 {
-	if((nullptr == process) || processHasThreads(process))
+	if((nullptr == process) || process_has_threads(process))
 	{
 		return false;
 	}
@@ -163,10 +163,10 @@ bool reapProcess(Process *process, PageFrameContainer &frames)
 	if((process != g_kernel_process) && (process->address_space.cr3 != 0))
 	{
 		VirtualMemory vm(frames, process->address_space.cr3);
-		vm.DestroyUserSlot(kUserPml4Index);
+		vm.destroy_user_slot(kUserPml4Index);
 		uint64_t *pml4 = (uint64_t*)process->address_space.cr3;
 		pml4[0] = 0;
-		frames.Free(process->address_space.cr3);
+		frames.free(process->address_space.cr3);
 	}
 	orphanChildren(process);
 	clearProcess(process);

@@ -1,6 +1,6 @@
-#include "syscall/wait.h"
+#include "syscall/wait.hpp"
 
-#include "mm/user_copy.h"
+#include "mm/user_copy.hpp"
 
 namespace
 {
@@ -49,7 +49,7 @@ bool ProcessHasAnyThreads(const Process *process)
 }
 }
 
-bool TryCompleteWaitPid(PageFrameContainer &frames,
+bool try_complete_wait_pid(PageFrameContainer &frames,
 		Thread *thread,
 		uint64_t pid,
 		uint64_t user_status_pointer,
@@ -71,13 +71,13 @@ bool TryCompleteWaitPid(PageFrameContainer &frames,
 
 		const int exit_status = child->exit_status;
 		if((0 != user_status_pointer)
-			&& !CopyToUser(frames, thread, user_status_pointer, &exit_status, sizeof(exit_status)))
+			&& !copy_to_user(frames, thread, user_status_pointer, &exit_status, sizeof(exit_status)))
 		{
 			return true;
 		}
 
 		result = static_cast<long>(child->pid);
-		if(!reapProcess(child, frames))
+		if(!reap_process(child, frames))
 		{
 			result = -1;
 		}
@@ -92,7 +92,7 @@ bool TryCompleteWaitPid(PageFrameContainer &frames,
 	return true;
 }
 
-void WakeChildWaiters(PageFrameContainer &frames)
+void wake_child_waiters(PageFrameContainer &frames)
 {
 	for(size_t i = 0; i < kMaxThreads; ++i)
 	{
@@ -104,13 +104,13 @@ void WakeChildWaiters(PageFrameContainer &frames)
 		}
 
 		long result = -1;
-		if(!TryCompleteWaitPid(frames, thread, thread->wait_length, thread->wait_address, result))
+		if(!try_complete_wait_pid(frames, thread, thread->wait_length, thread->wait_address, result))
 		{
 			continue;
 		}
 
-		clearThreadWait(thread);
+		clear_thread_wait(thread);
 		thread->frame.rax = static_cast<uint64_t>(result);
-		markThreadReady(thread);
+		mark_thread_ready(thread);
 	}
 }

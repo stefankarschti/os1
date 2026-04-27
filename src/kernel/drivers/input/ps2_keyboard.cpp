@@ -1,9 +1,9 @@
 // PS/2 keyboard scan-code decoder. It converts controller bytes into console
 // input characters while also forwarding raw hotkeys to terminal switching.
-#include "drivers/input/ps2_keyboard.h"
-#include "console/console_input.h"
-#include "console/terminal_switcher.h"
-#include "arch/x86_64/cpu/io_port.h"
+#include "drivers/input/ps2_keyboard.hpp"
+#include "console/console_input.hpp"
+#include "console/terminal_switcher.hpp"
+#include "arch/x86_64/cpu/io_port.hpp"
 
 uint16_t plain_map[256] = {
 	0xf200,	0xf01b,	0xf031,	0xf032,	0xf033,	0xf034,	0xf035,	0xf036,
@@ -82,7 +82,7 @@ char key_to_char(uint8_t key)
 	return (shift ? shift_map[key] : plain_map[key]) & 0xFF;
 }
 
-void Keyboard::IRQHandler(Keyboard *object)
+void Keyboard::irq_handler(Keyboard *object)
 {
 	(void)object;
 	// hook for keyboard handler
@@ -109,22 +109,22 @@ void Keyboard::IRQHandler(Keyboard *object)
 
 	// first let kernel handle the scan code
 	// process further if kernel approves
-	if(KernelKeyboardHook(scancode))
+	if(kernel_keyboard_hook(scancode))
 	{
 		if(!brk)
 		{
-			ConsoleInputOnKeyboardChar(key_to_char(key));
+			console_input_on_keyboard_char(key_to_char(key));
 		}
 	}
 }
 
-bool Keyboard::Initialize()
+bool Keyboard::initialize()
 {
-	interrupts_.SetIRQHandler(1, (void (*)(void*))IRQHandler, this); // hook keyboard irq
+	interrupts_.set_irq_handler(1, (void (*)(void*))irq_handler, this); // hook keyboard irq
 	return true; // I guess
 }
 
-void Keyboard::SetActiveTerminal(Terminal *terminal)
+void Keyboard::set_active_terminal(Terminal *terminal)
 {
 	active_terminal_ = terminal;
 }

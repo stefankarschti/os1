@@ -8,16 +8,16 @@
  * Adapted for PIOS by Bryan Ford at Yale University.
  */
 
-#include "util/assert.h"
-#include "arch/x86_64/apic/pic.h"
-#include "arch/x86_64/interrupt/interrupt.h"
+#include "util/assert.hpp"
+#include "arch/x86_64/apic/pic.hpp"
+#include "arch/x86_64/interrupt/interrupt.hpp"
 
 // Current IRQ mask.
 // Initial IRQ mask has interrupt 2 enabled (for slave 8259A).
 static uint16_t irqmask = 0xFFFF & ~(1<<IRQ_SLAVE);
 static bool didinit;
 
-/* Initialize the 8259A interrupt controllers. */
+/* initialize the 8259A interrupt controllers. */
 void
 pic_init(void)
 {
