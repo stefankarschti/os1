@@ -75,11 +75,10 @@ This section is the live source-structure contract for the kernel. Dated refacto
 
 Top-level kernel source rules:
 
-- The `src/kernel/` top level currently keeps two loose ownership files: [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) for build grouping and [../src/kernel/kernel_namespaces.hpp](../src/kernel/kernel_namespaces.hpp) for the transitional namespace facade.
+- The `src/kernel/` top level currently keeps two loose ownership files: [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) for build grouping.
 - C++ sources are grouped in CMake by ownership: architecture, handoff, memory, console, drivers, filesystem, core, platform, process, scheduler, syscall, debug, and utilities.
 - NASM include paths explicitly include architecture layout files, handoff layout files, and process thread-layout files so assembly does not rely on old flat-tree placement.
 - Internal C++ headers use `.hpp` and `#pragma once`; the remaining `.h` headers are deliberate C/UAPI/layout contracts.
-- [../src/kernel/kernel_namespaces.hpp](../src/kernel/kernel_namespaces.hpp) provides the transitional `os1::kernel::*` namespace facade while ABI-sensitive global symbols remain available to assembly and existing call sites.
 - Future-growth directories exist with ownership notes even before executable code lands, so later work has an obvious home.
 
 Current kernel folders:
