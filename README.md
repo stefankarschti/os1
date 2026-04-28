@@ -216,6 +216,8 @@ The build writes outputs under `build/artifacts/`:
 - `smoke-spawn.log` / `smoke-spawn-bios.log` — captured child-launch smoke serial logs
 - `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
 
+For BIOS compatibility, `os1.raw` reserves fixed slots for `kernel16.bin`, `kernel.elf`, and `initrd.cpio`. Those slot sizes are defined by `OS1_LOADER16_IMAGE_SECTOR_COUNT`, `OS1_KERNEL_IMAGE_SECTOR_COUNT`, and `OS1_INITRD_IMAGE_SECTOR_COUNT` in [CMakeLists.txt](CMakeLists.txt). The build now fails before writing `os1.raw` if `kernel.elf` or `initrd.cpio` outgrow their configured slot. To expand BIOS storage space, raise the corresponding sector-count value and rebuild; the generated BIOS layout follows those values automatically while the raw image stays padded to 1 MiB.
+
 The helper wrapper scripts remain available as thin CMake frontends:
 
 - `./run.sh`

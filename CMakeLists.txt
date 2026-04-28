@@ -88,9 +88,16 @@ endforeach()
 set(OS1_LOADER16_IMAGE_START_LBA 1)
 set(OS1_LOADER16_IMAGE_SECTOR_COUNT 64)
 math(EXPR OS1_KERNEL_IMAGE_START_LBA "${OS1_LOADER16_IMAGE_START_LBA} + ${OS1_LOADER16_IMAGE_SECTOR_COUNT}")
-set(OS1_KERNEL_IMAGE_SECTOR_COUNT 256)
+# BIOS raw-image payload slots are fixed-size contract surfaces.
+# Grow these counts when kernel.elf or initrd.cpio legitimately outgrow them.
+set(OS1_KERNEL_IMAGE_SECTOR_COUNT 384)
 math(EXPR OS1_INITRD_IMAGE_START_LBA "${OS1_KERNEL_IMAGE_START_LBA} + ${OS1_KERNEL_IMAGE_SECTOR_COUNT}")
 set(OS1_INITRD_IMAGE_SECTOR_COUNT 128)
+math(EXPR OS1_KERNEL_IMAGE_MAX_BYTES "${OS1_KERNEL_IMAGE_SECTOR_COUNT} * 512")
+math(EXPR OS1_INITRD_IMAGE_MAX_BYTES "${OS1_INITRD_IMAGE_SECTOR_COUNT} * 512")
+
+set(OS1_ASSERT_MAX_FILE_SIZE_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/assert_max_file_size.cmake")
+set(OS1_BIOS_LAYOUT_CHECK_STAMP "${OS1_ARTIFACT_DIR}/bios-layout-check.stamp")
 
 set(OS1_IMAGE_LAYOUT_INC "${OS1_GENERATED_DIR}/image_layout.inc")
 configure_file(
@@ -205,6 +212,39 @@ add_custom_command(
 add_custom_target(os1_virtio_test_disk DEPENDS "${OS1_VIRTIO_TEST_DISK}")
 
 add_custom_command(
+  OUTPUT "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    "-DINPUT_FILE=${OS1_KERNEL_ELF}"
+    "-DMAX_BYTES=${OS1_KERNEL_IMAGE_MAX_BYTES}"
+    "-DSECTOR_COUNT=${OS1_KERNEL_IMAGE_SECTOR_COUNT}"
+    "-DLABEL=kernel.elf BIOS slot"
+    "-DVARIABLE_NAME=OS1_KERNEL_IMAGE_SECTOR_COUNT"
+    "-DCONFIG_FILE=${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+    -P
+    "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    "-DINPUT_FILE=${OS1_INITRD_CPIO}"
+    "-DMAX_BYTES=${OS1_INITRD_IMAGE_MAX_BYTES}"
+    "-DSECTOR_COUNT=${OS1_INITRD_IMAGE_SECTOR_COUNT}"
+    "-DLABEL=initrd.cpio BIOS slot"
+    "-DVARIABLE_NAME=OS1_INITRD_IMAGE_SECTOR_COUNT"
+    "-DCONFIG_FILE=${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+    -P
+    "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
+  DEPENDS
+    "${OS1_KERNEL_ELF}"
+    "${OS1_INITRD_CPIO}"
+    "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
+  VERBATIM
+)
+
+add_custom_target(os1_bios_layout_check DEPENDS "${OS1_BIOS_LAYOUT_CHECK_STAMP}")
+
+add_custom_command(
   OUTPUT "${OS1_RAW_IMAGE}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_DD_EXECUTABLE}" if=/dev/zero "of=${OS1_RAW_IMAGE}" bs=1048576 count=1
@@ -237,6 +277,7 @@ add_custom_command(
     "${OS1_KERNEL16_BIN}"
     "${OS1_KERNEL_ELF}"
     "${OS1_INITRD_CPIO}"
+    "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
   VERBATIM
 )
 
@@ -278,7 +319,7 @@ add_custom_command(
   VERBATIM
 )
 
-add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}" os1_virtio_test_disk)
+add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}" os1_virtio_test_disk os1_bios_layout_check)
 add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}" os1_virtio_test_disk)
 
 function(os1_add_unavailable_target target_name reason)

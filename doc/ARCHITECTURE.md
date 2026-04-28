@@ -355,8 +355,10 @@ The BIOS raw image keeps a fixed LBA layout generated at configure time and emit
 
 - LBA `0`: MBR boot sector
 - LBA `1-64`: `kernel16.bin`
-- LBA `65-320`: `kernel.elf`
-- LBA `321-448`: `initrd.cpio`
+- LBA `65-448`: `kernel.elf`
+- LBA `449-576`: `initrd.cpio`
+
+The slot sizes come from `OS1_LOADER16_IMAGE_SECTOR_COUNT`, `OS1_KERNEL_IMAGE_SECTOR_COUNT`, and `OS1_INITRD_IMAGE_SECTOR_COUNT` in [../CMakeLists.txt](../CMakeLists.txt). The build now runs a size assertion before writing `os1.raw` and fails if `kernel.elf` or `initrd.cpio` outgrow their configured slot. To expand BIOS storage space, increase the corresponding sector-count value in [../CMakeLists.txt](../CMakeLists.txt) and rebuild; the generated BIOS image layout updates automatically while `os1.raw` stays padded to 1 MiB.
 
 ## The Shared Kernel Contract: `BootInfo`
 
