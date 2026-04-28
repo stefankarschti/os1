@@ -201,7 +201,7 @@ The build writes outputs under `build/artifacts/`:
 
 - `boot.bin` — 512-byte BIOS MBR boot sector
 - `kernel16.bin` — BIOS stage-1 loader with E820, EDD reads, long-mode entry, and ELF expansion
-- `kernel_bios.elf` — shared low-half kernel core used by the BIOS path and loaded as a module by the Limine path
+- `kernel.elf` — shared low-half kernel core used by the BIOS path and loaded as a module by the Limine path
 - `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state and enters the shared kernel
 - `cpu_start.bin` — AP trampoline blob used for debugging / disassembly
 - `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/sh`, `/bin/yield`, `/bin/fault`, and `/bin/copycheck`

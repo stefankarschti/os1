@@ -54,7 +54,7 @@ constexpr uint64_t kTwoMiBPageAddressMask = 0x000FFFFFFFE00000ull;
 constexpr uint64_t kLimineBaseRevisionRequested = 6;
 constexpr uint32_t kElfMagic = 0x464C457Fu;
 constexpr uint32_t kElfProgramTypeLoad = 1;
-constexpr const char* kKernelModuleName = "kernel_bios.elf";
+constexpr const char* kKernelModuleName = "kernel.elf";
 constexpr const char* kInitrdModuleName = "initrd.cpio";
 
 struct Elf64Header

@@ -49,7 +49,7 @@ set(OS1_ISO_STAGE_DIR "${CMAKE_BINARY_DIR}/iso-root")
 set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
 set(OS1_CPU_START_BIN "${OS1_ARTIFACT_DIR}/cpu_start.bin")
-set(OS1_KERNEL_BIOS_ELF "${OS1_ARTIFACT_DIR}/kernel_bios.elf")
+set(OS1_KERNEL_ELF "${OS1_ARTIFACT_DIR}/kernel.elf")
 set(OS1_KERNEL_LIMINE_ELF "${OS1_ARTIFACT_DIR}/kernel_limine.elf")
 set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
@@ -218,7 +218,7 @@ add_custom_command(
     conv=notrunc,sync
   COMMAND
     "${OS1_DD_EXECUTABLE}"
-    "if=${OS1_KERNEL_BIOS_ELF}"
+    "if=${OS1_KERNEL_ELF}"
     "of=${OS1_RAW_IMAGE}"
     bs=512
     "seek=${OS1_KERNEL_IMAGE_START_LBA}"
@@ -235,7 +235,7 @@ add_custom_command(
   DEPENDS
     "${OS1_BOOT_BIN}"
     "${OS1_KERNEL16_BIN}"
-    "${OS1_KERNEL_BIOS_ELF}"
+    "${OS1_KERNEL_ELF}"
     "${OS1_INITRD_CPIO}"
   VERBATIM
 )
@@ -250,7 +250,7 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_CONFIG_SOURCE}" "${OS1_ISO_STAGE_DIR}/limine.conf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_CONFIG_SOURCE}" "${OS1_ISO_STAGE_DIR}/EFI/BOOT/limine.conf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_UEFI_CD}" "${OS1_ISO_STAGE_DIR}/boot/limine/limine-uefi-cd.bin"
-  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_BIOS_ELF}" "${OS1_ISO_STAGE_DIR}/kernel_bios.elf"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_ELF}" "${OS1_ISO_STAGE_DIR}/kernel.elf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_LIMINE_ELF}" "${OS1_ISO_STAGE_DIR}/kernel_limine.elf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_INITRD_CPIO}" "${OS1_ISO_STAGE_DIR}/initrd.cpio"
   COMMAND
@@ -272,7 +272,7 @@ add_custom_command(
     "${OS1_LIMINE_BOOTX64}"
     "${OS1_LIMINE_UEFI_CD}"
     "${OS1_LIMINE_CONFIG_SOURCE}"
-    "${OS1_KERNEL_BIOS_ELF}"
+    "${OS1_KERNEL_ELF}"
     "${OS1_KERNEL_LIMINE_ELF}"
     "${OS1_INITRD_CPIO}"
   VERBATIM

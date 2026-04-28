@@ -63,9 +63,9 @@ The current frontends are:
 
 The shared kernel core is:
 
-- `kernel_bios.elf`
+- `kernel.elf`
 
-That naming reflects implementation history rather than long-term intent. `kernel_bios.elf` is not BIOS-only logic anymore. It is the low-half kernel core used by both paths. The Limine path loads it as a module and then transfers control into the same `kernel_main(BootInfo*, cpu*)` entry that the BIOS loader uses.
+It is the low-half kernel core used by both paths. The Limine path loads it as a module and then transfers control into the same `kernel_main(BootInfo*, cpu*)` entry that the BIOS loader uses.
 
 This split exists for a pragmatic reason: the kernel core is still linked at low identity-mapped addresses around `0x00100000`, while the Limine executable itself must be presented in a form the modern bootloader accepts. The higher-half Limine frontend exists to bridge that difference without teaching the kernel multiple boot ABIs.
 
@@ -129,7 +129,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
               |                                         | HHDM, memmap, fb, RSDP,   |
               |                                         | SMBIOS, modules, cmdline  |
               |                                         | virt->phys translate,     |
-              |                                         | load kernel_bios.elf,     |
+              |                                         | load kernel.elf,          |
               |                                         | install low identity win  |
               |                                         +-------------+-------------+
               |                                                       |
@@ -149,7 +149,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                                              |
                                              v
 +-----------------------------------------------------------------------------+
-|                         kernel_bios.elf   (shared core)                     |
+|                         kernel.elf        (shared core)                     |
 |                                                                             |
 |  own_boot_info --> PFA(bitmap) --> kernel page tables --> CR3 switch          |
 |                                                                             |
@@ -203,7 +203,7 @@ The lifecycle below is the exact sequence the system follows today. Each phase i
 ### Phase 1 — firmware and frontend (one-shot)
 
 - **BIOS path:** BIOS loads `boot.bin` at `0x7C00`. The MBR chain-loads `kernel16.bin`, which enables A20, probes long-mode support, reads the kernel and initrd through BIOS EDD, captures the text cursor, collects E820 memory regions, scans standard BIOS ranges for the ACPI RSDP, builds temporary page tables, enables `LME`/`NXE`, and jumps to 64-bit code.
-- **UEFI path:** OVMF loads Limine. Limine parses `limine.conf`, loads `kernel_limine.elf` as the executable and publishes `kernel_bios.elf` + `initrd.cpio` as modules. The shim's `_start` switches to its own 16 KiB stack and calls `limine_start_main`.
+- **UEFI path:** OVMF loads Limine. Limine parses `limine.conf`, loads `kernel_limine.elf` as the executable and publishes `kernel.elf` + `initrd.cpio` as modules. The shim's `_start` switches to its own 16 KiB stack and calls `limine_start_main`.
 
 Both paths finish this phase holding (or able to reach) every piece of bootloader-native data they need for the next step.
 
@@ -336,7 +336,7 @@ It also produces the boot payloads that feed those images:
 
 - `boot.bin`
 - `kernel16.bin`
-- `kernel_bios.elf`
+- `kernel.elf`
 - `kernel_limine.elf`
 - `initrd.cpio`
 - `virtio-test-disk.raw`
@@ -348,14 +348,14 @@ The ISO stages these files:
 - `limine.conf`
 - `boot/limine/limine-uefi-cd.bin`
 - `kernel_limine.elf`
-- `kernel_bios.elf`
+- `kernel.elf`
 - `initrd.cpio`
 
 The BIOS raw image keeps a fixed LBA layout generated at configure time and emitted into NASM through `cmake/templates/image_layout.inc.in`:
 
 - LBA `0`: MBR boot sector
 - LBA `1-64`: `kernel16.bin`
-- LBA `65-320`: `kernel_bios.elf`
+- LBA `65-320`: `kernel.elf`
 - LBA `321-448`: `initrd.cpio`
 
 ## The Shared Kernel Contract: `BootInfo`
@@ -426,7 +426,7 @@ The default run path is:
 1. QEMU starts `q35` with OVMF.
 2. OVMF loads Limine from `EFI/BOOT/BOOTX64.EFI`.
 3. Limine reads `limine.conf`.
-4. Limine loads `kernel_limine.elf` as the executable and publishes `kernel_bios.elf` plus `initrd.cpio` as modules.
+4. Limine loads `kernel_limine.elf` as the executable and publishes `kernel.elf` plus `initrd.cpio` as modules.
 5. Control enters `_start()` in `src/boot/limine/entry.cpp`.
 
 The Limine config currently requests a `1024x768x32` framebuffer and enables serial output so boot can always be verified through logs.
@@ -477,7 +477,7 @@ That translation step is central to Milestone 3. It ensures `BootInfo` remains a
 
 ### Loading The Shared Low-Half Kernel
 
-The shared kernel image is `kernel_bios.elf`, exposed by Limine as a module. The shim parses its ELF64 program headers and handles `PT_LOAD` segments only.
+The shared kernel image is `kernel.elf`, exposed by Limine as a module. The shim parses its ELF64 program headers and handles `PT_LOAD` segments only.
 
 Important implementation detail:
 
@@ -538,7 +538,7 @@ Flow:
 3. `kernel16.bin` finishes loading itself through CHS reads.
 4. The loader enables A20, checks long-mode support, reads the kernel and initrd through EDD packet reads, captures the BIOS cursor, collects the E820 memory map, and scans the standard BIOS ACPI search ranges for a valid RSDP.
 5. `src/boot/bios/long64.asm` builds temporary page tables, enables `LME` and `NXE`, and jumps into long mode.
-6. The 64-bit loader expands `kernel_bios.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `kernel_main`.
+6. The 64-bit loader expands `kernel.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `kernel_main`.
 
 The BIOS path still exists for three reasons:
 

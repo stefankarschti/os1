@@ -213,9 +213,9 @@ set(KERNEL_ASM_OBJECTS
 )
 
 add_custom_command(
-  OUTPUT "${OS1_KERNEL_BIOS_ELF}"
+  OUTPUT "${OS1_KERNEL_ELF}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_BIOS_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_BIOS_ELF}" -n
+  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_BIOS_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_ELF}" -n
   DEPENDS
     kernel_core_objects
     $<TARGET_OBJECTS:kernel_core_objects>
@@ -252,6 +252,6 @@ add_custom_command(
   VERBATIM
 )
 
-add_custom_target(kernel_bios_elf DEPENDS "${OS1_KERNEL_BIOS_ELF}")
+add_custom_target(kernel_elf DEPENDS "${OS1_KERNEL_ELF}")
 add_custom_target(kernel_limine_elf DEPENDS "${OS1_KERNEL_LIMINE_ELF}")
 add_custom_target(cpu_start_bin DEPENDS "${OS1_CPU_START_BIN}")
