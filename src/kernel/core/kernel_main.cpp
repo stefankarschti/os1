@@ -24,7 +24,6 @@
 #include "fs/initrd.hpp"
 #include "handoff/boot_info.hpp"
 #include "handoff/memory_layout.h"
-#include "kernel_namespaces.hpp"
 #include "mm/boot_mapping.hpp"
 #include "mm/boot_reserve.hpp"
 #include "mm/virtual_memory.hpp"
