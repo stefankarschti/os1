@@ -35,8 +35,6 @@
 #include "util/align.hpp"
 #include "util/memory.h"
 
-namespace
-{
 extern "C"
 {
 extern uint8_t __kernel_text_start[];
@@ -47,6 +45,8 @@ extern uint8_t __kernel_data_start[];
 extern uint8_t __kernel_bss_end[];
 }
 
+namespace
+{
 bool map_kernel_section(VirtualMemory& vm, uint8_t* start, uint8_t* end, PageFlags flags)
 {
     if(start >= end)
