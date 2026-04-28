@@ -115,7 +115,9 @@ math(EXPR OS1_INITRD_IMAGE_MAX_BYTES "${OS1_INITRD_IMAGE_SECTOR_COUNT} * 512")
 
 set(OS1_ASSERT_MAX_FILE_SIZE_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/assert_max_file_size.cmake")
 set(OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/assert_kernel_boot_contract.py")
+set(OS1_ASSERT_LIMINE_SHIM_CONTRACT_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/assert_limine_shim_contract.py")
 set(OS1_BIOS_LAYOUT_CHECK_STAMP "${OS1_ARTIFACT_DIR}/bios-layout-check.stamp")
+set(OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP "${OS1_ARTIFACT_DIR}/limine-shim-layout-check.stamp")
 
 set(OS1_IMAGE_LAYOUT_INC "${OS1_GENERATED_DIR}/image_layout.inc")
 set(OS1_KERNEL_LAYOUT_INC "${OS1_GENERATED_DIR}/kernel_layout.inc")
@@ -289,6 +291,31 @@ add_custom_command(
 add_custom_target(os1_bios_layout_check DEPENDS "${OS1_BIOS_LAYOUT_CHECK_STAMP}")
 
 add_custom_command(
+  OUTPUT "${OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND
+    "${OS1_PYTHON_EXECUTABLE}"
+    "${OS1_ASSERT_LIMINE_SHIM_CONTRACT_SCRIPT}"
+    --elf
+    "${OS1_KERNEL_LIMINE_ELF}"
+    --expected-base
+    "${OS1_KERNEL_SHIM_VIRTUAL_BASE}"
+    --kernel-virtual-offset
+    "${OS1_KERNEL_VIRTUAL_OFFSET}"
+    --kernel-reserved-start
+    "${OS1_KERNEL_RESERVED_PHYSICAL_START}"
+    --kernel-reserved-end
+    "${OS1_KERNEL_RESERVED_PHYSICAL_END}"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP}"
+  DEPENDS
+    "${OS1_KERNEL_LIMINE_ELF}"
+    "${OS1_ASSERT_LIMINE_SHIM_CONTRACT_SCRIPT}"
+  VERBATIM
+)
+
+add_custom_target(os1_limine_shim_layout_check DEPENDS "${OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP}")
+
+add_custom_command(
   OUTPUT "${OS1_RAW_IMAGE}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_DD_EXECUTABLE}" if=/dev/zero "of=${OS1_RAW_IMAGE}" bs=1048576 count=1
@@ -360,11 +387,12 @@ add_custom_command(
     "${OS1_KERNEL_ELF}"
     "${OS1_KERNEL_LIMINE_ELF}"
     "${OS1_INITRD_CPIO}"
+    "${OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP}"
   VERBATIM
 )
 
 add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}" os1_virtio_test_disk os1_bios_layout_check)
-add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}" os1_virtio_test_disk)
+add_custom_target(os1_bios_image ALL DEPENDS "${OS1_RAW_IMAGE}" os1_virtio_test_disk)
 
 function(os1_add_unavailable_target target_name reason)
   add_custom_target(

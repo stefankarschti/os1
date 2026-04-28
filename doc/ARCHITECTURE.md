@@ -656,6 +656,12 @@ That last capability matters on the modern path because initrd modules and frame
 - the kernel-owned direct map at `kDirectMapBase`
 - the dedicated user slot at PML4 index `1`
 
+The kernel image is mapped by section permissions in the final kernel CR3:
+`.text` is read/execute, `.rodata` is read-only and non-executable, and
+`.data`/`.bss` are read/write and non-executable. The direct map is supervisor
+read/write and non-executable by default; code should not execute from physical
+memory aliases.
+
 The user layout remains:
 
 - `kUserPml4Index = 1`
@@ -836,6 +842,12 @@ The main CMake targets are:
 - `smoke_all`
 
 `run` boots the default UEFI ISO under OVMF on `q35` and attaches the generated `virtio-blk` test disk. `run_serial` uses the same guest image but attaches the shell to serial stdio in the terminal. `run_bios` boots the raw image under BIOS on `q35` with the same secondary `virtio-blk` test disk attached, while `run_bios_serial` keeps that boot path but routes the guest shell through serial stdio.
+
+The default build produces both `os1.iso` and `os1.raw`, so a normal
+`cmake --build build` followed by `ctest --test-dir build --output-on-failure`
+has all boot artifacts needed by the registered tests. The aggregate
+`smoke_all` target remains the shortest target-driven way to rebuild artifacts
+and run the full smoke matrix.
 
 ### Smoke Tests
 

@@ -454,6 +454,31 @@ template<typename T>
     return translate_limine_virtual((uint64_t)pointer, physical_address);
 }
 
+[[nodiscard]] bool limine_mapping_matches(uint64_t virtual_start,
+                                          uint64_t physical_start,
+                                          uint64_t length)
+{
+    if(0 == length)
+    {
+        return true;
+    }
+
+    uint64_t translated = 0;
+    if(!translate_limine_virtual(virtual_start, translated) || (translated != physical_start))
+    {
+        return false;
+    }
+
+    const uint64_t last_offset = length - 1;
+    if(!translate_limine_virtual(virtual_start + last_offset, translated) ||
+       (translated != (physical_start + last_offset)))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 void reload_cr3()
 {
     const uint64_t value = read_cr3();
@@ -499,7 +524,7 @@ void reload_cr3()
 
     if(0 != (pml3[0] & kHugePageBit))
     {
-        return true;
+        return limine_mapping_matches(0, 0, mapped_bytes);
     }
 
     uint64_t pml2_physical = 0;
@@ -527,12 +552,20 @@ void reload_cr3()
     const uint64_t page_count = mapped_bytes / kTwoMiBPageSize;
     for(uint64_t i = 0; i < page_count; ++i)
     {
-        if(0 == (pml2[i] & 1ull))
+        const uint64_t physical_base = i * kTwoMiBPageSize;
+        if(0 != (pml2[i] & 1ull))
+        {
+            if(!limine_mapping_matches(physical_base, physical_base, kTwoMiBPageSize))
+            {
+                return false;
+            }
+        }
+        else
         {
             // The shared kernel still needs a temporary low bootstrap window for
             // the handoff stack and AP startup state, so the shim maps only the
             // minimum identity range required for that transition.
-            pml2[i] = (i * kTwoMiBPageSize) | 0x83ull;
+            pml2[i] = physical_base | 0x83ull;
         }
     }
 
@@ -579,7 +612,7 @@ void reload_cr3()
 
     if(0 != (pml3[kernel_pml3_index] & kHugePageBit))
     {
-        return true;
+        return limine_mapping_matches(kKernelVirtualOffset, 0, mapped_bytes);
     }
 
     uint64_t pml2_physical = 0;
@@ -607,9 +640,18 @@ void reload_cr3()
     const uint64_t page_count = mapped_bytes / kTwoMiBPageSize;
     for(uint64_t i = 0; i < page_count; ++i)
     {
-        if(0 == (pml2[i] & 1ull))
+        const uint64_t physical_base = i * kTwoMiBPageSize;
+        const uint64_t virtual_base = kKernelVirtualOffset + physical_base;
+        if(0 != (pml2[i] & 1ull))
         {
-            pml2[i] = (i * kTwoMiBPageSize) | 0x83ull;
+            if(!limine_mapping_matches(virtual_base, physical_base, kTwoMiBPageSize))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            pml2[i] = physical_base | 0x83ull;
         }
     }
 

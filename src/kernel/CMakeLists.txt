@@ -216,7 +216,15 @@ set(KERNEL_ASM_OBJECTS
 add_custom_command(
   OUTPUT "${OS1_KERNEL_ELF}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_CORE_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_ELF}" -n
+  COMMAND
+    "${CMAKE_LINKER}"
+    -T "${KERNEL_CORE_LINKER_SCRIPT}"
+    "--defsym=OS1_KERNEL_PHYSICAL_BASE=${OS1_KERNEL_RESERVED_PHYSICAL_START}"
+    "--defsym=OS1_KERNEL_VIRTUAL_OFFSET=${OS1_KERNEL_VIRTUAL_OFFSET}"
+    -z max-page-size=0x1000
+    $<TARGET_OBJECTS:kernel_core_objects>
+    ${KERNEL_ASM_OBJECTS}
+    -o "${OS1_KERNEL_ELF}"
   DEPENDS
     kernel_core_objects
     $<TARGET_OBJECTS:kernel_core_objects>
@@ -229,7 +237,13 @@ add_custom_command(
 add_custom_command(
   OUTPUT "${OS1_KERNEL_LIMINE_ELF}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_LIMINE_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_limine_frontend> -o "${OS1_KERNEL_LIMINE_ELF}" -n
+  COMMAND
+    "${CMAKE_LINKER}"
+    -T "${KERNEL_LIMINE_LINKER_SCRIPT}"
+    "--defsym=OS1_KERNEL_SHIM_VIRTUAL_BASE=${OS1_KERNEL_SHIM_VIRTUAL_BASE}"
+    -z max-page-size=0x1000
+    $<TARGET_OBJECTS:kernel_limine_frontend>
+    -o "${OS1_KERNEL_LIMINE_ELF}"
   DEPENDS
     kernel_limine_frontend
     $<TARGET_OBJECTS:kernel_limine_frontend>

@@ -35,6 +35,51 @@
 #include "util/align.hpp"
 #include "util/memory.h"
 
+namespace
+{
+extern "C"
+{
+extern uint8_t __kernel_text_start[];
+extern uint8_t __kernel_text_end[];
+extern uint8_t __kernel_rodata_start[];
+extern uint8_t __kernel_rodata_end[];
+extern uint8_t __kernel_data_start[];
+extern uint8_t __kernel_bss_end[];
+}
+
+bool map_kernel_section(VirtualMemory& vm, uint8_t* start, uint8_t* end, PageFlags flags)
+{
+    if(start >= end)
+    {
+        return true;
+    }
+
+    const uint64_t virtual_start = align_down(reinterpret_cast<uint64_t>(start), kPageSize);
+    const uint64_t virtual_end = align_up(reinterpret_cast<uint64_t>(end), kPageSize);
+    const uint64_t physical_start = kernel_virt_to_phys(virtual_start);
+    if(kInvalidPhysicalAddress == physical_start)
+    {
+        return false;
+    }
+
+    return vm.map_physical(
+        virtual_start, physical_start, (virtual_end - virtual_start) / kPageSize, flags);
+}
+
+bool map_kernel_image(VirtualMemory& vm)
+{
+    return map_kernel_section(vm, __kernel_text_start, __kernel_text_end, PageFlags::Present) &&
+           map_kernel_section(vm,
+                              __kernel_rodata_start,
+                              __kernel_rodata_end,
+                              PageFlags::Present | PageFlags::NoExecute) &&
+           map_kernel_section(vm,
+                              __kernel_data_start,
+                              __kernel_bss_end,
+                              PageFlags::Present | PageFlags::Write | PageFlags::NoExecute);
+}
+}  // namespace
+
 extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
 {
     bool result = false;
@@ -95,11 +140,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
-    result = kvm.map_physical(kKernelVirtualOffset + kKernelReservedPhysicalStart,
-                              kKernelReservedPhysicalStart,
-                              kKernelReservedPhysicalBytes / kPageSize,
-                              PageFlags::Present | PageFlags::Write);
-    if(!result)
+    if(!map_kernel_image(kvm))
     {
         return;
     }

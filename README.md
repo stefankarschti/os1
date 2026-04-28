@@ -46,18 +46,10 @@ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/x86_64-elf.cmake
 cmake --build build
 ```
 
-The default build now produces the modern UEFI ISO:
+The default build now produces both boot artifacts and runs the layout checks
+needed by the smoke tests:
 
 - `build/artifacts/os1.iso`
-
-Build the explicit legacy BIOS image when needed:
-
-```sh
-cmake --build build --target os1_bios_image
-```
-
-That produces:
-
 - `build/artifacts/os1.raw`
 
 ## VS Code CMake Tools
@@ -170,7 +162,12 @@ Or run the registered CTest suite directly:
 ctest --test-dir build --output-on-failure
 ```
 
-The smoke tests capture serial logs and assert stable boot, shell, observability, child-launch, and exec markers for both boot paths. CI drives the shell through serial input rather than relying on display-only interaction, so local smoke transcripts closely match the automated coverage.
+After a normal `cmake --build build`, the registered CTest suite is
+self-contained for both UEFI and BIOS smokes. The smoke tests capture serial
+logs and assert stable boot, shell, observability, child-launch, and exec
+markers for both boot paths. CI drives the shell through serial input rather
+than relying on display-only interaction, so local smoke transcripts closely
+match the automated coverage.
 
 ## Local CI With `act`
 

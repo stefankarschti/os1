@@ -2,9 +2,16 @@
 
 ENTRY(kernel_main)
 
-KERNEL_PHYSICAL_BASE = 0x00100000;
-KERNEL_VIRTUAL_OFFSET = 0xFFFFFFFF80000000;
+KERNEL_PHYSICAL_BASE = DEFINED(OS1_KERNEL_PHYSICAL_BASE) ? OS1_KERNEL_PHYSICAL_BASE : 0x00100000;
+KERNEL_VIRTUAL_OFFSET = DEFINED(OS1_KERNEL_VIRTUAL_OFFSET) ? OS1_KERNEL_VIRTUAL_OFFSET : 0xFFFFFFFF80000000;
 KERNEL_VIRTUAL_BASE = KERNEL_PHYSICAL_BASE + KERNEL_VIRTUAL_OFFSET;
+
+PHDRS
+{
+  text PT_LOAD FLAGS(5);
+  rodata PT_LOAD FLAGS(4);
+  data PT_LOAD FLAGS(6);
+}
 
 SECTIONS
 {
@@ -18,24 +25,30 @@ SECTIONS
     *(.text*)
     . = ALIGN(4096);
     __kernel_text_end = .;
-  }
+  } :text
 
   .rodata : AT(ADDR(.rodata) - KERNEL_VIRTUAL_OFFSET)
   {
     __kernel_rodata_start = .;
     *(.rodata*)
+    *(.eh_frame*)
+    *(.gcc_except_table*)
     . = ALIGN(4096);
     __kernel_rodata_end = .;
-  }
+  } :rodata
 
   .data : AT(ADDR(.data) - KERNEL_VIRTUAL_OFFSET)
   {
     data = .; _data = .; __data = .;
     __kernel_data_start = .;
     *(.data*)
+    *(.ctors*)
+    *(.dtors*)
+    *(.init_array*)
+    *(.fini_array*)
     . = ALIGN(4096);
     __kernel_data_end = .;
-  }
+  } :data
 
   .bss : AT(ADDR(.bss) - KERNEL_VIRTUAL_OFFSET)
   {
@@ -45,7 +58,7 @@ SECTIONS
     *(COMMON)
     . = ALIGN(4096);
     __kernel_bss_end = .;
-  }
+  } :data
 
   end = .; _end = .; __end = .;
   __kernel_virtual_end = .;

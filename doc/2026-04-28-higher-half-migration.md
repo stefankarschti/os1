@@ -51,6 +51,15 @@ Implemented and validated:
 - Phase 4: the final kernel CR3 no longer keeps a broad identity map; it now preserves only the low bootstrap ranges still required for the live handoff stack and AP startup state.
 - Phase 5: the remaining low-identity helpers and Limine transition state were renamed around that final policy, the dead `VirtualMemory::allocate(..., identity_map)` API was removed, unused 32-bit CR3 helpers were dropped, and the shared-kernel linker script was renamed to `kernel_core.ld`.
 
+Post-review hardening now included:
+
+- `virt_to_phys()` distinguishes the fixed kernel window from the direct map and returns an invalid sentinel for unsupported address ranges.
+- The final kernel CR3 maps `.text` read/execute, `.rodata` read-only and non-executable, and `.data`/`.bss` read/write and non-executable.
+- Direct-map ranges are supervisor read/write and non-executable by default.
+- The shared kernel linker receives its physical base and virtual offset from CMake `--defsym` values, and the Limine shim linker receives its virtual base the same way.
+- The build validates the Limine shim load range against `OS1_KERNEL_SHIM_VIRTUAL_BASE` and checks that it does not overlap the shared-kernel window.
+- The default build now produces the BIOS raw image as well as the UEFI ISO, so registered CTest smokes have both boot artifacts after `cmake --build build`.
+
 Important implementation detail discovered during Phase 3:
 
 - the bootstrap CPU page is first entered through a low alias and later rebound through the direct map

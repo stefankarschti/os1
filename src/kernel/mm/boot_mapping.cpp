@@ -30,7 +30,7 @@ bool map_direct_range(VirtualMemory& vm, uint64_t physical_start, uint64_t lengt
     return vm.map_physical(phys_to_virt(start),
                            start,
                            (end - start) / kPageSize,
-                           PageFlags::Present | PageFlags::Write);
+                           PageFlags::Present | PageFlags::Write | PageFlags::NoExecute);
 }
 
 bool map_mmio_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length)

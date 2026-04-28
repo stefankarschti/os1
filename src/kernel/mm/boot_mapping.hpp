@@ -13,7 +13,7 @@ class VirtualMemory;
 bool map_bootstrap_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length);
 
 // Map the physical byte range `[physical_start, physical_start + length)` into
-// the kernel direct map with supervisor read/write permissions.
+// the kernel direct map with supervisor read/write, non-executable permissions.
 bool map_direct_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length);
 
 // Map an MMIO byte range into the kernel's device-access window. The current
