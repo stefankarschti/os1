@@ -8,7 +8,6 @@
 
 #include <span>
 
-#include "console/terminal.hpp"
 #include "handoff/boot_info.hpp"
 
 /**

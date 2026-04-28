@@ -5,11 +5,12 @@
 #include "arch/x86_64/cpu/x86.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/page_frame.hpp"
-#include "util/memory.h"
+#include "util/memory.h"  // IWYU pragma: keep
 
 namespace
 {
 constexpr size_t k_cpu_record_prefix_bytes = offsetof(cpu, kstacklo);
+constexpr uint64_t kApBootWaitSpinLimit = 100000000;
 
 [[noreturn]] void cpu_idle_loop()
 {
@@ -20,6 +21,30 @@ constexpr size_t k_cpu_record_prefix_bytes = offsetof(cpu, kstacklo);
     {
         asm volatile("cli");
         asm volatile("hlt");
+    }
+}
+
+bool wait_for_ap_boot(cpu* c)
+{
+    for(uint64_t spins = 0; spins < kApBootWaitSpinLimit; ++spins)
+    {
+        if(c->booted != 0)
+        {
+            return true;
+        }
+
+        asm volatile("pause");
+    }
+
+    return c->booted != 0;
+}
+
+void clear_ap_startup_idt()
+{
+    volatile uint8_t* const idt = reinterpret_cast<volatile uint8_t*>(kApStartupIdtAddress);
+    for(uint64_t index = 0; index < kApStartupIdtSizeBytes; ++index)
+    {
+        idt[index] = 0;
     }
 }
 
@@ -162,12 +187,14 @@ void cpu_boot_others(uint64_t cr3)
         *((uint64_t*)kApStartupCpuPageAddress) = (uint64_t)c;
         *((uint64_t*)kApStartupRipAddress) = (uint64_t)init;
         *((uint64_t*)kApStartupCr3Address) = cr3;
-        memset((void*)kApStartupIdtAddress, 0, kApStartupIdtSizeBytes);
+        clear_ap_startup_idt();
 
         debug("Starting CPU ")(c->id)();
         lapic_start_cpu(c->id, (uint64_t)code);
-        while(c->booted == 0)
+        if(!wait_for_ap_boot(c))
         {
+            debug("cpu ")(c->id)(" failed to come up")();
+            continue;
         }
         debug("done waiting")();
     }

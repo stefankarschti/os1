@@ -49,7 +49,7 @@ set(OS1_ISO_STAGE_DIR "${CMAKE_BINARY_DIR}/iso-root")
 set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
 set(OS1_CPU_START_BIN "${OS1_ARTIFACT_DIR}/cpu_start.bin")
-set(OS1_KERNEL_BIOS_ELF "${OS1_ARTIFACT_DIR}/kernel_bios.elf")
+set(OS1_KERNEL_ELF "${OS1_ARTIFACT_DIR}/kernel.elf")
 set(OS1_KERNEL_LIMINE_ELF "${OS1_ARTIFACT_DIR}/kernel_limine.elf")
 set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
@@ -85,19 +85,59 @@ foreach(OS1_VENDOR_FILE
   endif()
 endforeach()
 
+set(OS1_KERNEL_IMAGE_LOAD_ADDRESS 0x10000)
+set(OS1_INITRD_LOAD_ADDRESS 0x80000)
+set(OS1_KERNEL_RESERVED_PHYSICAL_START 0x100000)
+set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x160000)
+math(EXPR OS1_KERNEL_RESERVED_PHYSICAL_BYTES "${OS1_KERNEL_RESERVED_PHYSICAL_END} - ${OS1_KERNEL_RESERVED_PHYSICAL_START}")
+set(OS1_KERNEL_POST_IMAGE_RESERVE_BYTES 0x3000)
+math(EXPR OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES "${OS1_INITRD_LOAD_ADDRESS} - ${OS1_KERNEL_IMAGE_LOAD_ADDRESS}")
+math(EXPR OS1_KERNEL_RESERVED_PHYSICAL_BYTES_REMAINDER "${OS1_KERNEL_RESERVED_PHYSICAL_BYTES} % 512")
+if(NOT OS1_KERNEL_RESERVED_PHYSICAL_BYTES_REMAINDER EQUAL 0)
+  message(FATAL_ERROR "Kernel reserved physical window must be sector-aligned for the BIOS raw image slot")
+endif()
+
 set(OS1_LOADER16_IMAGE_START_LBA 1)
 set(OS1_LOADER16_IMAGE_SECTOR_COUNT 64)
 math(EXPR OS1_KERNEL_IMAGE_START_LBA "${OS1_LOADER16_IMAGE_START_LBA} + ${OS1_LOADER16_IMAGE_SECTOR_COUNT}")
-set(OS1_KERNEL_IMAGE_SECTOR_COUNT 256)
+# The BIOS raw-image kernel slot intentionally matches the reserved low-physical
+# execution window so the on-disk budget and the in-memory reserved range stay in
+# sync. The build separately asserts that the ELF PT_LOAD range plus the
+# post-image bootstrap reserve fit inside this window.
+math(EXPR OS1_KERNEL_IMAGE_SECTOR_COUNT "${OS1_KERNEL_RESERVED_PHYSICAL_BYTES} / 512")
 math(EXPR OS1_INITRD_IMAGE_START_LBA "${OS1_KERNEL_IMAGE_START_LBA} + ${OS1_KERNEL_IMAGE_SECTOR_COUNT}")
 set(OS1_INITRD_IMAGE_SECTOR_COUNT 128)
+math(EXPR OS1_KERNEL_IMAGE_MAX_BYTES "${OS1_KERNEL_IMAGE_SECTOR_COUNT} * 512")
+math(EXPR OS1_INITRD_IMAGE_MAX_BYTES "${OS1_INITRD_IMAGE_SECTOR_COUNT} * 512")
+
+set(OS1_ASSERT_MAX_FILE_SIZE_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/assert_max_file_size.cmake")
+set(OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/assert_kernel_boot_contract.py")
+set(OS1_BIOS_LAYOUT_CHECK_STAMP "${OS1_ARTIFACT_DIR}/bios-layout-check.stamp")
 
 set(OS1_IMAGE_LAYOUT_INC "${OS1_GENERATED_DIR}/image_layout.inc")
+set(OS1_KERNEL_LAYOUT_INC "${OS1_GENERATED_DIR}/kernel_layout.inc")
+set(OS1_KERNEL_LAYOUT_HPP "${OS1_GENERATED_DIR}/kernel_layout.hpp")
 configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/templates/image_layout.inc.in"
   "${OS1_IMAGE_LAYOUT_INC}"
   @ONLY
 )
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/templates/kernel_layout.inc.in"
+  "${OS1_KERNEL_LAYOUT_INC}"
+  @ONLY
+)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/templates/kernel_layout.hpp.in"
+  "${OS1_KERNEL_LAYOUT_HPP}"
+  @ONLY
+)
+
+if(OS1_KERNEL_IMAGE_MAX_BYTES GREATER OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES)
+  message(FATAL_ERROR
+    "Kernel BIOS slot exceeds the low-memory staging buffer between kernel_image and initrd_image"
+  )
+endif()
 
 find_program(OS1_NASM_EXECUTABLE NAMES nasm REQUIRED)
 find_program(OS1_DD_EXECUTABLE NAMES dd REQUIRED)
@@ -205,6 +245,45 @@ add_custom_command(
 add_custom_target(os1_virtio_test_disk DEPENDS "${OS1_VIRTIO_TEST_DISK}")
 
 add_custom_command(
+  OUTPUT "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND
+    "${OS1_PYTHON_EXECUTABLE}"
+    "${OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT}"
+    --elf
+    "${OS1_KERNEL_ELF}"
+    --disk-slot-bytes
+    "${OS1_KERNEL_IMAGE_MAX_BYTES}"
+    --staging-buffer-bytes
+    "${OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES}"
+    --reserved-start
+    "${OS1_KERNEL_RESERVED_PHYSICAL_START}"
+    --reserved-end
+    "${OS1_KERNEL_RESERVED_PHYSICAL_END}"
+    --post-image-reserve-bytes
+    "${OS1_KERNEL_POST_IMAGE_RESERVE_BYTES}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    "-DINPUT_FILE=${OS1_INITRD_CPIO}"
+    "-DMAX_BYTES=${OS1_INITRD_IMAGE_MAX_BYTES}"
+    "-DSECTOR_COUNT=${OS1_INITRD_IMAGE_SECTOR_COUNT}"
+    "-DLABEL=initrd.cpio BIOS slot"
+    "-DVARIABLE_NAME=OS1_INITRD_IMAGE_SECTOR_COUNT"
+    "-DCONFIG_FILE=${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+    -P
+    "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
+  DEPENDS
+    "${OS1_KERNEL_ELF}"
+    "${OS1_INITRD_CPIO}"
+    "${OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT}"
+    "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
+  VERBATIM
+)
+
+add_custom_target(os1_bios_layout_check DEPENDS "${OS1_BIOS_LAYOUT_CHECK_STAMP}")
+
+add_custom_command(
   OUTPUT "${OS1_RAW_IMAGE}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_DD_EXECUTABLE}" if=/dev/zero "of=${OS1_RAW_IMAGE}" bs=1048576 count=1
@@ -218,7 +297,7 @@ add_custom_command(
     conv=notrunc,sync
   COMMAND
     "${OS1_DD_EXECUTABLE}"
-    "if=${OS1_KERNEL_BIOS_ELF}"
+    "if=${OS1_KERNEL_ELF}"
     "of=${OS1_RAW_IMAGE}"
     bs=512
     "seek=${OS1_KERNEL_IMAGE_START_LBA}"
@@ -235,8 +314,9 @@ add_custom_command(
   DEPENDS
     "${OS1_BOOT_BIN}"
     "${OS1_KERNEL16_BIN}"
-    "${OS1_KERNEL_BIOS_ELF}"
+    "${OS1_KERNEL_ELF}"
     "${OS1_INITRD_CPIO}"
+    "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
   VERBATIM
 )
 
@@ -250,7 +330,7 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_CONFIG_SOURCE}" "${OS1_ISO_STAGE_DIR}/limine.conf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_CONFIG_SOURCE}" "${OS1_ISO_STAGE_DIR}/EFI/BOOT/limine.conf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_LIMINE_UEFI_CD}" "${OS1_ISO_STAGE_DIR}/boot/limine/limine-uefi-cd.bin"
-  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_BIOS_ELF}" "${OS1_ISO_STAGE_DIR}/kernel_bios.elf"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_ELF}" "${OS1_ISO_STAGE_DIR}/kernel.elf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_KERNEL_LIMINE_ELF}" "${OS1_ISO_STAGE_DIR}/kernel_limine.elf"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_INITRD_CPIO}" "${OS1_ISO_STAGE_DIR}/initrd.cpio"
   COMMAND
@@ -272,13 +352,13 @@ add_custom_command(
     "${OS1_LIMINE_BOOTX64}"
     "${OS1_LIMINE_UEFI_CD}"
     "${OS1_LIMINE_CONFIG_SOURCE}"
-    "${OS1_KERNEL_BIOS_ELF}"
+    "${OS1_KERNEL_ELF}"
     "${OS1_KERNEL_LIMINE_ELF}"
     "${OS1_INITRD_CPIO}"
   VERBATIM
 )
 
-add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}" os1_virtio_test_disk)
+add_custom_target(os1_image ALL DEPENDS "${OS1_ISO_IMAGE}" os1_virtio_test_disk os1_bios_layout_check)
 add_custom_target(os1_bios_image DEPENDS "${OS1_RAW_IMAGE}" os1_virtio_test_disk)
 
 function(os1_add_unavailable_target target_name reason)

@@ -2,7 +2,7 @@
 
 > generated-by: GitHub Copilot - generated-at: 2026-04-27 - git-state: working tree
 
-This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Review 2026-04-23](2026-04-23-review.md). The review documents under `doc/` are historical context, not the live system contract.
+This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Latest Review](latest-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
 `os1` currently has:
 
@@ -63,9 +63,9 @@ The current frontends are:
 
 The shared kernel core is:
 
-- `kernel_bios.elf`
+- `kernel.elf`
 
-That naming reflects implementation history rather than long-term intent. `kernel_bios.elf` is not BIOS-only logic anymore. It is the low-half kernel core used by both paths. The Limine path loads it as a module and then transfers control into the same `kernel_main(BootInfo*, cpu*)` entry that the BIOS loader uses.
+It is the low-half kernel core used by both paths. The Limine path loads it as a module and then transfers control into the same `kernel_main(BootInfo*, cpu*)` entry that the BIOS loader uses.
 
 This split exists for a pragmatic reason: the kernel core is still linked at low identity-mapped addresses around `0x00100000`, while the Limine executable itself must be presented in a form the modern bootloader accepts. The higher-half Limine frontend exists to bridge that difference without teaching the kernel multiple boot ABIs.
 
@@ -75,11 +75,10 @@ This section is the live source-structure contract for the kernel. Dated refacto
 
 Top-level kernel source rules:
 
-- The `src/kernel/` top level currently keeps two loose ownership files: [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) for build grouping and [../src/kernel/kernel_namespaces.hpp](../src/kernel/kernel_namespaces.hpp) for the transitional namespace facade.
+- The `src/kernel/` top level currently keeps two loose ownership files: [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) for build grouping.
 - C++ sources are grouped in CMake by ownership: architecture, handoff, memory, console, drivers, filesystem, core, platform, process, scheduler, syscall, debug, and utilities.
 - NASM include paths explicitly include architecture layout files, handoff layout files, and process thread-layout files so assembly does not rely on old flat-tree placement.
 - Internal C++ headers use `.hpp` and `#pragma once`; the remaining `.h` headers are deliberate C/UAPI/layout contracts.
-- [../src/kernel/kernel_namespaces.hpp](../src/kernel/kernel_namespaces.hpp) provides the transitional `os1::kernel::*` namespace facade while ABI-sensitive global symbols remain available to assembly and existing call sites.
 - Future-growth directories exist with ownership notes even before executable code lands, so later work has an obvious home.
 
 Current kernel folders:
@@ -129,7 +128,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
               |                                         | HHDM, memmap, fb, RSDP,   |
               |                                         | SMBIOS, modules, cmdline  |
               |                                         | virt->phys translate,     |
-              |                                         | load kernel_bios.elf,     |
+              |                                         | load kernel.elf,          |
               |                                         | install low identity win  |
               |                                         +-------------+-------------+
               |                                                       |
@@ -149,7 +148,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                                              |
                                              v
 +-----------------------------------------------------------------------------+
-|                         kernel_bios.elf   (shared core)                     |
+|                         kernel.elf        (shared core)                     |
 |                                                                             |
 |  own_boot_info --> PFA(bitmap) --> kernel page tables --> CR3 switch          |
 |                                                                             |
@@ -178,7 +177,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                          |                                 |
                          |  /bin/init -> /bin/sh           |
                          |  /bin/yield  /bin/fault         |
-                         |  /bin/copycheck                 |
+                         |  /bin/copycheck  /bin/ascii    |
                          |                                 |
                          |  syscalls:  write, read, exit,  |
                          |    yield, getpid, observe,      |
@@ -203,7 +202,7 @@ The lifecycle below is the exact sequence the system follows today. Each phase i
 ### Phase 1 — firmware and frontend (one-shot)
 
 - **BIOS path:** BIOS loads `boot.bin` at `0x7C00`. The MBR chain-loads `kernel16.bin`, which enables A20, probes long-mode support, reads the kernel and initrd through BIOS EDD, captures the text cursor, collects E820 memory regions, scans standard BIOS ranges for the ACPI RSDP, builds temporary page tables, enables `LME`/`NXE`, and jumps to 64-bit code.
-- **UEFI path:** OVMF loads Limine. Limine parses `limine.conf`, loads `kernel_limine.elf` as the executable and publishes `kernel_bios.elf` + `initrd.cpio` as modules. The shim's `_start` switches to its own 16 KiB stack and calls `limine_start_main`.
+- **UEFI path:** OVMF loads Limine. Limine parses `limine.conf`, loads `kernel_limine.elf` as the executable and publishes `kernel.elf` + `initrd.cpio` as modules. The shim's `_start` switches to its own 16 KiB stack and calls `limine_start_main`.
 
 Both paths finish this phase holding (or able to reach) every piece of bootloader-native data they need for the next step.
 
@@ -336,11 +335,11 @@ It also produces the boot payloads that feed those images:
 
 - `boot.bin`
 - `kernel16.bin`
-- `kernel_bios.elf`
+- `kernel.elf`
 - `kernel_limine.elf`
 - `initrd.cpio`
 - `virtio-test-disk.raw`
-- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`, `user/copycheck.elf`
+- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`, `user/copycheck.elf`, `user/ascii.elf`
 
 The ISO stages these files:
 
@@ -348,15 +347,17 @@ The ISO stages these files:
 - `limine.conf`
 - `boot/limine/limine-uefi-cd.bin`
 - `kernel_limine.elf`
-- `kernel_bios.elf`
+- `kernel.elf`
 - `initrd.cpio`
 
 The BIOS raw image keeps a fixed LBA layout generated at configure time and emitted into NASM through `cmake/templates/image_layout.inc.in`:
 
 - LBA `0`: MBR boot sector
 - LBA `1-64`: `kernel16.bin`
-- LBA `65-320`: `kernel_bios.elf`
-- LBA `321-448`: `initrd.cpio`
+- LBA `65-832`: `kernel.elf`
+- LBA `833-960`: `initrd.cpio`
+
+The slot sizes come from `OS1_LOADER16_IMAGE_SECTOR_COUNT`, `OS1_KERNEL_IMAGE_SECTOR_COUNT`, and `OS1_INITRD_IMAGE_SECTOR_COUNT` in [../CMakeLists.txt](../CMakeLists.txt). The kernel BIOS slot now matches the reserved low-physical kernel window published through the shared memory-layout contract. The build runs an ELF-aware boot-envelope assertion before writing `os1.raw` and fails if `kernel.elf` no longer fits its disk slot, low-memory staging buffer, or reserved execution window; `initrd.cpio` is still checked against its configured slot. To expand BIOS storage space, increase the corresponding sector-count or reserved-window value in [../CMakeLists.txt](../CMakeLists.txt) and rebuild; the generated BIOS image layout updates automatically while `os1.raw` stays padded to 1 MiB.
 
 ## The Shared Kernel Contract: `BootInfo`
 
@@ -426,7 +427,7 @@ The default run path is:
 1. QEMU starts `q35` with OVMF.
 2. OVMF loads Limine from `EFI/BOOT/BOOTX64.EFI`.
 3. Limine reads `limine.conf`.
-4. Limine loads `kernel_limine.elf` as the executable and publishes `kernel_bios.elf` plus `initrd.cpio` as modules.
+4. Limine loads `kernel_limine.elf` as the executable and publishes `kernel.elf` plus `initrd.cpio` as modules.
 5. Control enters `_start()` in `src/boot/limine/entry.cpp`.
 
 The Limine config currently requests a `1024x768x32` framebuffer and enables serial output so boot can always be verified through logs.
@@ -477,7 +478,7 @@ That translation step is central to Milestone 3. It ensures `BootInfo` remains a
 
 ### Loading The Shared Low-Half Kernel
 
-The shared kernel image is `kernel_bios.elf`, exposed by Limine as a module. The shim parses its ELF64 program headers and handles `PT_LOAD` segments only.
+The shared kernel image is `kernel.elf`, exposed by Limine as a module. The shim parses its ELF64 program headers and handles `PT_LOAD` segments only.
 
 Important implementation detail:
 
@@ -538,7 +539,7 @@ Flow:
 3. `kernel16.bin` finishes loading itself through CHS reads.
 4. The loader enables A20, checks long-mode support, reads the kernel and initrd through EDD packet reads, captures the BIOS cursor, collects the E820 memory map, and scans the standard BIOS ACPI search ranges for a valid RSDP.
 5. `src/boot/bios/long64.asm` builds temporary page tables, enables `LME` and `NXE`, and jumps into long mode.
-6. The 64-bit loader expands `kernel_bios.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `kernel_main`.
+6. The 64-bit loader expands `kernel.elf` at `0x00100000`, builds `BootInfo`, allocates the boot CPU page, and calls `kernel_main`.
 
 The BIOS path still exists for three reasons:
 
@@ -583,12 +584,13 @@ Milestone 3 introduced a real split between the logical terminal model and the p
 
 [../src/kernel/console/terminal.cpp](../src/kernel/console/terminal.cpp) owns the text-cell model:
 
-- fixed 80x25 grid
+- geometry chosen at boot from the active display backend
+- VGA stays 80x25; the framebuffer path derives columns and rows from framebuffer size and 8x16 cells
 - cursor tracking
 - multiple terminal buffers
 - write/scroll/clear behavior
 
-The terminal remains fixed-size on both boot paths. That is intentional. It keeps the user-visible shell model stable while the display layer changes under it.
+The terminal remains fixed-size for the lifetime of a boot, but not across all boot paths. BIOS uses the traditional 80x25 VGA geometry. The framebuffer path instead sizes the terminal from the discovered framebuffer dimensions, for example `1024x768` becomes `128x48` text cells.
 
 ### Console Input Path
 
@@ -618,16 +620,15 @@ The active backend is chosen from `BootInfo`:
 
 The framebuffer backend is intentionally minimal:
 
-- fixed 80x25 text grid
-- public-domain `font8x8` bitmap glyphs, doubled vertically to 8x16
+- text grid derived from framebuffer geometry using 8x16 cells
+- bundled `font8x16` bitmap glyphs
 - white text on black background
 - software cursor by inverse cell rendering
-- centered text region with padding on larger framebuffers
-- full redraw on every present
+- cell-by-cell redraw only where content or cursor state changed
 
 This is not a full graphics subsystem. It is a presentation adapter for the existing terminal model.
 
-The full-redraw policy is deliberate. It keeps the first framebuffer path easy to reason about and debug. Serial remains the authoritative debug channel.
+The framebuffer renderer maintains a shadow buffer and skips unchanged rows and cells. Serial remains the authoritative debug channel.
 
 ## Memory Architecture
 
@@ -770,6 +771,7 @@ Current user programs:
 - `/bin/yield` — cooperative yield probe built from [`src/user/programs/yield.cpp`](../src/user/programs/yield.cpp)
 - `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.cpp`](../src/user/programs/fault.cpp)
 - `/bin/copycheck` — negative syscall-copy regression probe built from [`src/user/programs/copycheck.cpp`](../src/user/programs/copycheck.cpp)
+- `/bin/ascii` — ASCII table probe built from [`src/user/programs/ascii.cpp`](../src/user/programs/ascii.cpp) to visually verify 8x16 font rendering on the framebuffer text backend
 
 The kernel keeps its fixed `/bin/init` boot contract, but init is now a real first user process rather than an alias for the shell. It immediately calls `exec("/bin/sh")`, so later init responsibilities can grow without changing the kernel boot path. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
 

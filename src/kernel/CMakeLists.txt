@@ -109,6 +109,7 @@ set(KERNEL_CXX_SOURCES
 
 add_library(kernel_core_objects OBJECT ${KERNEL_CXX_SOURCES})
 target_include_directories(kernel_core_objects PRIVATE
+  "${OS1_GENERATED_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${KERNEL_ARCH_DIR}"
   "${PROJECT_SOURCE_DIR}/src/libc"
@@ -137,6 +138,7 @@ target_compile_options(
 
 add_library(kernel_limine_frontend OBJECT "${PROJECT_SOURCE_DIR}/src/boot/limine/entry.cpp")
 target_include_directories(kernel_limine_frontend PRIVATE
+  "${OS1_GENERATED_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${KERNEL_ARCH_DIR}"
   "${PROJECT_SOURCE_DIR}/src/libc"
@@ -185,6 +187,7 @@ function(os1_add_nasm_object out_var source_name format)
     OUTPUT "${output_path}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}"
     COMMAND "${OS1_NASM_EXECUTABLE}" "-f${format}"
+      -I "${OS1_GENERATED_DIR}/"
       -I "${KERNEL_ARCH_DIR}/include/"
       -I "${CMAKE_CURRENT_SOURCE_DIR}/handoff/"
       -I "${CMAKE_CURRENT_SOURCE_DIR}/proc/"
@@ -213,9 +216,9 @@ set(KERNEL_ASM_OBJECTS
 )
 
 add_custom_command(
-  OUTPUT "${OS1_KERNEL_BIOS_ELF}"
+  OUTPUT "${OS1_KERNEL_ELF}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_BIOS_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_BIOS_ELF}" -n
+  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_BIOS_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_ELF}" -n
   DEPENDS
     kernel_core_objects
     $<TARGET_OBJECTS:kernel_core_objects>
@@ -241,6 +244,7 @@ add_custom_command(
   OUTPUT "${OS1_CPU_START_BIN}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
   COMMAND "${OS1_NASM_EXECUTABLE}" -fbin
+    -I "${OS1_GENERATED_DIR}/"
     -I "${KERNEL_ARCH_DIR}/include/"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/handoff/"
     -I "${CMAKE_CURRENT_SOURCE_DIR}/proc/"
@@ -252,6 +256,6 @@ add_custom_command(
   VERBATIM
 )
 
-add_custom_target(kernel_bios_elf DEPENDS "${OS1_KERNEL_BIOS_ELF}")
+add_custom_target(kernel_elf DEPENDS "${OS1_KERNEL_ELF}")
 add_custom_target(kernel_limine_elf DEPENDS "${OS1_KERNEL_LIMINE_ELF}")
 add_custom_target(cpu_start_bin DEPENDS "${OS1_CPU_START_BIN}")

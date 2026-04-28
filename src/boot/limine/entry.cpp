@@ -6,13 +6,18 @@
 #include "handoff/boot_info.hpp"
 #include "handoff/memory_layout.h"
 #include "limine.h"
-#include "util/memory.h"
 
 // The shared kernel still expects to start on a low identity-mapped stack.
 // Keep this as a real assembler symbol rather than a naked C++ function:
 // GCC's naked-function semantics are compiler-sensitive, and the GitHub runner
 // uses a newer cross compiler than local `act` runs.
 constexpr size_t kLimineShimStackBytes = 16 * 1024;
+
+#if defined(__GNUC__) && !defined(__clang__)
+#define OS1_GCC_OPTIMIZE_O1 __attribute__((optimize("O1")))
+#else
+#define OS1_GCC_OPTIMIZE_O1
+#endif
 
 extern "C" [[noreturn]] void limine_enter_kernel(void (*)(BootInfo*, cpu*), BootInfo*, cpu*);
 extern "C" [[noreturn]] void limine_start_main(void);
@@ -54,7 +59,7 @@ constexpr uint64_t kTwoMiBPageAddressMask = 0x000FFFFFFFE00000ull;
 constexpr uint64_t kLimineBaseRevisionRequested = 6;
 constexpr uint32_t kElfMagic = 0x464C457Fu;
 constexpr uint32_t kElfProgramTypeLoad = 1;
-constexpr const char* kKernelModuleName = "kernel_bios.elf";
+constexpr const char* kKernelModuleName = "kernel.elf";
 constexpr const char* kInitrdModuleName = "initrd.cpio";
 
 struct Elf64Header
@@ -103,6 +108,9 @@ struct LowHandoffBootInfoStorage
     char string_pool[kBootInfoMaxBootloaderNameBytes + kBootInfoMaxCommandLineBytes +
                      (kBootInfoMaxModules * kBootInfoMaxModuleNameBytes)]{};
 };
+
+typedef char low_handoff_storage_fits_reserved_budget
+    [(sizeof(LowHandoffBootInfoStorage) <= (kKernelPostImageReserveBytes - kPageSize)) ? 1 : -1];
 
 alignas(kPageSize) constinit uint64_t g_low_identity_pml3[512]{};
 alignas(kPageSize) constinit uint64_t g_low_identity_pml2[512]{};
@@ -982,7 +990,7 @@ void populate_firmware_pointers(BootInfo& boot_info)
     return true;
 }
 
-[[nodiscard]] __attribute__((noinline, optimize("O1"))) BootInfo* build_boot_info(
+[[nodiscard]] __attribute__((noinline)) OS1_GCC_OPTIMIZE_O1 BootInfo* build_boot_info(
     const limine_file& initrd_module,
     uint64_t kernel_physical_start,
     uint64_t kernel_physical_end,
