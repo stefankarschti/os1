@@ -36,20 +36,20 @@ bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm)
         return false;
     }
 
-    if(!allocate_cpus_from_topology())
-    {
-        return false;
-    }
-    if(!map_identity_range(kernel_vm, g_platform.lapic_base, kPageSize))
+    if(!map_mmio_range(kernel_vm, g_platform.lapic_base, kPageSize))
     {
         return false;
     }
     for(size_t i = 0; i < g_platform.ioapic_count; ++i)
     {
-        if(!map_identity_range(kernel_vm, g_platform.ioapics[i].address, kPageSize))
+        if(!map_mmio_range(kernel_vm, g_platform.ioapics[i].address, kPageSize))
         {
             return false;
         }
+    }
+    if(!allocate_cpus_from_topology())
+    {
+        return false;
     }
 
     g_platform.acpi_active = true;

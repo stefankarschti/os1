@@ -41,7 +41,7 @@ bool wait_for_ap_boot(cpu* c)
 
 void clear_ap_startup_idt()
 {
-    volatile uint8_t* const idt = reinterpret_cast<volatile uint8_t*>(kApStartupIdtAddress);
+    volatile uint8_t* const idt = kernel_physical_pointer<volatile uint8_t>(kApStartupIdtAddress);
     for(uint64_t index = 0; index < kApStartupIdtSizeBytes; ++index)
     {
         idt[index] = 0;
@@ -139,7 +139,7 @@ cpu* cpu_alloc(void)
         return nullptr;
     }
 
-    cpu* c = (cpu*)page;
+    cpu* c = kernel_physical_pointer<cpu>(page);
     memset(c, 0, sizeof(cpu));
     cpu_initialize_record(c);
     last_cpu->next = c;
@@ -174,7 +174,7 @@ void cpu_boot_others(uint64_t cr3)
 
     extern uint8_t cpu_start_begin[];
     extern uint8_t cpu_start_end[];
-    uint8_t* code = (uint8_t*)kApTrampolineAddress;
+    uint8_t* code = kernel_physical_pointer<uint8_t>(kApTrampolineAddress);
     memcpy(code, cpu_start_begin, (cpu_start_end - cpu_start_begin));
 
     for(cpu* c = g_cpu_boot; c; c = c->next)
@@ -184,9 +184,9 @@ void cpu_boot_others(uint64_t cr3)
             continue;
         }
 
-        *((uint64_t*)kApStartupCpuPageAddress) = (uint64_t)c;
-        *((uint64_t*)kApStartupRipAddress) = (uint64_t)init;
-        *((uint64_t*)kApStartupCr3Address) = cr3;
+        *kernel_physical_pointer<uint64_t>(kApStartupCpuPageAddress) = (uint64_t)c;
+        *kernel_physical_pointer<uint64_t>(kApStartupRipAddress) = (uint64_t)init;
+        *kernel_physical_pointer<uint64_t>(kApStartupCr3Address) = cr3;
         clear_ap_startup_idt();
 
         debug("Starting CPU ")(c->id)();

@@ -14,6 +14,7 @@
 
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "debug/debug.hpp"
+#include "handoff/memory_layout.h"
 #include "platform/topology.hpp"
 #include "stdint.h"
 #include "util/assert.hpp"
@@ -100,7 +101,7 @@ void ioapic_init(void)
         return;
 
     if(ioapic == NULL)
-        ioapic = (struct ioapic*)(IOAPIC);  // assume default address
+        ioapic = kernel_physical_pointer<struct ioapic>(IOAPIC);  // assume default address
 
     maxintr = (ioapic_read(REG_VER) >> 16) & 0xFF;
     g_ioapic_maxintr = maxintr;

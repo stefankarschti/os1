@@ -14,6 +14,7 @@
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "arch/x86_64/cpu/x86.hpp"
 #include "arch/x86_64/interrupt/interrupt.hpp"
+#include "handoff/memory_layout.h"
 #include "util/assert.hpp"
 
 volatile uint32_t* lapic;  // Initialized in mp.c
@@ -119,7 +120,7 @@ void lapic_start_cpu(uint8_t apicid, uint32_t addr)
     // the AP startup code prior to the [universal startup algorithm]."
     outb(IO_RTC, 0xF);  // offset 0xF is shutdown code
     outb(IO_RTC + 1, 0x0A);
-    wrv = (uint16_t*)(0x40 << 4 | 0x67);  // Warm reset vector
+    wrv = kernel_physical_pointer<uint16_t>(0x40 << 4 | 0x67);  // Warm reset vector
     wrv[0] = 0;
     wrv[1] = addr >> 4;
 

@@ -90,7 +90,7 @@ bool initialize_process_table(PageFrameContainer& frames)
             debug("process table allocation failed")();
             return false;
         }
-        processTable = (Process*)process_table_address;
+        processTable = kernel_physical_pointer<Process>(process_table_address);
         debug("process table allocated at 0x")(process_table_address, 16)();
     }
 
@@ -163,8 +163,6 @@ bool reap_process(Process* process, PageFrameContainer& frames)
     {
         VirtualMemory vm(frames, process->address_space.cr3);
         vm.destroy_user_slot(kUserPml4Index);
-        uint64_t* pml4 = (uint64_t*)process->address_space.cr3;
-        pml4[0] = 0;
         frames.free(process->address_space.cr3);
     }
     orphan_children(process);

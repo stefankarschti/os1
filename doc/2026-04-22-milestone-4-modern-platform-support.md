@@ -147,6 +147,11 @@ After parsing ACPI:
 
 Use `MCFG` to discover ECAM ranges. Then enumerate buses, devices, and functions using memory-mapped config-space access.
 
+Current implementation note:
+
+- the kernel now reaches ACPI tables, ECAM space, LAPIC / IOAPIC registers, and device BARs through explicit direct-map or MMIO helpers rather than assuming broad identity-mapped physical access
+- platform and device records keep physical addresses as ownership data, while CPU-side code materializes virtual pointers explicitly when it needs to touch registers or memory-backed descriptors
+
 The first PCIe layer should support:
 
 - reading vendor ID and device ID

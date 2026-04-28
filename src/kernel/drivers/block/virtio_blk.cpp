@@ -5,6 +5,7 @@
 #include "arch/x86_64/cpu/x86.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "storage/block_device.hpp"
 #include "util/string.h"
@@ -153,12 +154,12 @@ BlockDevice g_virtio_blk_device{};
 
 [[nodiscard]] uint8_t pci_read8(uint64_t config_physical, uint16_t offset)
 {
-    return *reinterpret_cast<volatile uint8_t*>(config_physical + offset);
+    return *kernel_physical_pointer<volatile uint8_t>(config_physical + offset);
 }
 
 [[nodiscard]] uint32_t pci_read32(uint64_t config_physical, uint16_t offset)
 {
-    return *reinterpret_cast<volatile uint32_t*>(config_physical + offset);
+    return *kernel_physical_pointer<volatile uint32_t>(config_physical + offset);
 }
 
 void write_device_status(volatile VirtioPciCommonCfg* common_cfg, uint8_t status)
@@ -167,19 +168,6 @@ void write_device_status(volatile VirtioPciCommonCfg* common_cfg, uint8_t status
     {
         common_cfg->device_status = status;
     }
-}
-
-bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length)
-{
-    if((0 == length) || (0 == physical_start))
-    {
-        return true;
-    }
-
-    const uint64_t start = align_down(physical_start, kPageSize);
-    const uint64_t end = align_up(physical_start + length, kPageSize);
-    return vm.map_physical(
-        start, start, (end - start) / kPageSize, PageFlags::Present | PageFlags::Write);
 }
 
 [[nodiscard]] bool map_bar_for_capability(VirtualMemory& kernel_vm,
@@ -199,7 +187,7 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
     {
         return false;
     }
-    return map_identity_range(kernel_vm, bar.base, bar.size);
+    return map_mmio_range(kernel_vm, bar.base, bar.size);
 }
 
 [[nodiscard]] bool virtio_blk_read_sector(uint64_t sector, uint8_t* buffer, size_t length)
@@ -221,17 +209,17 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
     state.request_header->type = kVirtioBlkRequestIn;
     state.request_header->sector = sector;
 
-    state.desc[0].addr = reinterpret_cast<uint64_t>(state.request_header);
+    state.desc[0].addr = state.request_memory;
     state.desc[0].len = sizeof(VirtioBlkRequestHeader);
     state.desc[0].flags = kVirtqDescFlagNext;
     state.desc[0].next = 1;
 
-    state.desc[1].addr = reinterpret_cast<uint64_t>(state.request_data);
+    state.desc[1].addr = state.request_memory + sizeof(VirtioBlkRequestHeader);
     state.desc[1].len = kVirtioSectorSize;
     state.desc[1].flags = static_cast<uint16_t>(kVirtqDescFlagWrite | kVirtqDescFlagNext);
     state.desc[1].next = 2;
 
-    state.desc[2].addr = reinterpret_cast<uint64_t>(state.request_status);
+    state.desc[2].addr = state.request_memory + sizeof(VirtioBlkRequestHeader) + kVirtioSectorSize;
     state.desc[2].len = 1;
     state.desc[2].flags = kVirtqDescFlagWrite;
     state.desc[2].next = 0;
@@ -416,9 +404,9 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
     auto& state = g_virtio_blk;
     memset(&state, 0, sizeof(state));
     state.common_cfg =
-        reinterpret_cast<volatile VirtioPciCommonCfg*>(common_bar_info.base + common_offset);
+        kernel_physical_pointer<volatile VirtioPciCommonCfg>(common_bar_info.base + common_offset);
     state.device_cfg =
-        reinterpret_cast<volatile VirtioBlkConfig*>(device_bar_info.base + device_offset);
+        kernel_physical_pointer<volatile VirtioBlkConfig>(device_bar_info.base + device_offset);
     state.notify_multiplier = notify_multiplier;
 
     write_device_status(state.common_cfg, 0);
@@ -467,10 +455,10 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
         debug("virtio-blk: queue memory allocation failed")();
         return false;
     }
-    memset(reinterpret_cast<void*>(state.queue_memory), 0, 3 * kPageSize);
-    state.desc = reinterpret_cast<VirtqDesc*>(state.queue_memory);
-    state.avail = reinterpret_cast<VirtqAvail*>(state.queue_memory + kPageSize);
-    state.used = reinterpret_cast<volatile VirtqUsed*>(state.queue_memory + 2 * kPageSize);
+    memset(kernel_physical_pointer<void>(state.queue_memory), 0, 3 * kPageSize);
+    state.desc = kernel_physical_pointer<VirtqDesc>(state.queue_memory);
+    state.avail = kernel_physical_pointer<VirtqAvail>(state.queue_memory + kPageSize);
+    state.used = kernel_physical_pointer<volatile VirtqUsed>(state.queue_memory + 2 * kPageSize);
     state.common_cfg->queue_desc = state.queue_memory;
     state.common_cfg->queue_driver = state.queue_memory + kPageSize;
     state.common_cfg->queue_device = state.queue_memory + 2 * kPageSize;
@@ -483,7 +471,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
         debug("virtio-blk: notify register outside BAR")();
         return false;
     }
-    state.notify_register = reinterpret_cast<volatile uint16_t*>(notify_physical);
+    state.notify_register = kernel_physical_pointer<volatile uint16_t>(notify_physical);
 
     state.common_cfg->queue_enable = 1;
     if(!frames.allocate(state.request_memory))
@@ -491,11 +479,11 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
         debug("virtio-blk: request memory allocation failed")();
         return false;
     }
-    memset(reinterpret_cast<void*>(state.request_memory), 0, kPageSize);
-    state.request_header = reinterpret_cast<VirtioBlkRequestHeader*>(state.request_memory);
+    memset(kernel_physical_pointer<void>(state.request_memory), 0, kPageSize);
+    state.request_header = kernel_physical_pointer<VirtioBlkRequestHeader>(state.request_memory);
     state.request_data =
-        reinterpret_cast<uint8_t*>(state.request_memory + sizeof(VirtioBlkRequestHeader));
-    state.request_status = reinterpret_cast<uint8_t*>(
+        kernel_physical_pointer<uint8_t>(state.request_memory + sizeof(VirtioBlkRequestHeader));
+    state.request_status = kernel_physical_pointer<uint8_t>(
         state.request_memory + sizeof(VirtioBlkRequestHeader) + kVirtioSectorSize);
 
     state.capacity_sectors = state.device_cfg->capacity;

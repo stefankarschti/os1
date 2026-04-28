@@ -90,18 +90,6 @@ static inline uint32_t rcr2(void)
     return val;
 }
 
-static inline void lcr3(uint32_t val)
-{
-    __asm __volatile("movl %0,%%cr3" : : "r"(val));
-}
-
-static inline uint32_t rcr3(void)
-{
-    uint32_t val;
-    __asm __volatile("movl %%cr3,%0" : "=r"(val));
-    return val;
-}
-
 static inline void lcr4(uint32_t val)
 {
     __asm __volatile("movl %0,%%cr4" : : "r"(val));
@@ -112,13 +100,6 @@ static inline uint32_t rcr4(void)
     uint32_t cr4;
     __asm __volatile("movl %%cr4,%0" : "=r"(cr4));
     return cr4;
-}
-
-static inline void tlb_flush(void)
-{
-    uint32_t cr3;
-    __asm __volatile("movl %%cr3,%0" : "=r"(cr3));
-    __asm __volatile("movl %0,%%cr3" : : "r"(cr3));
 }
 
 static inline uint32_t read_eflags(void)

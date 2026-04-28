@@ -34,6 +34,9 @@ extern const BootInfo* g_boot_info;
 // Active kernel page-table root used for syscall CR3 transitions.
 extern uint64_t g_kernel_root_cr3;
 
+// Becomes true once the kernel has activated a CR3 that includes the direct map.
+extern bool g_kernel_direct_map_ready;
+
 // Monotonic PIT tick counter surfaced through the observe syscall.
 extern uint64_t g_timer_ticks;
 

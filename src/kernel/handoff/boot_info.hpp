@@ -106,7 +106,7 @@ struct BootInfo
     // Boot frontend that produced this normalized record.
     BootSource source;
 
-    // Physical range of the loaded low kernel image.
+    // Physical range of the loaded shared kernel image.
     uint64_t kernel_physical_start;
     uint64_t kernel_physical_end;
     // Physical pointers to firmware tables when available.

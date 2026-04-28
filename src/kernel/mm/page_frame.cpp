@@ -38,7 +38,8 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
     }
 
     // set up page frame bitmap
-    bitmap_ = (uint64_t*)(bitmap_address);
+    bitmap_physical_address_ = bitmap_address;
+    bitmap_ = kernel_physical_pointer<uint64_t>(bitmap_physical_address_);
     bitmap_limit_ = bitmap_limit;
     debug("bitmap_ 0x")((uint64_t)bitmap_, 16)(" limit ")(bitmap_limit_)();
 
@@ -193,6 +194,14 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
         initialized_ = true;
 
     return result;
+}
+
+void PageFrameContainer::enable_direct_map_access()
+{
+    if(0 != bitmap_physical_address_)
+    {
+        bitmap_ = kernel_physical_pointer<uint64_t>(bitmap_physical_address_);
+    }
 }
 
 bool PageFrameContainer::allocate(uint64_t& address)

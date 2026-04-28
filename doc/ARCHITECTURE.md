@@ -1,6 +1,6 @@
 # os1 Architecture
 
-> generated-by: GitHub Copilot - generated-at: 2026-04-27 - git-state: working tree
+> generated-by: GitHub Copilot - generated-at: 2026-04-28 - git-state: working tree
 
 This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Latest Review](latest-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
@@ -14,6 +14,7 @@ This document is the current-state source of truth for `os1`. It describes what 
 - PCIe enumeration through ACPI `MCFG` and ECAM
 - a first practical modern device path through `virtio-blk`
 - a freestanding `C++20` kernel core with narrow assembly boundaries
+- a higher-half shared kernel image plus a kernel-owned direct map
 - a source tree split by major responsibility: `arch/x86_64`, `core`, `handoff`, `mm`, `proc`, `sched`, `syscall`, `console`, `drivers`, `platform`, `storage`, `fs`, `vfs`, `security`, `debug`, `util`, and `linker`
 - protected ring-3 user programs loaded from an initrd
 - a terminal-first operator environment that boots directly into a ring-3 shell
@@ -65,9 +66,9 @@ The shared kernel core is:
 
 - `kernel.elf`
 
-It is the low-half kernel core used by both paths. The Limine path loads it as a module and then transfers control into the same `kernel_main(BootInfo*, cpu*)` entry that the BIOS loader uses.
+It is the shared higher-half kernel used by both paths. The physical load still starts near `0x00100000`, but the linker now gives the kernel a fixed higher-half virtual address at `kKernelVirtualOffset + physical_address`, so both BIOS and Limine enter the same higher-half `kernel_main(BootInfo*, cpu*)` ABI.
 
-This split exists for a pragmatic reason: the kernel core is still linked at low identity-mapped addresses around `0x00100000`, while the Limine executable itself must be presented in a form the modern bootloader accepts. The higher-half Limine frontend exists to bridge that difference without teaching the kernel multiple boot ABIs.
+This split still exists for a pragmatic reason: firmware-facing bootstrap code and bootloader protocol glue differ, while the kernel contract does not. The Limine frontend is now a higher-half shim that normalizes Limine responses, loads `kernel.elf` by physical `PT_LOAD` ranges, installs only the temporary transition mappings the kernel needs, and then transfers control into the shared kernel.
 
 ## Source Tree Ownership
 
@@ -101,7 +102,7 @@ Current kernel folders:
 | [../src/kernel/security/](../src/kernel/security) | Future credentials, permissions, and resource-boundary policy. | `README.md` |
 | [../src/kernel/debug/](../src/kernel/debug) | Serial debug logger and future tracing/counter surfaces. | `debug.*` |
 | [../src/kernel/util/](../src/kernel/util) | Small generic helpers with no subsystem ownership. | `assert.hpp`, `align.hpp`, `ctype.hpp`, `fixed_string.hpp`, `memory.h`, `string.*` |
-| [../src/kernel/linker/](../src/kernel/linker) | Kernel linker scripts and link-layout variants. | `kernel_bios.ld`, `kernel_limine.ld` |
+| [../src/kernel/linker/](../src/kernel/linker) | Kernel linker scripts and link-layout variants. | `kernel_core.ld`, `kernel_limine.ld` |
 
 The split is intentionally monolithic at link time. These folders express ownership and readability, not a module ABI or loadable-driver boundary.
 
@@ -129,7 +130,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
               |                                         | SMBIOS, modules, cmdline  |
               |                                         | virt->phys translate,     |
               |                                         | load kernel.elf,          |
-              |                                         | install low identity win  |
+              |                                         | install transition maps   |
               |                                         +-------------+-------------+
               |                                                       |
               |  populates BootInfo @ 0x500                            |  mirrors layout
@@ -217,7 +218,7 @@ Both paths finalize identical low-memory arenas:
 - `0x7000` — `BootModuleInfo[]` module descriptors
 - `0x7200` — string pool (bootloader name, command line, module names)
 
-The shim then installs a minimum low-identity window (PML4[0] → PML3[0] → 2 MiB PML2 pages covering only the handoff region) and calls `limine_enter_kernel`, which switches to the per-CPU boot stack and jumps to `kernel_main(BootInfo*, cpu*)`.
+The shim then installs the minimum transition mappings required for handoff: a low identity window for the boot-critical low region and the higher-half alias needed for the shared kernel entry. It then calls `limine_enter_kernel`, which switches to the per-CPU boot stack and jumps to `kernel_main(BootInfo*, cpu*)`.
 
 ### Phase 3 — kernel bring-up (`kernel_main`)
 
@@ -225,11 +226,11 @@ The shared entry runs one deterministic sequence:
 
 1. `debug("[kernel64] hello!")` on serial.
 2. `own_boot_info()` deep-copies the header, memory map, modules, and all strings into kernel BSS. After this line, bootloader staging memory is no longer referenced.
-3. Boot CPU page (`cpu_boot`) is templated, `cpu_init()` loads the GDT, TSS, kernel CR3, and gs base.
+3. Boot CPU page (`cpu_boot`) is templated, `cpu_init()` loads the GDT, TSS, and gs base for the bootstrap CPU.
 4. `PageFrameContainer` is initialized from `std::span<const BootMemoryRegion>`: mark all pages busy → free only `Usable` regions → reserve the bitmap → reserve low bootstrap → reserve the kernel image.
 5. `reserve_tracked_physical_range` reserves every initrd module and the framebuffer.
-6. Kernel identity page tables are built for all usable RAM above `kKernelReservedPhysicalStart`, then modules, framebuffer, and the RSDP page are explicitly `map_identity_range`d because they may live in non-usable memory on the modern path.
-7. `kvm.activate()` switches CR3 to the kernel root; `g_kernel_root_cr3` records it.
+6. Kernel page tables map the shared higher-half kernel window, build the kernel-owned direct map, and explicitly carry forward the boot-critical low ranges and physical resources the kernel still needs during bring-up.
+7. `kvm.activate()` switches CR3 to the kernel root; `g_kernel_root_cr3` records it; the page-frame allocator and bootstrap CPU state are then rebound through the direct map before steady-state CPU descriptor state is reloaded.
 8. `platform_init(*g_boot_info, kvm)` runs the ACPI → PCIe → virtio-blk pipeline (see Phase 4).
 9. `pic_init`, `ioapic_init`, `lapic_init`, `cpu_bootothers(g_kernel_root_cr3)` bring up the 8259 in masked mode, program the IOAPIC, activate the LAPIC, and start APs. APs land in `cpu_idle_loop()` (`cli; hlt`).
 10. 12 terminals are allocated (one page each), the display backend is selected from `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints `[kernel64] hello`.
@@ -413,10 +414,10 @@ Key addresses:
 | `0x0A000` | temporary page-table scratch used by the BIOS long-mode transition |
 | `0x10000` | BIOS kernel-image load buffer |
 | `0x80000` | BIOS initrd load buffer |
-| `0x100000` | low-half kernel link/load base |
+| `0x100000` | shared kernel physical load base |
 | `0x20000-0x5FFFF` | page-frame bitmap |
 
-The modern path deliberately mirrors this layout before entering `kernel_main`. That is not nostalgia. It is a compatibility technique that keeps the shared kernel core bootloader-agnostic while the project still uses a low identity-linked kernel.
+The modern path deliberately mirrors this layout before entering `kernel_main`. That is not nostalgia. It is a compatibility technique that keeps the shared kernel bootloader-agnostic while the frontends converge on the same higher-half kernel ABI.
 
 ## Modern Default Boot Path: Limine + UEFI
 
@@ -449,15 +450,15 @@ Those native Limine structures do not escape into the kernel. The shim normalize
 
 ### Why The Shim Exists
 
-The kernel core remains low-linked and assumes that physical addresses are valid supervisor virtual addresses once the early identity window exists. Limine, however, boots the executable frontend in a modern higher-half environment.
+The shared kernel is now higher-half too, so the shim is no longer a bridge from a modern bootloader to a low-linked kernel. Its job is narrower: normalize Limine-owned data into `BootInfo`, load the shared kernel by physical `PT_LOAD` ranges, and install the temporary mappings needed for the final jump into the shared kernel entry.
 
-The shim resolves that mismatch in three steps:
+The shim resolves that in three steps:
 
 1. It uses the Limine HHDM mapping to access physical memory safely.
-2. It loads the shared low-half kernel image by physical address.
-3. It patches the active page tables so the shared kernel can start through low identity addresses.
+2. It loads the shared higher-half kernel image by physical address.
+3. It patches the active page tables so the shared kernel can start through the temporary transition mappings the kernel expects.
 
-That means the kernel core sees the same ABI and roughly the same addressing model whether it was entered from BIOS or from UEFI.
+That means the kernel core sees the same ABI whether it was entered from BIOS or from UEFI, without exposing raw Limine virtual addresses or bootloader-owned mappings to the rest of the kernel.
 
 ### Virtual-To-Physical Normalization
 
@@ -476,30 +477,30 @@ The shim does not pass those virtual addresses through to the kernel. Instead, `
 
 That translation step is central to Milestone 3. It ensures `BootInfo` remains a physical-address contract rather than a Limine-virtual-address contract.
 
-### Loading The Shared Low-Half Kernel
+### Loading The Shared Higher-Half Kernel
 
 The shared kernel image is `kernel.elf`, exposed by Limine as a module. The shim parses its ELF64 program headers and handles `PT_LOAD` segments only.
 
 Important implementation detail:
 
-- the shim writes segment contents through the HHDM mapping
-- it does not assume the low physical target range is already identity-mapped
+- the shim validates the higher-half `p_vaddr == p_paddr + kKernelVirtualOffset` contract
+- it copies each `PT_LOAD` segment to `p_paddr`, not `p_vaddr`
+- it uses the HHDM only as a temporary way to reach those physical destinations
 
-This is why the modern path now works reliably. The earlier assumption that Limine would leave the entire low boot-critical window identity-mapped was false.
+This is why the modern path now works reliably. The shared kernel no longer depends on Limine leaving a broad low identity map behind, and the shim no longer treats the kernel virtual address as a physical load address.
 
 The shim also allocates the initial boot CPU page immediately after the loaded kernel image, matching the BIOS path's contract.
 
-### Installing The Low Identity Window
+### Installing The Transition Mappings
 
-After loading the low-half kernel, the shim calls `EnsureLowIdentityWindow()`.
+After loading the shared kernel, the shim installs the minimum mappings needed for the final jump.
 
-This function patches the active page tables so the first boot-critical physical window becomes executable and writable through identity addresses. It installs only the minimum mapping needed for handoff by creating or filling:
+Those mappings include:
 
-- PML4 slot `0`
-- PML3 slot `0`
-- PML2 2 MiB large-page entries
+- a low identity window for the boot handoff stack and other low bootstrap state
+- the higher-half alias that makes the shared kernel entry executable at its final virtual address
 
-The goal is not to keep Limine's page tables forever. The goal is to make the final jump into `kernel_main` valid while preserving the rest of Limine's higher-half environment long enough for the kernel to copy `BootInfo` and build its own page tables.
+The goal is not to keep Limine's page tables forever. The goal is to make the final jump into the shared higher-half `kernel_main` valid while preserving the rest of Limine's environment only long enough for the kernel to copy `BootInfo` and build its own CR3.
 
 ### Building The Final `BootInfo`
 
@@ -526,7 +527,7 @@ The final transfer happens through `limine_enter_kernel()`, which:
 - switches to the low boot CPU page as the stack
 - passes `RDI = BootInfo*`
 - passes `RSI = cpu*`
-- calls the shared low-half `kernel_main`
+- calls the shared higher-half `kernel_main`
 
 ## Legacy BIOS Compatibility Path
 
@@ -649,14 +650,20 @@ That last capability matters on the modern path because initrd modules and frame
 
 ### Virtual Memory
 
-`VirtualMemory` in [../src/kernel/mm/virtual_memory.cpp](../src/kernel/mm/virtual_memory.cpp) manages kernel and user mappings. The kernel still uses low identity mappings, but user mappings now live in a dedicated PML4 slot:
+`VirtualMemory` in [../src/kernel/mm/virtual_memory.cpp](../src/kernel/mm/virtual_memory.cpp) manages kernel and user mappings. The steady-state layout is now split into three intentional regions:
+
+- the shared higher-half kernel window at `kKernelVirtualOffset`
+- the kernel-owned direct map at `kDirectMapBase`
+- the dedicated user slot at PML4 index `1`
+
+The user layout remains:
 
 - `kUserPml4Index = 1`
 - `kUserSpaceBase = 0x0000008000000000`
 - `kUserImageBase = 0x0000008000400000`
 - `kUserStackTop = 0x0000008040000000`
 
-The dedicated user slot exists because the kernel still treats physical addresses as valid supervisor virtual addresses. Separating user mappings into another PML4 slot avoids colliding with that legacy-but-useful identity-mapped kernel model.
+User CR3s clone only the supervisor mappings the kernel actually needs during traps and syscalls: the shared higher-half kernel window and the direct-map slot. They no longer clone PML4 slot `0`.
 
 Supported operations include:
 
@@ -664,7 +671,7 @@ Supported operations include:
 - page allocation plus mapping
 - protection updates
 - virtual-to-physical translation
-- cloning the kernel PML4 entry into a process address space
+- cloning the required supervisor mappings into a process address space
 - destroying the user slot during process teardown
 
 ## CPU, Interrupt, And Trap Architecture
@@ -877,7 +884,7 @@ The current architecture is coherent, but intentionally incomplete.
 
 Major constraints that remain:
 
-- the shared kernel core is still low identity-linked rather than higher-half
+- the broad final-kernel identity map is gone, but boot still retains narrow low bootstrap identity exceptions for the live handoff stack and AP startup state until early stack handoff and AP startup are redesigned
 - the framebuffer path is a text presenter, not a graphics stack
 - userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
 - syscalls still use `int 0x80`, not `SYSCALL`/`SYSRET`

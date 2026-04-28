@@ -73,7 +73,7 @@ bool copy_into_address_space(VirtualMemory& vm,
         const uint64_t chunk = ((length - copied) < (kPageSize - page_offset))
                                    ? (length - copied)
                                    : (kPageSize - page_offset);
-        memcpy((void*)physical, source + copied, chunk);
+        memcpy(kernel_physical_pointer<void>(physical), source + copied, chunk);
         copied += chunk;
     }
     return true;
@@ -113,7 +113,7 @@ bool copy_to_user(PageFrameContainer& frames,
         const size_t chunk = ((length - copied) < (kPageSize - page_offset))
                                  ? (length - copied)
                                  : (kPageSize - page_offset);
-        memcpy((void*)physical, src + copied, chunk);
+        memcpy(kernel_physical_pointer<void>(physical), src + copied, chunk);
         copied += chunk;
     }
     return true;
@@ -153,7 +153,7 @@ bool copy_from_user(PageFrameContainer& frames,
         const size_t chunk = ((length - copied) < (kPageSize - page_offset))
                                  ? (length - copied)
                                  : (kPageSize - page_offset);
-        memcpy(dest + copied, (const void*)physical, chunk);
+        memcpy(dest + copied, kernel_physical_pointer<const void>(physical), chunk);
         copied += chunk;
     }
     return true;

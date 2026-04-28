@@ -178,6 +178,12 @@ Design rules:
 - optional features are represented by zero values rather than special heap objects
 - versioning is explicit so the contract can evolve safely
 
+Historical note:
+
+- later higher-half migration work kept `BootInfo` physical-address-oriented
+- boot-owned pointers are still copied immediately on entry, before the kernel switches to its final CR3 policy
+- the surviving fixed low-memory constants are now explicit bootstrap exceptions rather than general kernel addressing assumptions
+
 ### 2. Normalize Boot Data Through Adapters
 
 Each boot path gets a tiny adapter layer that produces `BootInfo`.

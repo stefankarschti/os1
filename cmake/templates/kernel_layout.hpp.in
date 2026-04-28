@@ -10,3 +10,6 @@ constexpr uint64_t kKernelReservedPhysicalStart = @OS1_KERNEL_RESERVED_PHYSICAL_
 constexpr uint64_t kKernelReservedPhysicalBytes = @OS1_KERNEL_RESERVED_PHYSICAL_BYTES@;
 constexpr uint64_t kKernelReservedPhysicalEnd = @OS1_KERNEL_RESERVED_PHYSICAL_END@;
 constexpr uint64_t kKernelPostImageReserveBytes = @OS1_KERNEL_POST_IMAGE_RESERVE_BYTES@;
+constexpr uint64_t kKernelVirtualOffset = @OS1_KERNEL_VIRTUAL_OFFSET@;
+constexpr uint64_t kKernelShimVirtualBase = @OS1_KERNEL_SHIM_VIRTUAL_BASE@;
+constexpr uint64_t kDirectMapBase = @OS1_DIRECT_MAP_BASE@;

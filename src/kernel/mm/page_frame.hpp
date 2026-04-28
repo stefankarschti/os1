@@ -60,6 +60,10 @@ public:
     // free one aligned physical page back to the bitmap.
     bool free(uint64_t address);
 
+    // Rebind internal bitmap access through the direct map after the kernel
+    // activates its own steady-state CR3.
+    void enable_direct_map_access();
+
 private:
     /**
      * @brief Usable memory size in bytes
@@ -98,6 +102,7 @@ private:
      *		; NOT FOUND
      */
     uint64_t* bitmap_;
+    uint64_t bitmap_physical_address_ = 0;
     /**
      * @brief bitmap_size_ number of qwords
      */

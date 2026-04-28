@@ -11,6 +11,7 @@
 #include "arch/x86_64/apic/pic.hpp"
 #include "arch/x86_64/cpu/control_regs.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/cpu/x86.hpp"
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "console/console.hpp"
 #include "console/console_input.hpp"
@@ -87,50 +88,68 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     }
 
     VirtualMemory kvm(page_frames);
-    debug("create kernel identity page tables")();
-    result = kvm.allocate(0x0, kKernelReservedPhysicalStart / kPageSize, true);
+    debug("create kernel bootstrap page tables")();
+    // Keep only the low bootstrap window that AP startup still executes from.
+    result = map_bootstrap_identity_range(kvm, 0, kEarlyReservedPhysicalEnd);
     if(!result)
     {
         return;
     }
-    for(size_t i = 0; i < memory_regions.size(); ++i)
+    result = kvm.map_physical(kKernelVirtualOffset + kKernelReservedPhysicalStart,
+                              kKernelReservedPhysicalStart,
+                              kKernelReservedPhysicalBytes / kPageSize,
+                              PageFlags::Present | PageFlags::Write);
+    if(!result)
     {
-        const BootMemoryRegion& region = memory_regions[i];
-        if(boot_memory_region_is_usable(region) &&
-           (region.physical_start >= kKernelReservedPhysicalStart) && (region.length > 0))
-        {
-            const uint64_t start = align_down(region.physical_start, kPageSize);
-            const uint64_t end = align_up(region.physical_start + region.length, kPageSize);
-            if(!kvm.allocate(start, (end - start) / kPageSize, true))
-            {
-                return;
-            }
-        }
+        return;
+    }
+    if(!map_direct_range(kvm, 0, page_frames.memory_end()))
+    {
+        return;
+    }
+    uint64_t bootstrap_stack_pointer = 0;
+    asm volatile("mov %%rsp, %0" : "=r"(bootstrap_stack_pointer));
+    // Both boot frontends still enter kernel_main on a low bootstrap stack, so
+    // keep the current stack page mapped until the BSP later switches to a
+    // steady-state kernel thread stack.
+    if(!map_bootstrap_identity_range(
+           kvm, align_down(bootstrap_stack_pointer, kPageSize), kPageSize))
+    {
+        return;
     }
     // Boot modules and the framebuffer may live in non-usable ranges on the
-    // modern path, but the current kernel still dereferences them as physical
-    // identity mappings after it switches to its own CR3. Map those explicit
-    // boot-critical ranges before activating the kernel page tables.
+    // modern path, so map those explicit physical ranges into the direct map
+    // before activating the kernel page tables.
     for(uint32_t i = 0; i < g_boot_info->module_count; ++i)
     {
-        if(!map_identity_range(
-               kvm, g_boot_info->modules[i].physical_start, g_boot_info->modules[i].length))
+        if(!map_direct_range(kvm,
+                             g_boot_info->modules[i].physical_start,
+                             g_boot_info->modules[i].length))
         {
             return;
         }
     }
-    if(!map_identity_range(kvm,
-                           g_boot_info->framebuffer.physical_address,
-                           boot_framebuffer_length_bytes(g_boot_info->framebuffer)))
+    if(!map_direct_range(kvm,
+                         g_boot_info->framebuffer.physical_address,
+                         boot_framebuffer_length_bytes(g_boot_info->framebuffer)))
     {
         return;
     }
-    if(!map_identity_range(kvm, g_boot_info->rsdp_physical, 64))
+    if(!map_direct_range(kvm, g_boot_info->rsdp_physical, 64))
     {
         return;
     }
     kvm.activate();
     g_kernel_root_cr3 = kvm.root();
+    g_kernel_direct_map_ready = true;
+    page_frames.enable_direct_map_access();
+    g_cpu_boot = kernel_physical_pointer<cpu>((uint64_t)g_cpu_boot);
+    // `cpu_cur()` reads the self-pointer through GS, so rebind it before the
+    // first direct-map `cpu_init()` reloads descriptor state.
+    g_cpu_boot->self = g_cpu_boot;
+    wrmsr(0xC0000101, (uint64_t)g_cpu_boot);
+    g_cpu_boot->tss.rsp0 = 0;
+    cpu_init();
 
     if(!platform_init(*g_boot_info, kvm))
     {
@@ -167,11 +186,11 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
             return;
         }
 
-        framebuffer_display.shadow_buffer = reinterpret_cast<uint16_t*>(shadow_buffer);
+        framebuffer_display.shadow_buffer = kernel_physical_pointer<uint16_t>(shadow_buffer);
         framebuffer_display.shadow_cell_count =
             (uint32_t)terminal_columns * (uint32_t)terminal_rows;
         framebuffer_display.cursor_valid = false;
-        memset((void*)shadow_buffer, 0, shadow_buffer_pages * kPageSize);
+        memset(framebuffer_display.shadow_buffer, 0, shadow_buffer_pages * kPageSize);
     }
 
     const uint64_t terminal_buffer_bytes =
@@ -193,7 +212,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
             return;
         }
 
-        terminal[i].set_buffer((uint16_t*)page, terminal_columns, terminal_rows);
+        terminal[i].set_buffer(kernel_physical_pointer<uint16_t>(page), terminal_columns, terminal_rows);
         terminal[i].clear();
         terminal[i].write("Terminal ");
         terminal[i].write_int_line(i + 1);
@@ -202,7 +221,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     active_terminal = &terminal[0];
     if(BootSource::BiosLegacy == g_boot_info->source)
     {
-        active_terminal->copy((uint16_t*)0xB8000);
+        active_terminal->copy(kernel_physical_pointer<uint16_t>(0xB8000));
     }
     else
     {
@@ -272,6 +291,6 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     debug("start multitasking")();
     write_console_line("starting first user process");
     set_timer(1000);
-    start_multi_task(init_thread);
+    enter_first_thread(init_thread, init_thread->kernel_stack_top);
     halt_forever();
 }

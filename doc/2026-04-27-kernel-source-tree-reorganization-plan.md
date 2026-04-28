@@ -355,7 +355,7 @@ Planned files:
 
 | Planned file | Source today | Role |
 | --- | --- | --- |
-| `linker/kernel_bios.ld` | `linker2.ld` | Shared low-half kernel linker script used by both BIOS and Limine paths through `kernel_bios.elf`. Rename to describe current use rather than implementation history. |
+| `linker/kernel_core.ld` | `linker2.ld` | Shared kernel linker script used by both BIOS and Limine paths through `kernel.elf`. Renamed to describe current use rather than implementation history. |
 | `linker/kernel_limine.ld` | `linker_limine.ld` | Limine frontend linker script. |
 
 Future expansion likelihood: low-medium. This folder mainly keeps build artifacts out of the source root. If a higher-half kernel transition happens later, this is where link-layout variants should live.
@@ -372,7 +372,7 @@ Future expansion likelihood: low-medium. This folder mainly keeps build artifact
 | `display.cpp`, `display.h` | `drivers/display/text_display.cpp`, `drivers/display/text_display.h` | Hardware/backend presentation. Terminal policy stays in `console/`. |
 | `kernel.cpp` | split across `core/`, `syscall/`, `sched/`, `console/`, `mm/`, `drivers/timer/` | See function extraction table below. |
 | `keyboard.cpp`, `keyboard.h` | `drivers/input/ps2_keyboard.cpp`, `drivers/input/ps2_keyboard.h` | Device driver. Terminal hotkey policy should move to `console/terminal_switcher.cpp`. |
-| `linker2.ld` | `linker/kernel_bios.ld` | Rename for current shared-kernel role. |
+| `linker2.ld` | `linker/kernel_core.ld` | Rename for current shared-kernel role. |
 | `linker_limine.ld` | `linker/kernel_limine.ld` | Keep with other link scripts. |
 | `memory_layout.h`, `memory_layout.inc` | `handoff/memory_layout.h`, `handoff/memory_layout.inc` | Shared boot/kernel physical layout. Update NASM include paths together. |
 | `memory.h` | split into `util/memory.h`, `util/ctype.h`, `arch/x86_64/cpu/io_port.h` | It currently mixes memory declarations, `strlen`, printable checks, and x86 port I/O. |

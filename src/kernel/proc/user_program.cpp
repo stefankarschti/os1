@@ -80,7 +80,7 @@ bool load_user_elf(PageFrameContainer& frames,
     }
 
     VirtualMemory vm(frames);
-    if(!vm.clone_kernel_pml4_entry(0, kernel_root_cr3))
+    if(!vm.clone_kernel_mappings(kernel_root_cr3))
     {
         return false;
     }
@@ -178,8 +178,6 @@ bool destroy_user_address_space(PageFrameContainer& frames, uint64_t cr3)
     }
     VirtualMemory vm(frames, cr3);
     vm.destroy_user_slot(kUserPml4Index);
-    uint64_t* pml4 = (uint64_t*)cr3;
-    pml4[0] = 0;
     return frames.free(cr3);
 }
 

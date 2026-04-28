@@ -1,7 +1,10 @@
 ENTRY(_start)
+
+KERNEL_SHIM_VIRTUAL_BASE = 0xFFFFFFFF90000000;
+
 SECTIONS
 {
-  .text 0xFFFFFFFF80000000 :
+  .text KERNEL_SHIM_VIRTUAL_BASE :
   {
     code = .; _code = .; __code = .;
     *(.text*)

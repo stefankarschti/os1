@@ -1,4 +1,4 @@
-set(KERNEL_BIOS_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker/kernel_bios.ld")
+set(KERNEL_CORE_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker/kernel_core.ld")
 set(KERNEL_LIMINE_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker/kernel_limine.ld")
 set(KERNEL_ARCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/arch/x86_64")
 
@@ -130,8 +130,8 @@ target_compile_options(
     # The kernel does not enable or context-switch SIMD/FPU state yet. Force
     # integer-register-only codegen so newer cross-compilers cannot introduce
     # XMM/AVX instructions that trap as #UD on the CI runner's virtual CPU.
-    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
-    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
 )
 
 add_library(kernel_limine_frontend OBJECT "${PROJECT_SOURCE_DIR}/src/boot/limine/entry.cpp")
@@ -216,11 +216,11 @@ set(KERNEL_ASM_OBJECTS
 add_custom_command(
   OUTPUT "${OS1_KERNEL_ELF}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
-  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_BIOS_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_ELF}" -n
+  COMMAND "${CMAKE_LINKER}" -T "${KERNEL_CORE_LINKER_SCRIPT}" $<TARGET_OBJECTS:kernel_core_objects> ${KERNEL_ASM_OBJECTS} -o "${OS1_KERNEL_ELF}" -n
   DEPENDS
     kernel_core_objects
     $<TARGET_OBJECTS:kernel_core_objects>
-    "${KERNEL_BIOS_LINKER_SCRIPT}"
+    "${KERNEL_CORE_LINKER_SCRIPT}"
     ${KERNEL_ASM_OBJECTS}
   COMMAND_EXPAND_LISTS
   VERBATIM

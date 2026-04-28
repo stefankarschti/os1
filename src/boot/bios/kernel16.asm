@@ -59,8 +59,11 @@ e_shnum		resw	1
 
 p_offset	resq	1
 p_vaddr		resq	1
+p_paddr		resq	1
 p_filesz	resq	1
 p_memsz		resq	1
+kernel_load_start	resq	1
+kernel_load_end		resq	1
 
 section .bss.boot_memory_map start=BOOT_MEMORY_REGION_BUFFER_ADDRESS
 boot_memory_map: times boot_memory_region_struct_size * BOOT_MEMORY_REGION_CAPACITY db 0
@@ -323,26 +326,78 @@ loader_main64:
 	mov [e_shnum], ax
 
 	;; PH	
-	; p_offset
-	mov rsi, 0x08
-	add rsi, [e_phoff]
-	mov rax, [kernel_image + rsi]
-	mov [p_offset], rax	
-	; p_vaddr
-	mov rsi, 0x10
-	add rsi, [e_phoff]
-	mov rax, [kernel_image + rsi]
+	mov rax, -1
+	mov [kernel_load_start], rax
+	xor eax, eax
+	mov [kernel_load_end], rax
+	xor ebx, ebx
+
+.load_next_segment:
+	movzx eax, word [e_phnum]
+	cmp ebx, eax
+	jae .segments_loaded
+
+	movzx rax, word [e_phentsize]
+	imul rax, rbx
+	add rax, [e_phoff]
+	mov rdx, rax
+
+	cmp dword [kernel_image + rdx], 1
+	jne .next_segment
+
+	mov rax, [kernel_image + rdx + 0x08]
+	mov [p_offset], rax
+	mov rax, [kernel_image + rdx + 0x10]
 	mov [p_vaddr], rax
-	; p_filesz
-	mov rsi, 0x20
-	add rsi, [e_phoff]
-	mov rax, [kernel_image + rsi]
+	mov rax, [kernel_image + rdx + 0x18]
+	mov [p_paddr], rax
+	mov rax, [kernel_image + rdx + 0x20]
 	mov [p_filesz], rax
-	; p_memsz
-	mov rsi, 0x28
-	add rsi, [e_phoff]
-	mov rax, [kernel_image + rsi]
+	mov rax, [kernel_image + rdx + 0x28]
 	mov [p_memsz], rax
+
+	mov rax, [p_memsz]
+	cmp rax, [p_filesz]
+	jb .elf_program_error
+
+	mov rax, [p_offset]
+	add rax, [p_filesz]
+	cmp rax, (INITRD_LOAD_ADDRESS - KERNEL_IMAGE_LOAD_ADDRESS)
+	ja .elf_program_error
+
+	mov rax, [p_paddr]
+	cmp rax, [kernel_load_start]
+	jae .load_start_ok
+	mov [kernel_load_start], rax
+.load_start_ok:
+	mov rax, [p_paddr]
+	add rax, [p_memsz]
+	cmp rax, [kernel_load_end]
+	jbe .load_end_ok
+	mov [kernel_load_end], rax
+.load_end_ok:
+
+	mov rdi, [p_paddr]
+	xor eax, eax
+	mov rcx, [p_memsz]
+	cld
+	rep stosb
+
+	mov rsi, [p_offset]
+	add rsi, kernel_image
+	mov rdi, [p_paddr]
+	mov rcx, [p_filesz]
+	cld
+	rep movsb
+
+.next_segment:
+	inc ebx
+	jmp .load_next_segment
+
+.segments_loaded:
+	mov rax, [kernel_load_start]
+	cmp rax, -1
+	je .elf_program_error
 
 	; Publish the immutable pieces of the BIOS boot contract right before the
 	; kernel takes over. The kernel copies this block immediately on entry.
@@ -354,9 +409,9 @@ loader_main64:
 	mov [boot_info + boot_info_struct.rsdp_physical], rax
 	mov rax, boot_memory_map
 	mov [boot_info + boot_info_struct.memory_map], rax
-	mov rax, [p_vaddr]
+	mov rax, [kernel_load_start]
 	mov [boot_info + boot_info_struct.kernel_physical_start], rax
-	add rax, [p_memsz]
+	mov rax, [kernel_load_end]
 	mov [boot_info + boot_info_struct.kernel_physical_end], rax
 	mov rax, boot_modules
 	mov [boot_info + boot_info_struct.modules], rax
@@ -365,35 +420,8 @@ loader_main64:
 	mov qword [boot_modules + boot_module_info_struct.length], INITRD_IMAGE_LENGTH_BYTES
 	mov rax, str_initrd_name
 	mov [boot_modules + boot_module_info_struct.name], rax
-
-    ; clear location
-	mov rdi, [p_vaddr]
-	xor rax, rax
-	mov rcx, [p_memsz]
-	shr rcx, 3
-	cld
-	rep stosq
-
-    ; load program
-	mov rsi, [p_offset]
-	add rsi, kernel_image
-	mov rdi, [p_vaddr]
-	mov rcx, [p_filesz]
-	shr rcx, 3
-	cld
-	rep movsq				; move program in place
-	
-	; clear .bss
-	mov rcx, [p_memsz]
-	sub rcx, [p_filesz]
-	shr rcx, 3
-	cld
-	xor rax, rax
-	rep stosq
-
     ; init program stack
-	mov rbp, [p_vaddr]
-	add rbp, [p_memsz]
+	mov rbp, [kernel_load_end]
 	add rbp, PAGE_SIZE
 	shr rbp, 12
 	shl rbp, 12
@@ -409,8 +437,15 @@ loader_main64:
 	hlt
         jmp .l3 ; stop here
 
+.elf_program_error:
+	mov rsi, str_elf_fail_program
+	call print64
+	hlt
+	jmp .elf_program_error
+
 ; Data
 str_loader_hello	db "[loader64] hello", 10, 0
+str_elf_fail_program db "[loader64] ELF program header error", 10, 0
 hexdigit			db "0123456789ABCDEF",0
 
 find_rsdp64:
