@@ -60,8 +60,68 @@ constexpr uint64_t kPageFrameBitmapQwordLimit = kPageFrameBitmapSizeBytes / size
 constexpr uint64_t kEarlyReservedPhysicalEnd = 0x20000;
 
 
-// Milestone 2 keeps user mappings in their own PML4 slot because the kernel
-// still relies on low supervisor identity mappings for physical-memory access.
+constexpr uint64_t kKernelPml4Index = (kKernelVirtualOffset >> 39) & 0x1FFull;
+constexpr uint64_t kDirectMapPml4Index = (kDirectMapBase >> 39) & 0x1FFull;
+constexpr uint64_t kKernelVirtualBase = kKernelVirtualOffset + kKernelReservedPhysicalStart;
+constexpr uint64_t kKernelVirtualEnd = kKernelVirtualOffset + kKernelReservedPhysicalEnd;
+constexpr uint64_t kInvalidPhysicalAddress = ~0ull;
+
+[[nodiscard]] constexpr uint64_t phys_to_virt(uint64_t physical_address)
+{
+	return physical_address + kDirectMapBase;
+}
+
+[[nodiscard]] constexpr bool is_kernel_virtual_address(uint64_t virtual_address)
+{
+	return (virtual_address >= kKernelVirtualBase) && (virtual_address < kKernelVirtualEnd);
+}
+
+[[nodiscard]] constexpr bool is_direct_map_virtual_address(uint64_t virtual_address)
+{
+	return (virtual_address >= kDirectMapBase) && !is_kernel_virtual_address(virtual_address);
+}
+
+[[nodiscard]] constexpr uint64_t kernel_virt_to_phys(uint64_t virtual_address)
+{
+	return is_kernel_virtual_address(virtual_address)
+	           ? (virtual_address - kKernelVirtualOffset)
+	           : kInvalidPhysicalAddress;
+}
+
+[[nodiscard]] constexpr uint64_t direct_virt_to_phys(uint64_t virtual_address)
+{
+	return is_direct_map_virtual_address(virtual_address)
+	           ? (virtual_address - kDirectMapBase)
+	           : kInvalidPhysicalAddress;
+}
+
+[[nodiscard]] constexpr uint64_t virt_to_phys(uint64_t virtual_address)
+{
+	if(is_kernel_virtual_address(virtual_address))
+	{
+		return kernel_virt_to_phys(virtual_address);
+	}
+	if(is_direct_map_virtual_address(virtual_address))
+	{
+		return direct_virt_to_phys(virtual_address);
+	}
+	return kInvalidPhysicalAddress;
+}
+
+extern bool g_kernel_direct_map_ready;
+
+template<typename T>
+[[nodiscard]] inline T* kernel_physical_pointer(uint64_t physical_address)
+{
+	const uint64_t virtual_address =
+		g_kernel_direct_map_ready ? phys_to_virt(physical_address) : physical_address;
+	return reinterpret_cast<T*>(virtual_address);
+}
+
+
+// User mappings stay in their own PML4 slot even after the higher-half
+// migration; the kernel now reaches physical memory through the direct map and
+// keeps only narrow low bootstrap identity exceptions.
 constexpr uint64_t kUserPml4Index = 1;
 constexpr uint64_t kUserSpaceBase = 0x0000008000000000ull;
 constexpr uint64_t kUserImageBase = 0x0000008000400000ull;

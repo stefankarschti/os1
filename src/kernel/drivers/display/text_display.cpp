@@ -4,6 +4,7 @@
 
 #include "arch/x86_64/cpu/io_port.hpp"
 #include "debug/debug.hpp"
+#include "handoff/memory_layout.h"
 #include "util/memory.h"
 #include "font8x16.h"
 
@@ -85,7 +86,7 @@ void present_vga_text(
         return;
     }
 
-    uint16_t* screen = (uint16_t*)0xB8000;
+    uint16_t* screen = kernel_physical_pointer<uint16_t>(0xB8000);
     memcpy(screen, buffer, buffer_size_bytes(columns, rows));
 
     const uint16_t position = (uint16_t)(cursor_y * columns + cursor_x);
@@ -97,7 +98,7 @@ void present_vga_text(
 
 void detach_vga_text()
 {
-    uint16_t* screen = (uint16_t*)0xB8000;
+    uint16_t* screen = kernel_physical_pointer<uint16_t>(0xB8000);
     memsetw(screen, kVgaBlankCell, 80 * 25 * sizeof(uint16_t));
     outb(0x3D4, 0x0F);
     outb(0x3D5, 0);
@@ -323,7 +324,7 @@ bool initialize_framebuffer_text_display(FramebufferTextDisplay& display,
         return false;
     }
 
-    display.framebuffer = (uint8_t*)framebuffer.physical_address;
+    display.framebuffer = kernel_physical_pointer<uint8_t>(framebuffer.physical_address);
     display.available = true;
     framebuffer_clear(display, kFramebufferBackground);
 

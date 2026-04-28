@@ -7,10 +7,10 @@
 #include "mm/virtual_memory.hpp"
 #include "proc/thread.hpp"
 
-// Keep all syscall copy validation in one place. The kernel still maps low
-// supervisor identity ranges into every address space, so this layer is the
-// audited boundary that prevents syscalls from turning translation into a
-// kernel-memory copy gadget.
+// Keep all syscall copy validation in one place. User address spaces clone the
+// higher-half supervisor mappings they need, so this layer is the audited
+// boundary that prevents syscalls from turning translation into a kernel-memory
+// copy gadget.
 
 // copy bytes into an arbitrary mapped address space using page-table translation.
 bool copy_into_address_space(VirtualMemory& vm,

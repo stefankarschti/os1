@@ -52,7 +52,8 @@ idt:
     .Base         dd 0
  
 ; Function to switch directly to long mode from real mode.
-; Identity maps the first 2MiB.
+; Identity maps the first 2MiB and aliases that window at the higher-half
+; kernel base so the shared kernel can enter at a high virtual address.
 ; Uses Intel syntax.
  
 ; es:edi    Should point to a valid page-aligned 16KiB buffer, for the PML4, PDPT, PD and a PT.
@@ -74,12 +75,14 @@ switch_to_long_mode:
     lea eax, [es:di + 0x1000]         ; Put the address of the Page Directory Pointer Table in to EAX.
     or eax, PAGE_PRESENT | PAGE_WRITE ; Or EAX with the flags - present flag, writable flag.
     mov [es:di], eax                  ; Store the value of EAX as the first PML4E.
+    mov [es:di + (KERNEL_PML4_INDEX * 8)], eax
  
  
     ; Build the Page Directory Pointer Table.
     lea eax, [es:di + 0x2000]         ; Put the address of the Page Directory in to EAX.
     or eax, PAGE_PRESENT | PAGE_WRITE ; Or EAX with the flags - present flag, writable flag.
     mov [es:di + 0x1000], eax         ; Store the value of EAX as the first PDPTE.
+    mov [es:di + 0x1000 + (((KERNEL_VIRTUAL_OFFSET >> 30) & 0x1FF) * 8)], eax
  
  
     ; Build the Page Directory.

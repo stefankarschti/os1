@@ -9,8 +9,14 @@
 %define KERNEL_DATA_SEGMENT 0x10
 
 global start_multi_task
+global enter_first_thread
 global restore_thread
 global restore_frame_ptr
+
+enter_first_thread:
+	mov rsp, rsi
+	and rsp, -16
+	jmp start_multi_task
 
 start_multi_task:
 	jmp restore_thread

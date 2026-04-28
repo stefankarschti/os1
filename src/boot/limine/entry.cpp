@@ -7,7 +7,8 @@
 #include "handoff/memory_layout.h"
 #include "limine.h"
 
-// The shared kernel still expects to start on a low identity-mapped stack.
+// The shared kernel now enters in the higher-half window, but phase 1 still
+// keeps a low handoff stack while the kernel owns the final CR3 transition.
 // Keep this as a real assembler symbol rather than a naked C++ function:
 // GCC's naked-function semantics are compiler-sensitive, and the GitHub runner
 // uses a newer cross compiler than local `act` runs.
@@ -112,8 +113,10 @@ struct LowHandoffBootInfoStorage
 typedef char low_handoff_storage_fits_reserved_budget
     [(sizeof(LowHandoffBootInfoStorage) <= (kKernelPostImageReserveBytes - kPageSize)) ? 1 : -1];
 
-alignas(kPageSize) constinit uint64_t g_low_identity_pml3[512]{};
-alignas(kPageSize) constinit uint64_t g_low_identity_pml2[512]{};
+alignas(kPageSize) constinit uint64_t g_bootstrap_low_pml3[512]{};
+alignas(kPageSize) constinit uint64_t g_bootstrap_low_pml2[512]{};
+alignas(kPageSize) constinit uint64_t g_kernel_high_pml3[512]{};
+alignas(kPageSize) constinit uint64_t g_kernel_high_pml2[512]{};
 constinit uint64_t g_hhdm_offset = 0;
 constinit bool g_hhdm_offset_valid = false;
 
@@ -451,13 +454,38 @@ template<typename T>
     return translate_limine_virtual((uint64_t)pointer, physical_address);
 }
 
+[[nodiscard]] bool limine_mapping_matches(uint64_t virtual_start,
+                                          uint64_t physical_start,
+                                          uint64_t length)
+{
+    if(0 == length)
+    {
+        return true;
+    }
+
+    uint64_t translated = 0;
+    if(!translate_limine_virtual(virtual_start, translated) || (translated != physical_start))
+    {
+        return false;
+    }
+
+    const uint64_t last_offset = length - 1;
+    if(!translate_limine_virtual(virtual_start + last_offset, translated) ||
+       (translated != (physical_start + last_offset)))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 void reload_cr3()
 {
     const uint64_t value = read_cr3();
     asm volatile("mov %0, %%cr3" : : "r"(value) : "memory");
 }
 
-[[nodiscard]] bool ensure_low_identity_window(uint64_t required_bytes)
+[[nodiscard]] bool ensure_bootstrap_low_window(uint64_t required_bytes)
 {
     const uint64_t mapped_bytes = align_up(required_bytes, kTwoMiBPageSize);
     if((0 == mapped_bytes) || (mapped_bytes > kMaxIdentityMapBytes))
@@ -476,13 +504,13 @@ void reload_cr3()
     uint64_t* pml3 = nullptr;
     if(0 == (pml4[0] & 1ull))
     {
-        zero_bytes(g_low_identity_pml3, sizeof(g_low_identity_pml3));
-        if(!translate_shim_pointer(g_low_identity_pml3, pml3_physical))
+        zero_bytes(g_bootstrap_low_pml3, sizeof(g_bootstrap_low_pml3));
+        if(!translate_shim_pointer(g_bootstrap_low_pml3, pml3_physical))
         {
             return false;
         }
         pml4[0] = pml3_physical | 0x3ull;
-        pml3 = g_low_identity_pml3;
+        pml3 = g_bootstrap_low_pml3;
     }
     else
     {
@@ -496,20 +524,20 @@ void reload_cr3()
 
     if(0 != (pml3[0] & kHugePageBit))
     {
-        return true;
+        return limine_mapping_matches(0, 0, mapped_bytes);
     }
 
     uint64_t pml2_physical = 0;
     uint64_t* pml2 = nullptr;
     if(0 == (pml3[0] & 1ull))
     {
-        zero_bytes(g_low_identity_pml2, sizeof(g_low_identity_pml2));
-        if(!translate_shim_pointer(g_low_identity_pml2, pml2_physical))
+        zero_bytes(g_bootstrap_low_pml2, sizeof(g_bootstrap_low_pml2));
+        if(!translate_shim_pointer(g_bootstrap_low_pml2, pml2_physical))
         {
             return false;
         }
         pml3[0] = pml2_physical | 0x3ull;
-        pml2 = g_low_identity_pml2;
+        pml2 = g_bootstrap_low_pml2;
     }
     else
     {
@@ -524,12 +552,106 @@ void reload_cr3()
     const uint64_t page_count = mapped_bytes / kTwoMiBPageSize;
     for(uint64_t i = 0; i < page_count; ++i)
     {
-        if(0 == (pml2[i] & 1ull))
+        const uint64_t physical_base = i * kTwoMiBPageSize;
+        if(0 != (pml2[i] & 1ull))
         {
-            // The shared low-half kernel still expects the first boot-critical
-            // physical window to be executable via identity addresses. The Limine
-            // shim only maps the minimum range needed for that handoff.
-            pml2[i] = (i * kTwoMiBPageSize) | 0x83ull;
+            if(!limine_mapping_matches(physical_base, physical_base, kTwoMiBPageSize))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            // The shared kernel still needs a temporary low bootstrap window for
+            // the handoff stack and AP startup state, so the shim maps only the
+            // minimum identity range required for that transition.
+            pml2[i] = physical_base | 0x83ull;
+        }
+    }
+
+    reload_cr3();
+    return true;
+}
+
+[[nodiscard]] bool ensure_kernel_higher_half_window(uint64_t required_bytes)
+{
+    const uint64_t mapped_bytes = align_up(required_bytes, kTwoMiBPageSize);
+    if((0 == mapped_bytes) || (mapped_bytes > kMaxIdentityMapBytes))
+    {
+        return false;
+    }
+
+    uint64_t* pml4 = map_physical_pointer<uint64_t>(read_cr3() & kPageMask);
+    if(nullptr == pml4)
+    {
+        return false;
+    }
+
+    const uint64_t kernel_pml3_index = page_index(kKernelVirtualOffset, 30);
+    uint64_t pml3_physical = 0;
+    uint64_t* pml3 = nullptr;
+    if(0 == (pml4[kKernelPml4Index] & 1ull))
+    {
+        zero_bytes(g_kernel_high_pml3, sizeof(g_kernel_high_pml3));
+        if(!translate_shim_pointer(g_kernel_high_pml3, pml3_physical))
+        {
+            return false;
+        }
+        pml4[kKernelPml4Index] = pml3_physical | 0x3ull;
+        pml3 = g_kernel_high_pml3;
+    }
+    else
+    {
+        pml3_physical = pml4[kKernelPml4Index] & kPageEntryAddressMask;
+        pml3 = map_physical_pointer<uint64_t>(pml3_physical);
+        if(nullptr == pml3)
+        {
+            return false;
+        }
+    }
+
+    if(0 != (pml3[kernel_pml3_index] & kHugePageBit))
+    {
+        return limine_mapping_matches(kKernelVirtualOffset, 0, mapped_bytes);
+    }
+
+    uint64_t pml2_physical = 0;
+    uint64_t* pml2 = nullptr;
+    if(0 == (pml3[kernel_pml3_index] & 1ull))
+    {
+        zero_bytes(g_kernel_high_pml2, sizeof(g_kernel_high_pml2));
+        if(!translate_shim_pointer(g_kernel_high_pml2, pml2_physical))
+        {
+            return false;
+        }
+        pml3[kernel_pml3_index] = pml2_physical | 0x3ull;
+        pml2 = g_kernel_high_pml2;
+    }
+    else
+    {
+        pml2_physical = pml3[kernel_pml3_index] & kPageEntryAddressMask;
+        pml2 = map_physical_pointer<uint64_t>(pml2_physical);
+        if(nullptr == pml2)
+        {
+            return false;
+        }
+    }
+
+    const uint64_t page_count = mapped_bytes / kTwoMiBPageSize;
+    for(uint64_t i = 0; i < page_count; ++i)
+    {
+        const uint64_t physical_base = i * kTwoMiBPageSize;
+        const uint64_t virtual_base = kKernelVirtualOffset + physical_base;
+        if(0 != (pml2[i] & 1ull))
+        {
+            if(!limine_mapping_matches(virtual_base, physical_base, kTwoMiBPageSize))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            pml2[i] = physical_base | 0x83ull;
         }
     }
 
@@ -672,6 +794,7 @@ template<typename T>
 
     kernel_physical_start = ~0ull;
     kernel_physical_end = 0;
+    bool entry_mapped = false;
     for(uint16_t i = 0; i < header->phnum; ++i)
     {
         const uint64_t program_offset = header->phoff + (uint64_t)i * header->phentsize;
@@ -691,22 +814,32 @@ template<typename T>
         {
             return false;
         }
+        if(program->vaddr != (program->paddr + kKernelVirtualOffset))
+        {
+            return false;
+        }
 
         write_serial("[limine-shim] PT_LOAD vaddr=0x");
         write_serial_hex(program->vaddr);
+        write_serial(" paddr=0x");
+        write_serial_hex(program->paddr);
         write_serial(" filesz=0x");
         write_serial_hex(program->filesz);
         write_serial(" memsz=0x");
         write_serial_hex(program->memsz);
         write_serial_ln("");
 
-        if(program->vaddr < kernel_physical_start)
+        if(program->paddr < kernel_physical_start)
         {
-            kernel_physical_start = program->vaddr;
+            kernel_physical_start = program->paddr;
         }
-        if((program->vaddr + program->memsz) > kernel_physical_end)
+        if((program->paddr + program->memsz) > kernel_physical_end)
         {
-            kernel_physical_end = program->vaddr + program->memsz;
+            kernel_physical_end = program->paddr + program->memsz;
+        }
+        if((header->entry >= program->vaddr) && (header->entry < (program->vaddr + program->memsz)))
+        {
+            entry_mapped = true;
         }
     }
 
@@ -722,7 +855,7 @@ template<typename T>
     }
 
     entry_point = header->entry;
-    return true;
+    return (entry_point >= kKernelVirtualOffset) && entry_mapped;
 }
 
 [[nodiscard]] bool load_kernel_segments(const limine_file& kernel_file)
@@ -753,11 +886,7 @@ template<typename T>
             return false;
         }
 
-        // Limine module pointers are virtual addresses in the bootloader's page
-        // tables. The shared kernel image is still low-linked, so the shim writes
-        // it by physical address through the HHDM mapping instead of assuming an
-        // identity map already exists.
-        uint8_t* segment = map_physical_pointer<uint8_t>(program->vaddr);
+        uint8_t* segment = map_physical_pointer<uint8_t>(program->paddr);
         if(nullptr == segment)
         {
             return false;
@@ -1006,7 +1135,7 @@ void populate_firmware_pointers(BootInfo& boot_info)
     auto* storage = (LowHandoffBootInfoStorage*)(boot_info_storage_physical + g_hhdm_offset);
     write_serial_ln("[limine-shim] bootinfo storage ok");
 
-    // The shared low-half kernel copies BootInfo immediately on entry, so a
+    // The shared kernel copies BootInfo immediately on entry, so a
     // small staging area carved out of the already-reserved kernel low-memory
     // window is sufficient and avoids depending on shim-owned higher-half .bss.
     zero_bytes(storage, sizeof(*storage));
@@ -1124,12 +1253,12 @@ extern "C" [[noreturn]] void limine_start_main()
     if(!inspect_kernel_image(
            kernel_module, entry_point, kernel_physical_start, kernel_physical_end))
     {
-        write_serial_ln("[limine-shim] low kernel inspect failed");
+        write_serial_ln("[limine-shim] kernel inspect failed");
         halt_forever();
     }
     if(!prepare_kernel_handoff(kernel_physical_end, cpu_boot, boot_info_storage_physical))
     {
-        write_serial_ln("[limine-shim] low kernel handoff prep failed");
+        write_serial_ln("[limine-shim] kernel handoff prep failed");
         halt_forever();
     }
 
@@ -1143,16 +1272,21 @@ extern "C" [[noreturn]] void limine_start_main()
     }
     if(!load_kernel_segments(kernel_module))
     {
-        write_serial_ln("[limine-shim] low kernel load failed");
+        write_serial_ln("[limine-shim] kernel load failed");
         halt_forever();
     }
     const uint64_t low_handoff_end = align_up((uint64_t)cpu_boot + ::kPageSize, ::kPageSize);
-    if(!ensure_low_identity_window(low_handoff_end))
+    if(!ensure_bootstrap_low_window(low_handoff_end))
     {
         write_serial_ln("[limine-shim] low identity map failed");
         halt_forever();
     }
-    write_serial("[limine-shim] loaded low kernel entry=0x");
+    if(!ensure_kernel_higher_half_window(kernel_physical_end))
+    {
+        write_serial_ln("[limine-shim] high kernel map failed");
+        halt_forever();
+    }
+    write_serial("[limine-shim] loaded kernel entry=0x");
     write_serial_hex(entry_point);
     write_serial(" cpu=0x");
     write_serial_hex((uint64_t)cpu_boot);

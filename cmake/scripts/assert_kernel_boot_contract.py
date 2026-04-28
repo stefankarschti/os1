@@ -34,6 +34,7 @@ def read_program_headers(path: str):
     if data[4] != 2 or data[5] != 1:
         fail("kernel boot contract check: only ELF64 little-endian kernels are supported")
 
+    entry = struct.unpack_from("<Q", data, 24)[0]
     phoff = struct.unpack_from("<Q", data, 32)[0]
     phentsize = struct.unpack_from("<H", data, 54)[0]
     phnum = struct.unpack_from("<H", data, 56)[0]
@@ -47,10 +48,10 @@ def read_program_headers(path: str):
             fail("kernel boot contract check: ELF program headers run past end of file")
 
         ph = struct.unpack_from("<IIQQQQQQ", data, offset)
-        p_type, _, p_offset, p_vaddr, _, p_filesz, p_memsz, _ = ph
-        headers.append((p_type, p_offset, p_vaddr, p_filesz, p_memsz))
+        p_type, _, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, _ = ph
+        headers.append((p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz))
 
-    return headers
+    return entry, headers
 
 
 def main() -> None:
@@ -61,6 +62,7 @@ def main() -> None:
     parser.add_argument("--reserved-start", required=True)
     parser.add_argument("--reserved-end", required=True)
     parser.add_argument("--post-image-reserve-bytes", required=True)
+    parser.add_argument("--kernel-virtual-offset", required=True)
     args = parser.parse_args()
 
     elf_path = args.elf
@@ -69,6 +71,7 @@ def main() -> None:
     reserved_start = parse_int(args.reserved_start)
     reserved_end = parse_int(args.reserved_end)
     post_image_reserve_bytes = parse_int(args.post_image_reserve_bytes)
+    kernel_virtual_offset = parse_int(args.kernel_virtual_offset)
 
     file_size = os.path.getsize(elf_path)
     if file_size > disk_slot_bytes:
@@ -87,24 +90,44 @@ def main() -> None:
         )
 
     load_ranges = []
-    for p_type, p_offset, p_vaddr, p_filesz, p_memsz in read_program_headers(elf_path):
+    virtual_ranges = []
+    entry_point, headers = read_program_headers(elf_path)
+    for p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz in headers:
         if p_type != PT_LOAD:
             continue
         if p_memsz < p_filesz:
             fail("kernel boot contract check: PT_LOAD memsz is smaller than filesz")
         if p_offset + p_filesz > file_size:
             fail("kernel boot contract check: PT_LOAD segment runs past end of file")
-        load_ranges.append((p_vaddr, p_vaddr + p_memsz))
+        expected_vaddr = p_paddr + kernel_virtual_offset
+        if p_vaddr != expected_vaddr:
+            fail(
+                "kernel boot contract check: "
+                f"PT_LOAD vaddr 0x{p_vaddr:x} does not match paddr 0x{p_paddr:x} + kernel virtual offset 0x{kernel_virtual_offset:x}."
+            )
+        load_ranges.append((p_paddr, p_paddr + p_memsz))
+        virtual_ranges.append((p_vaddr, p_vaddr + p_memsz))
 
     if not load_ranges:
         fail("kernel boot contract check: kernel ELF has no PT_LOAD segments")
+
+    if entry_point < kernel_virtual_offset:
+        fail(
+            "kernel boot contract check: "
+            f"entry point 0x{entry_point:x} is not in the higher-half kernel window starting at 0x{kernel_virtual_offset:x}."
+        )
+    if not any(start <= entry_point < end for start, end in virtual_ranges):
+        fail(
+            "kernel boot contract check: "
+            f"entry point 0x{entry_point:x} does not land inside any PT_LOAD virtual range."
+        )
 
     load_start = min(start for start, _ in load_ranges)
     load_end = max(end for _, end in load_ranges)
     if load_start < reserved_start:
         fail(
             "kernel boot contract check: "
-            f"PT_LOAD range starts at 0x{load_start:x}, below the reserved kernel window start 0x{reserved_start:x}."
+            f"PT_LOAD physical range starts at 0x{load_start:x}, below the reserved kernel window start 0x{reserved_start:x}."
         )
 
     reserved_bytes = reserved_end - reserved_start
@@ -113,7 +136,7 @@ def main() -> None:
     if required_reserved_bytes > reserved_bytes:
         fail(
             "kernel boot contract check: "
-            f"PT_LOAD range through 0x{load_end:x} plus the 0x{post_image_reserve_bytes:x} post-image reserve needs "
+            f"PT_LOAD physical range through 0x{load_end:x} plus the 0x{post_image_reserve_bytes:x} post-image reserve needs "
             f"0x{required_reserved_bytes:x} bytes, but the reserved kernel window only provides 0x{reserved_bytes:x} bytes "
             f"from 0x{reserved_start:x} to 0x{reserved_end:x}."
         )

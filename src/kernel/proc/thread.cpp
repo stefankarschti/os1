@@ -40,7 +40,7 @@ bool initialize_thread_table(PageFrameContainer& frames)
             debug("thread table allocation failed")();
             return false;
         }
-        threadTable = (Thread*)thread_table_address;
+        threadTable = kernel_physical_pointer<Thread>(thread_table_address);
         debug("thread table allocated at 0x")(thread_table_address, 16)();
     }
 
@@ -114,7 +114,9 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
     {
         return nullptr;
     }
-    memset((void*)stack_base, 0, kKernelThreadStackPages * kPageSize);
+    uint8_t* stack_memory = kernel_physical_pointer<uint8_t>(stack_base);
+    memset(stack_memory, 0, kKernelThreadStackPages * kPageSize);
+    const uint64_t stack_top = (uint64_t)(stack_memory + kKernelThreadStackPages * kPageSize);
 
     thread->tid = g_next_tid++;
     thread->process = process;
@@ -122,14 +124,14 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
     thread->user_mode = false;
     thread->address_space_cr3 = process->address_space.cr3;
     thread->kernel_stack_base = stack_base;
-    thread->kernel_stack_top = stack_base + kKernelThreadStackPages * kPageSize;
+    thread->kernel_stack_top = stack_top;
     thread->exit_status = 0;
     thread->frame = {};
     // Kernel threads enter a normal C++ function through the scheduler return
     // path, not a direct `call`, so reserve one dummy return slot at a SysV
     // function-entry-aligned stack position. The 16 bytes above it stay available
     // for the synthetic kernel `iretq` frame used by the scheduler.
-    *((uint64_t*)(thread->kernel_stack_top - 3 * sizeof(uint64_t))) = 0;
+    *reinterpret_cast<uint64_t*>(thread->kernel_stack_top - 3 * sizeof(uint64_t)) = 0;
     thread->frame.rip = (uint64_t)entry;
     thread->frame.cs = kKernelCodeSegment;
     thread->frame.rflags = 0x202;
@@ -165,7 +167,9 @@ Thread* create_user_thread(Process* process,
     {
         return nullptr;
     }
-    memset((void*)stack_base, 0, kKernelThreadStackPages * kPageSize);
+    uint8_t* stack_memory = kernel_physical_pointer<uint8_t>(stack_base);
+    memset(stack_memory, 0, kKernelThreadStackPages * kPageSize);
+    const uint64_t stack_top = (uint64_t)(stack_memory + kKernelThreadStackPages * kPageSize);
 
     thread->tid = g_next_tid++;
     thread->process = process;
@@ -173,7 +177,7 @@ Thread* create_user_thread(Process* process,
     thread->user_mode = true;
     thread->address_space_cr3 = process->address_space.cr3;
     thread->kernel_stack_base = stack_base;
-    thread->kernel_stack_top = stack_base + kKernelThreadStackPages * kPageSize;
+    thread->kernel_stack_top = stack_top;
     thread->exit_status = 0;
     thread->frame = {};
     thread->frame.rip = user_rip;

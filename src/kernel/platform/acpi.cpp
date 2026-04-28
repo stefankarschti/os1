@@ -7,6 +7,7 @@
 #include "arch/x86_64/cpu/x86.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "util/string.h"
 
@@ -127,19 +128,6 @@ struct AcpiOutput
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length)
-{
-    if((0 == length) || (0 == physical_start))
-    {
-        return true;
-    }
-
-    const uint64_t start = align_down(physical_start, kPageSize);
-    const uint64_t end = align_up(physical_start + length, kPageSize);
-    return vm.map_physical(
-        start, start, (end - start) / kPageSize, PageFlags::Present | PageFlags::Write);
-}
-
 [[nodiscard]] bool validate_checksum(const void* base, size_t length)
 {
     const auto* bytes = static_cast<const uint8_t*>(base);
@@ -171,7 +159,7 @@ bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t len
     {
         return false;
     }
-    return map_identity_range(kernel_vm, physical_address, length);
+    return map_direct_range(kernel_vm, physical_address, length);
 }
 
 template<typename T>
@@ -181,7 +169,7 @@ template<typename T>
     {
         return nullptr;
     }
-    return reinterpret_cast<const T*>(physical_address);
+    return kernel_physical_pointer<const T>(physical_address);
 }
 
 [[nodiscard]] const AcpiSdtHeader* map_acpi_table(VirtualMemory& kernel_vm,
@@ -208,7 +196,7 @@ template<typename T>
     {
         return nullptr;
     }
-    header = reinterpret_cast<const AcpiSdtHeader*>(physical_address);
+    header = kernel_physical_pointer<const AcpiSdtHeader>(physical_address);
     if(!validate_checksum(header, header->length))
     {
         debug("acpi: checksum failed at 0x")(physical_address, 16)();
@@ -424,7 +412,7 @@ template<typename T>
         return false;
     }
 
-    const auto* rsdp = reinterpret_cast<const AcpiRsdp*>(boot_info.rsdp_physical);
+    const auto* rsdp = kernel_physical_pointer<const AcpiRsdp>(boot_info.rsdp_physical);
     if(!signature_equals(rsdp->signature, "RSD PTR ", 8))
     {
         debug("acpi: RSDP signature invalid")();

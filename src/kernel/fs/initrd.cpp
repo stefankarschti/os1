@@ -2,6 +2,8 @@
 // future VFS can provide path lookup and filesystem-backed exec.
 #include "fs/initrd.hpp"
 
+#include "handoff/memory_layout.h"
+
 namespace
 {
 // The boot path still publishes the initrd as a boot module rather than a
@@ -136,7 +138,7 @@ bool for_each_initrd_file(InitrdFileVisitor visitor, void* context)
     }
 
     const BootModuleInfo& module = g_boot_info->modules[0];
-    const uint8_t* cursor = reinterpret_cast<const uint8_t*>(module.physical_start);
+    const uint8_t* cursor = kernel_physical_pointer<const uint8_t>(module.physical_start);
     const uint8_t* end = cursor + module.length;
     while((cursor + sizeof(CpioNewcHeader)) <= end)
     {

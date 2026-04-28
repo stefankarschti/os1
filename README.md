@@ -2,7 +2,7 @@
 
 `os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status and a full system diagram in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md), the longer-term direction in [GOALS.md](GOALS.md), the curated external standards and specification index in [doc/REFERENCES.md](doc/REFERENCES.md), a code-grounded project review in [doc/latest-review.md](doc/latest-review.md), the completed shell/operator milestone captured in [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), and the 2026 source-tree refactor summary in [doc/2026-04-26-source-tree-refactor.md](doc/2026-04-26-source-tree-refactor.md).
 
-Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared low-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, starts a small `/bin/init` that `exec`s `/bin/sh`, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` block device, validates raw-sector reads from a generated test disk, and lands at a serial-drivable interactive shell with structured observability and initrd-backed command execution.
+Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared higher-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path, loading the same kernel physically before entering it at its higher-half virtual address. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, starts a small `/bin/init` that `exec`s `/bin/sh`, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through `int $0x80`, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` block device, validates raw-sector reads from a generated test disk, and lands at a serial-drivable interactive shell with structured observability and initrd-backed command execution.
 
 In the source tree, the two boot frontends are explicit peers under `src/boot/`: the legacy raw-image BIOS path lives in `src/boot/bios/`, and the modern UEFI shim lives in `src/boot/limine/`. The kernel tree is now split by ownership rather than by bring-up history: `src/kernel/core/` owns orchestration and trap flow, `handoff/` owns the boot contract, `mm/` owns physical/virtual memory, `proc/` and `sched/` split process/thread lifecycle from scheduling policy, `console/` owns terminal streams, `drivers/` owns hardware drivers, `platform/` owns machine discovery, and `storage/`, `vfs/`, and `security/` mark the intended growth seams. The detailed source-structure contract now lives in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md).
 
@@ -46,18 +46,10 @@ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/x86_64-elf.cmake
 cmake --build build
 ```
 
-The default build now produces the modern UEFI ISO:
+The default build now produces both boot artifacts and runs the layout checks
+needed by the smoke tests:
 
 - `build/artifacts/os1.iso`
-
-Build the explicit legacy BIOS image when needed:
-
-```sh
-cmake --build build --target os1_bios_image
-```
-
-That produces:
-
 - `build/artifacts/os1.raw`
 
 ## VS Code CMake Tools
@@ -170,7 +162,12 @@ Or run the registered CTest suite directly:
 ctest --test-dir build --output-on-failure
 ```
 
-The smoke tests capture serial logs and assert stable boot, shell, observability, child-launch, and exec markers for both boot paths. CI drives the shell through serial input rather than relying on display-only interaction, so local smoke transcripts closely match the automated coverage.
+After a normal `cmake --build build`, the registered CTest suite is
+self-contained for both UEFI and BIOS smokes. The smoke tests capture serial
+logs and assert stable boot, shell, observability, child-launch, and exec
+markers for both boot paths. CI drives the shell through serial input rather
+than relying on display-only interaction, so local smoke transcripts closely
+match the automated coverage.
 
 ## Local CI With `act`
 
@@ -201,8 +198,8 @@ The build writes outputs under `build/artifacts/`:
 
 - `boot.bin` — 512-byte BIOS MBR boot sector
 - `kernel16.bin` — BIOS stage-1 loader with E820, EDD reads, long-mode entry, and ELF expansion
-- `kernel.elf` — shared low-half kernel core used by the BIOS path and loaded as a module by the Limine path
-- `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state and enters the shared kernel
+- `kernel.elf` — shared higher-half kernel core used by the BIOS path and loaded as a module by the Limine path
+- `kernel_limine.elf` — higher-half Limine frontend that normalizes boot state, loads the shared kernel by physical `PT_LOAD` ranges, and enters it through temporary transition mappings
 - `cpu_start.bin` — AP trampoline blob used for debugging / disassembly
 - `initrd.cpio` — `cpio newc` initrd archive containing `/bin/init`, `/bin/sh`, `/bin/yield`, `/bin/fault`, `/bin/copycheck`, and `/bin/ascii`
 - `virtio-test-disk.raw` — generated raw disk image used to validate the `virtio-blk` path during boot and smoke tests
@@ -217,6 +214,8 @@ The build writes outputs under `build/artifacts/`:
 - `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
 
 For BIOS compatibility, `os1.raw` reserves fixed slots for `kernel16.bin`, `kernel.elf`, and `initrd.cpio`. Those slot sizes are defined by `OS1_LOADER16_IMAGE_SECTOR_COUNT`, `OS1_KERNEL_IMAGE_SECTOR_COUNT`, and `OS1_INITRD_IMAGE_SECTOR_COUNT` in [CMakeLists.txt](CMakeLists.txt). The kernel BIOS slot now matches the reserved low-physical kernel window, and the build fails before writing `os1.raw` if `kernel.elf` no longer fits its disk slot, its low-memory staging buffer, or its reserved execution window. `initrd.cpio` is still checked against its configured slot. To expand BIOS storage space, raise the corresponding sector-count or reserved-window value and rebuild; the generated BIOS layout follows those values automatically while the raw image stays padded to 1 MiB.
+
+The smoke targets cover both boot paths, including the baseline shell, `exec`, `spawn`, and observability flows, so higher-half regressions are exercised on both UEFI and BIOS.
 
 `/bin/ascii` prints the `0x00..0x7F` ASCII table in 8 columns and exists mainly as a visual check that the framebuffer text backend is rendering the bundled 8x16 font correctly.
 

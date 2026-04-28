@@ -129,6 +129,13 @@ Recommended policy:
 
 This is important because it keeps the kernel architecture consistent between boot paths.
 
+Current implementation note:
+
+- the Limine shim now loads `kernel.elf` by physical `PT_LOAD` ranges using `p_paddr`
+- it validates the higher-half `p_vaddr == p_paddr + kKernelVirtualOffset` contract
+- it installs only the temporary transition mappings needed for the handoff
+- the shared kernel then installs its own higher-half and direct-map CR3
+
 ### 5. Add Framebuffer Handoff But Not Mandatory Full Graphics Yet
 
 The modern path should expose framebuffer information through `BootInfo`, even if the first framebuffer console is simple.
@@ -207,12 +214,11 @@ Likely new or updated files:
 Target flow for the modern path:
 
 1. Firmware starts Limine.
-2. Limine loads the ELF64 kernel and initrd module.
-3. Limine provides memory map, framebuffer, ACPI pointers, and metadata.
-4. Limine adapter converts responses into `BootInfo`.
-5. Kernel copies `BootInfo` data into owned memory.
-6. Kernel builds and activates its own page tables.
-7. Kernel continues normal initialization.
+2. Limine loads `kernel_limine.elf`, `kernel.elf`, and the initrd module.
+3. The Limine shim loads the shared kernel's `PT_LOAD` segments to their physical destinations and builds normalized `BootInfo` data.
+4. Kernel copies `BootInfo` data into owned memory.
+5. Kernel builds and activates its own higher-half plus direct-map page tables.
+6. Kernel continues normal initialization.
 
 The kernel should not permanently rely on Limine-owned mappings or data lifetimes.
 

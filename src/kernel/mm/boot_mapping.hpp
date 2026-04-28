@@ -8,5 +8,15 @@
 class VirtualMemory;
 
 // Map the physical byte range `[physical_start, physical_start + length)` into
-// the same virtual addresses with supervisor read/write permissions.
-bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length);
+// the same low virtual addresses for the remaining bootstrap-only identity
+// exceptions such as the AP trampoline and live handoff stack.
+bool map_bootstrap_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length);
+
+// Map the physical byte range `[physical_start, physical_start + length)` into
+// the kernel direct map with supervisor read/write, non-executable permissions.
+bool map_direct_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length);
+
+// Map an MMIO byte range into the kernel's device-access window. The current
+// higher-half migration backs this with the direct map, but call sites stay
+// explicit so later cacheability/pat work has one owner.
+bool map_mmio_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length);

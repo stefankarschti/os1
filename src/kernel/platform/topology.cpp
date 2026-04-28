@@ -5,6 +5,7 @@
 #include "arch/x86_64/apic/lapic.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "debug/debug.hpp"
+#include "handoff/memory_layout.h"
 #include "platform/state.hpp"
 
 int ismp = 0;
@@ -44,8 +45,8 @@ bool allocate_cpus_from_topology()
     debug("acpi: primary ioapic id=")(primary.id)(" addr=0x")(primary.address,
                                                               16)(" gsi_base=")(primary.gsi_base)();
     ioapicid = static_cast<uint8_t>(primary.id);
-    ioapic = reinterpret_cast<volatile struct ioapic*>(static_cast<uint64_t>(primary.address));
-    lapic = reinterpret_cast<volatile uint32_t*>(g_platform.lapic_base);
+    ioapic = kernel_physical_pointer<volatile struct ioapic>(static_cast<uint64_t>(primary.address));
+    lapic = kernel_physical_pointer<volatile uint32_t>(g_platform.lapic_base);
     ioapic_set_primary(primary.gsi_base);
     return true;
 }

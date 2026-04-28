@@ -43,7 +43,7 @@ bool VirtualMemory::ensure_root(void)
         return false;
     }
 
-    memsetq((void*)root_, 0, kPageSize);
+    memsetq(kernel_physical_pointer<void>(root_), 0, kPageSize);
     initialized_ = true;
     debug("root alloc 0x")(root_, 16)();
     return true;
@@ -73,7 +73,7 @@ bool VirtualMemory::ensure_table_entry(uint64_t& entry, bool user_visible)
         {
             return false;
         }
-        memsetq((void*)new_page, 0, kPageSize);
+        memsetq(kernel_physical_pointer<void>(new_page), 0, kPageSize);
         entry = (new_page & kEntryAddressMask) | table_entry_flags(user_visible);
         return true;
     }
@@ -96,7 +96,7 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
         return false;
     }
 
-    uint64_t* pml4 = (uint64_t*)root_;
+    uint64_t* pml4 = kernel_physical_pointer<uint64_t>(root_);
     uint64_t* pml3 = nullptr;
     uint64_t* pml2 = nullptr;
     uint64_t* pml1 = nullptr;
@@ -113,7 +113,7 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
     {
         return false;
     }
-    pml3 = (uint64_t*)(pml4e & kEntryAddressMask);
+    pml3 = kernel_physical_pointer<uint64_t>(pml4e & kEntryAddressMask);
 
     uint64_t& pml3e = pml3[page_index(virtual_address, 30)];
     if(create)
@@ -127,7 +127,7 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
     {
         return false;
     }
-    pml2 = (uint64_t*)(pml3e & kEntryAddressMask);
+    pml2 = kernel_physical_pointer<uint64_t>(pml3e & kEntryAddressMask);
 
     uint64_t& pml2e = pml2[page_index(virtual_address, 21)];
     if(create)
@@ -141,21 +141,10 @@ bool VirtualMemory::walk_to_leaf(uint64_t virtual_address,
     {
         return false;
     }
-    pml1 = (uint64_t*)(pml2e & kEntryAddressMask);
+    pml1 = kernel_physical_pointer<uint64_t>(pml2e & kEntryAddressMask);
 
     *leaf_entry = &pml1[page_index(virtual_address, 12)];
     return true;
-}
-
-bool VirtualMemory::allocate(uint64_t start_address, uint64_t num_pages, bool identity_map)
-{
-    if(identity_map)
-    {
-        return map_physical(
-            start_address, start_address, num_pages, PageFlags::Present | PageFlags::Write);
-    }
-
-    return allocate_and_map(start_address, num_pages, PageFlags::Present | PageFlags::Write);
 }
 
 bool VirtualMemory::map_physical(uint64_t virtual_address,
@@ -206,7 +195,7 @@ bool VirtualMemory::allocate_and_map(uint64_t virtual_address,
         {
             first_page = physical_page;
         }
-        memsetq((void*)physical_page, 0, kPageSize);
+        memsetq(kernel_physical_pointer<void>(physical_page), 0, kPageSize);
         if(!map_physical(
                virtual_address + i * kPageSize, physical_page, 1, flags | PageFlags::Present))
         {
@@ -253,25 +242,25 @@ bool VirtualMemory::translate(uint64_t virtual_address,
         return false;
     }
 
-    const uint64_t* pml4 = (const uint64_t*)root_;
+    const uint64_t* pml4 = kernel_physical_pointer<const uint64_t>(root_);
     const uint64_t pml4e = pml4[page_index(virtual_address, 39)];
     if(0 == pml4e)
     {
         return false;
     }
-    const uint64_t* pml3 = (const uint64_t*)(pml4e & kEntryAddressMask);
+    const uint64_t* pml3 = kernel_physical_pointer<const uint64_t>(pml4e & kEntryAddressMask);
     const uint64_t pml3e = pml3[page_index(virtual_address, 30)];
     if(0 == pml3e)
     {
         return false;
     }
-    const uint64_t* pml2 = (const uint64_t*)(pml3e & kEntryAddressMask);
+    const uint64_t* pml2 = kernel_physical_pointer<const uint64_t>(pml3e & kEntryAddressMask);
     const uint64_t pml2e = pml2[page_index(virtual_address, 21)];
     if(0 == pml2e)
     {
         return false;
     }
-    const uint64_t* pml1 = (const uint64_t*)(pml2e & kEntryAddressMask);
+    const uint64_t* pml1 = kernel_physical_pointer<const uint64_t>(pml2e & kEntryAddressMask);
     const uint64_t pml1e = pml1[page_index(virtual_address, 12)];
     if(0 == pml1e)
     {
@@ -283,19 +272,17 @@ bool VirtualMemory::translate(uint64_t virtual_address,
     return true;
 }
 
-bool VirtualMemory::clone_kernel_pml4_entry(uint64_t slot, uint64_t source_root)
+bool VirtualMemory::clone_kernel_mappings(uint64_t source_root)
 {
     if(!ensure_root())
     {
         return false;
     }
-    if(slot >= 512)
-    {
-        return false;
-    }
-    uint64_t* target = (uint64_t*)root_;
-    const uint64_t* source = (const uint64_t*)source_root;
-    target[slot] = source[slot];
+
+    uint64_t* target = kernel_physical_pointer<uint64_t>(root_);
+    const uint64_t* source = kernel_physical_pointer<const uint64_t>(source_root);
+    target[kKernelPml4Index] = source[kKernelPml4Index];
+    target[kDirectMapPml4Index] = source[kDirectMapPml4Index];
     return true;
 }
 
@@ -306,7 +293,7 @@ void VirtualMemory::destroy_table(uint64_t& entry, int level, bool free_leaf_pag
         return;
     }
 
-    uint64_t* table = (uint64_t*)(entry & kEntryAddressMask);
+    uint64_t* table = kernel_physical_pointer<uint64_t>(entry & kEntryAddressMask);
     if(level > 1)
     {
         for(int i = 0; i < 512; ++i)
@@ -340,7 +327,7 @@ bool VirtualMemory::destroy_user_slot(uint64_t slot)
         return false;
     }
 
-    uint64_t* pml4 = (uint64_t*)root_;
+    uint64_t* pml4 = kernel_physical_pointer<uint64_t>(root_);
     destroy_table(pml4[slot], 4, true);
     return true;
 }
@@ -371,7 +358,7 @@ bool VirtualMemory::free()
 {
     if(initialized_)
     {
-        uint64_t* pml4 = (uint64_t*)root_;
+        uint64_t* pml4 = kernel_physical_pointer<uint64_t>(root_);
         for(int i = 0; i < 512; ++i)
         {
             if(pml4[i])

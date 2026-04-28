@@ -1,5 +1,5 @@
-// Long-mode page-table manager for kernel identity mappings and per-process
-// user address spaces.
+// Long-mode page-table manager for the higher-half kernel and per-process user
+// address spaces.
 #pragma once
 
 #include <stddef.h>
@@ -43,8 +43,6 @@ public:
 
     // attach this wrapper to an externally owned page-table root.
     void attach(uint64_t root);
-    // allocate or identity-map a contiguous virtual page range.
-    bool allocate(uint64_t start_address, uint64_t num_pages, bool identity_map);
     // Map existing physical pages into a virtual range with explicit flags.
     bool map_physical(uint64_t virtual_address,
                       uint64_t physical_address,
@@ -59,8 +57,8 @@ public:
     bool protect(uint64_t virtual_address, uint64_t num_pages, PageFlags flags);
     // translate one virtual address and report its physical address plus leaf flags.
     bool translate(uint64_t virtual_address, uint64_t& physical_address, uint64_t& flags) const;
-    // Clone a kernel PML4 slot from another root into this address space.
-    bool clone_kernel_pml4_entry(uint64_t slot, uint64_t source_root);
+    // Clone the steady-state supervisor mappings required in user CR3s.
+    bool clone_kernel_mappings(uint64_t source_root);
     // Destroy an entire PML4 slot and optionally all user leaf pages beneath it.
     bool destroy_user_slot(uint64_t slot);
     // free mapped physical pages in a virtual range.

@@ -130,6 +130,12 @@ Design rule:
 - the kernel should not become tightly coupled to a single boot path if avoidable
 - BIOS compatibility should not dominate long-term architecture decisions now that the UEFI path exists
 
+Address-space rule:
+
+- keep the higher-half shared kernel plus kernel-owned direct map as the baseline runtime memory model
+- do not reintroduce a broad low identity map beyond the narrow bootstrap exceptions still needed for handoff and AP startup
+- keep KASLR out of scope until the kernel has a stronger threat model and more mature virtual-memory machinery
+
 ### Platform discovery
 
 The project should support modern machine discovery on `x86_64`, including:

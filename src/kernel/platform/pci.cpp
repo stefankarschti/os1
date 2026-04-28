@@ -5,6 +5,7 @@
 
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "util/string.h"
 
@@ -20,42 +21,29 @@ namespace
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-bool map_identity_range(VirtualMemory& vm, uint64_t physical_start, uint64_t length)
-{
-    if((0 == length) || (0 == physical_start))
-    {
-        return true;
-    }
-
-    const uint64_t start = align_down(physical_start, kPageSize);
-    const uint64_t end = align_up(physical_start + length, kPageSize);
-    return vm.map_physical(
-        start, start, (end - start) / kPageSize, PageFlags::Present | PageFlags::Write);
-}
-
 [[nodiscard]] uint8_t pci_read8(uint64_t config_physical, uint16_t offset)
 {
-    return *reinterpret_cast<volatile uint8_t*>(config_physical + offset);
+    return *kernel_physical_pointer<volatile uint8_t>(config_physical + offset);
 }
 
 [[nodiscard]] uint16_t pci_read16(uint64_t config_physical, uint16_t offset)
 {
-    return *reinterpret_cast<volatile uint16_t*>(config_physical + offset);
+    return *kernel_physical_pointer<volatile uint16_t>(config_physical + offset);
 }
 
 [[nodiscard]] uint32_t pci_read32(uint64_t config_physical, uint16_t offset)
 {
-    return *reinterpret_cast<volatile uint32_t*>(config_physical + offset);
+    return *kernel_physical_pointer<volatile uint32_t>(config_physical + offset);
 }
 
 void pci_write16(uint64_t config_physical, uint16_t offset, uint16_t value)
 {
-    *reinterpret_cast<volatile uint16_t*>(config_physical + offset) = value;
+    *kernel_physical_pointer<volatile uint16_t>(config_physical + offset) = value;
 }
 
 void pci_write32(uint64_t config_physical, uint16_t offset, uint32_t value)
 {
-    *reinterpret_cast<volatile uint32_t*>(config_physical + offset) = value;
+    *kernel_physical_pointer<volatile uint32_t>(config_physical + offset) = value;
 }
 
 [[nodiscard]] uint8_t header_type_kind(uint8_t header_type)
@@ -208,7 +196,7 @@ bool enumerate_pci(VirtualMemory& kernel_vm,
         const PciEcamRegion& region = regions[region_index];
         const uint64_t region_size = static_cast<uint64_t>(region.bus_end - region.bus_start + 1u)
                                      << 20;
-        if(!map_identity_range(kernel_vm, region.base_address, region_size))
+        if(!map_mmio_range(kernel_vm, region.base_address, region_size))
         {
             return false;
         }

@@ -163,12 +163,19 @@ For the first user-mode milestone, keep the address-space design simple:
 
 Recommended initial layout:
 
-- kernel mappings: existing supervisor-only pages
-- user text base: fixed virtual range such as `0x0000000000400000`
-- user stack top: fixed high user-space address such as `0x0000000080000000`
+- kernel mappings: supervisor-only higher-half kernel plus the supervisor-only direct-map slot
+- user slot base: `0x0000008000000000` at `kUserPml4Index = 1`
+- user text base: `0x0000008000400000`
+- user stack top: `0x0000008040000000`
 - one guard page below the user stack
 
-This avoids introducing a higher-half-kernel rewrite in the same milestone. Protection comes from page permissions, not virtual-address aesthetics.
+Historical note: the original milestone intentionally avoided a simultaneous higher-half-kernel rewrite. The implemented system now uses a higher-half shared kernel plus a direct map, but the Milestone 2 isolation model still holds: protection comes from page permissions and privilege level, and user mappings remain isolated in their own PML4 slot.
+
+Current supervisor-mapping rule:
+
+- user CR3s clone only the required supervisor mappings
+- that currently means the higher-half kernel slot and the direct-map slot
+- user CR3s no longer clone low slot `0`
 
 ### 4. Extend Paging Support With User Permissions
 

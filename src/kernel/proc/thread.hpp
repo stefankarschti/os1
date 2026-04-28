@@ -110,6 +110,8 @@ extern "C"
 
     // Assembly context-switch entry: resume execution on the supplied thread frame.
     void start_multi_task(Thread* thread);
+    // Move the BSP onto a mapped kernel stack before restoring the first thread.
+    void enter_first_thread(Thread* thread, uint64_t stack_top);
 
 #ifdef __cplusplus
 }
