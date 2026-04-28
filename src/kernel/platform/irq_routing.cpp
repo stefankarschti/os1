@@ -1,11 +1,11 @@
-// Interrupt routing policy for ISA IRQs after ACPI or legacy MP discovery.
+// Interrupt routing policy for ISA IRQs after ACPI topology discovery.
 #include "platform/irq_routing.hpp"
 
 #include "arch/x86_64/apic/ioapic.hpp"
-#include "arch/x86_64/apic/mp.hpp"
 #include "debug/debug.hpp"
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
+#include "platform/topology.hpp"
 
 bool add_legacy_interrupt_override(uint8_t bus_irq, uint32_t global_irq, uint16_t flags)
 {

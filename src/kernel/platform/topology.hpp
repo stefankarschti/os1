@@ -2,8 +2,17 @@
 // records into the x86_64 CPU/APIC globals used by low-level startup code.
 #pragma once
 
+#include <stdint.h>
+
+struct ioapic;
+
+extern int ismp;
+extern int ncpu;
+extern uint8_t ioapicid;
+extern volatile struct ioapic* ioapic;
+
 // allocate CPU records and publish LAPIC/IOAPIC addresses from ACPI topology.
 bool allocate_cpus_from_topology();
 
-// clear x86_64 MP/APIC globals before falling back to legacy MP discovery.
-void reset_mp_state_for_fallback();
+// clear x86_64 CPU/APIC discovery globals before publishing ACPI topology.
+void reset_topology_state();

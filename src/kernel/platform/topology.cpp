@@ -3,17 +3,19 @@
 
 #include "arch/x86_64/apic/ioapic.hpp"
 #include "arch/x86_64/apic/lapic.hpp"
-#include "arch/x86_64/apic/mp.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "debug/debug.hpp"
 #include "platform/state.hpp"
 
+int ismp = 0;
+int ncpu = 0;
+uint8_t ioapicid = 0;
+volatile struct ioapic* ioapic = nullptr;
+
 bool allocate_cpus_from_topology()
 {
+    reset_topology_state();
     ismp = 1;
-    ncpu = 0;
-    ioapicid = 0;
-    ioapic = nullptr;
 
     for(size_t i = 0; i < g_platform.cpu_count; ++i)
     {
@@ -48,7 +50,7 @@ bool allocate_cpus_from_topology()
     return true;
 }
 
-void reset_mp_state_for_fallback()
+void reset_topology_state()
 {
     ismp = 0;
     ncpu = 0;

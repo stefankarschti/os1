@@ -94,7 +94,7 @@ Current kernel folders:
 | [../src/kernel/syscall/](../src/kernel/syscall) | User/kernel ABI numbers, register-level dispatch, and individual syscall bodies. | `abi.hpp`, `dispatch.hpp`, `process.hpp`, `console_read.hpp`, `wait.hpp`, `observe.hpp`; syscall numbers live in [../src/uapi/os1/syscall_numbers.h](../src/uapi/os1/syscall_numbers.h) |
 | [../src/kernel/console/](../src/kernel/console) | Logical terminals, console byte streams, serial/keyboard line input, and terminal switching policy. | `terminal.*`, `console.*`, `console_input.*`, `terminal_switcher.*`, `pty/README.md` |
 | [../src/kernel/drivers/](../src/kernel/drivers) | Device-specific hardware drivers. Driver folders must not own platform-wide discovery policy. | `block/virtio_blk.*`, `display/text_display.*`, `input/ps2_keyboard.*`, `timer/pit.*`, future `bus/`, `net/`, `virtio/` notes |
-| [../src/kernel/platform/](../src/kernel/platform) | ACPI/PCI machine discovery, normalized platform state, CPU/APIC topology publication, legacy MP fallback, ISA IRQ routing, and device-probe sequencing. | `platform.hpp`, `types.hpp`, `state.hpp`, `init.cpp`, `acpi.hpp`, `pci.hpp`, `topology.hpp`, `irq_routing.hpp`, `legacy_mp.hpp`, `device_probe.hpp` |
+| [../src/kernel/platform/](../src/kernel/platform) | ACPI/PCI machine discovery, normalized platform state, CPU/APIC topology publication, ISA IRQ routing, and device-probe sequencing. | `platform.hpp`, `types.hpp`, `state.hpp`, `init.cpp`, `acpi.hpp`, `pci.hpp`, `topology.hpp`, `irq_routing.hpp`, `device_probe.hpp` |
 | [../src/kernel/storage/](../src/kernel/storage) | Generic storage abstractions above concrete block drivers. | `block_device.hpp`, `README.md` |
 | [../src/kernel/fs/](../src/kernel/fs) | Concrete filesystem/archive parsers. Today this is the boot initrd CPIO parser, not a general namespace. | `initrd.*` |
 | [../src/kernel/vfs/](../src/kernel/vfs) | Future filesystem namespace layer: mount table, path lookup, file descriptors, and filesystem-backed `exec`. | `README.md` |
@@ -192,7 +192,7 @@ Key invariants visible in the diagram:
 
 - Two boot frontends, one `BootInfo` at a well-known low-memory address, one `kernel_main` entry.
 - The kernel never reads Limine-virtual pointers; everything is translated to physical before the kernel sees it.
-- ACPI drives both CPU topology (MADT) and PCIe windows (MCFG). Legacy MP tables are a BIOS-only fallback.
+- ACPI drives both CPU topology (MADT) and PCIe windows (MCFG) on both boot paths.
 - User space reaches the kernel through a single interrupt gate (vector 48) and reads kernel state through one UAPI header.
 
 ## Boot And Runtime Workflow
@@ -272,7 +272,7 @@ BootInfo.rsdp_physical
  RunVirtioBlkSmoke
 ```
 
-On Limine, missing or malformed ACPI tables are a hard error. On BIOS, the legacy MP-table fallback (`UseLegacyMpFallback`) is still accepted to keep the compatibility path viable.
+Missing or malformed ACPI tables are a hard error on both boot paths. BIOS remains supported as a boot frontend, but it now depends on the same ACPI-derived topology contract as Limine.
 
 ### Phase 5 — operator-visible runtime
 
@@ -791,7 +791,7 @@ This deferred teardown is important. The kernel does not free the current thread
 
 ## Modern Platform Support
 
-Milestone 4 replaces legacy MP-table discovery as the primary platform path.
+Milestone 4 has completed the move to ACPI-derived platform discovery and removed the legacy MP-table path.
 
 The kernel now:
 

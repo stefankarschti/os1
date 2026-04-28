@@ -12,9 +12,9 @@
 
 #include "arch/x86_64/apic/ioapic.hpp"
 
-#include "arch/x86_64/apic/mp.hpp"
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "debug/debug.hpp"
+#include "platform/topology.hpp"
 #include "stdint.h"
 #include "util/assert.hpp"
 
