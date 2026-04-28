@@ -1,0 +1,12 @@
+// Generated kernel boot-envelope constants shared by BIOS assembly, the Limine
+// shim, and the kernel handoff code.
+#pragma once
+
+#include <stdint.h>
+
+constexpr uint64_t kKernelImageLoadAddress = @OS1_KERNEL_IMAGE_LOAD_ADDRESS@;
+constexpr uint64_t kInitrdLoadAddress = @OS1_INITRD_LOAD_ADDRESS@;
+constexpr uint64_t kKernelReservedPhysicalStart = @OS1_KERNEL_RESERVED_PHYSICAL_START@;
+constexpr uint64_t kKernelReservedPhysicalBytes = @OS1_KERNEL_RESERVED_PHYSICAL_BYTES@;
+constexpr uint64_t kKernelReservedPhysicalEnd = @OS1_KERNEL_RESERVED_PHYSICAL_END@;
+constexpr uint64_t kKernelPostImageReserveBytes = @OS1_KERNEL_POST_IMAGE_RESERVE_BYTES@;

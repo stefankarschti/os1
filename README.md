@@ -216,7 +216,7 @@ The build writes outputs under `build/artifacts/`:
 - `smoke-spawn.log` / `smoke-spawn-bios.log` — captured child-launch smoke serial logs
 - `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
 
-For BIOS compatibility, `os1.raw` reserves fixed slots for `kernel16.bin`, `kernel.elf`, and `initrd.cpio`. Those slot sizes are defined by `OS1_LOADER16_IMAGE_SECTOR_COUNT`, `OS1_KERNEL_IMAGE_SECTOR_COUNT`, and `OS1_INITRD_IMAGE_SECTOR_COUNT` in [CMakeLists.txt](CMakeLists.txt). The build now fails before writing `os1.raw` if `kernel.elf` or `initrd.cpio` outgrow their configured slot. To expand BIOS storage space, raise the corresponding sector-count value and rebuild; the generated BIOS layout follows those values automatically while the raw image stays padded to 1 MiB.
+For BIOS compatibility, `os1.raw` reserves fixed slots for `kernel16.bin`, `kernel.elf`, and `initrd.cpio`. Those slot sizes are defined by `OS1_LOADER16_IMAGE_SECTOR_COUNT`, `OS1_KERNEL_IMAGE_SECTOR_COUNT`, and `OS1_INITRD_IMAGE_SECTOR_COUNT` in [CMakeLists.txt](CMakeLists.txt). The kernel BIOS slot now matches the reserved low-physical kernel window, and the build fails before writing `os1.raw` if `kernel.elf` no longer fits its disk slot, its low-memory staging buffer, or its reserved execution window. `initrd.cpio` is still checked against its configured slot. To expand BIOS storage space, raise the corresponding sector-count or reserved-window value and rebuild; the generated BIOS layout follows those values automatically while the raw image stays padded to 1 MiB.
 
 `/bin/ascii` prints the `0x00..0x7F` ASCII table in 8 columns and exists mainly as a visual check that the framebuffer text backend is rendering the bundled 8x16 font correctly.
 

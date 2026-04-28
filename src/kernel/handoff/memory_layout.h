@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "kernel_layout.hpp"  // IWYU pragma: export
+
 // These fixed addresses are still part of the early BIOS-era bring-up path.
 // Milestone 1 names them explicitly so ownership is clear even before later
 // milestones make more of them dynamic.
@@ -37,10 +39,8 @@ constexpr size_t kBootMemoryRegionCapacity = 128;
 constexpr uint64_t kEarlyLongModePageTablesAddress = 0xA000;
 
 // The BIOS loader expands the kernel ELF from this low-memory image buffer.
-constexpr uint64_t kKernelImageLoadAddress = 0x10000;
-// The BIOS loader keeps the initrd below 1 MiB so legacy CHS transfers can
-// reach it without relying on flaky EDD flat-address packet support.
-constexpr uint64_t kInitrdLoadAddress = 0x80000;
+// The generated kernel_layout.hpp contract keeps this staging address aligned
+// with the BIOS raw-image slot and the initrd staging buffer.
 
 // The AP trampoline communicates through a tiny parameter block in low memory
 // because secondary CPUs start before they have per-CPU stacks or rich state.
@@ -58,8 +58,7 @@ constexpr uint64_t kPageFrameBitmapQwordLimit = kPageFrameBitmapSizeBytes / size
 
 // Early low-memory scratch remains reserved until boot no longer depends on it.
 constexpr uint64_t kEarlyReservedPhysicalEnd = 0x20000;
-constexpr uint64_t kKernelReservedPhysicalStart = 0x100000;
-constexpr uint64_t kKernelReservedPhysicalEnd = 0x160000;
+
 
 // Milestone 2 keeps user mappings in their own PML4 slot because the kernel
 // still relies on low supervisor identity mappings for physical-memory access.
