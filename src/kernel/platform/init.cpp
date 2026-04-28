@@ -8,7 +8,6 @@
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
 #include "platform/device_probe.hpp"
-#include "platform/legacy_mp.hpp"
 #include "platform/pci.hpp"
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
@@ -32,12 +31,9 @@ bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm)
                                                        g_platform.ecam_region_count);
     if(!acpi_available)
     {
-        if(BootSource::Limine == boot_info.source)
-        {
-            debug("platform: ACPI required on modern boot path")();
-            return false;
-        }
-        return use_legacy_mp_fallback(kernel_vm);
+        (void)kernel_vm;
+        debug("platform: ACPI required; legacy MP discovery removed")();
+        return false;
     }
 
     if(!allocate_cpus_from_topology())

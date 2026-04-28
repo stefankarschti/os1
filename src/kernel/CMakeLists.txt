@@ -5,7 +5,6 @@ set(KERNEL_ARCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/arch/x86_64")
 set(KERNEL_ARCH_SOURCES
   arch/x86_64/apic/ioapic.cpp
   arch/x86_64/apic/lapic.cpp
-  arch/x86_64/apic/mp.cpp
   arch/x86_64/apic/pic.cpp
   arch/x86_64/cpu/cpu.cpp
   arch/x86_64/interrupt/interrupt.cpp
@@ -55,7 +54,6 @@ set(KERNEL_PLATFORM_SOURCES
   platform/device_probe.cpp
   platform/init.cpp
   platform/irq_routing.cpp
-  platform/legacy_mp.cpp
   platform/pci.cpp
   platform/state.cpp
   platform/topology.cpp

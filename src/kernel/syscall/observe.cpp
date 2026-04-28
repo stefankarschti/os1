@@ -2,11 +2,11 @@
 
 #include <os1/observe.h>
 
-#include "arch/x86_64/apic/mp.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "fs/initrd.hpp"
 #include "mm/user_copy.hpp"
 #include "platform/platform.hpp"
+#include "platform/topology.hpp"
 #include "proc/thread.hpp"
 #include "util/fixed_string.hpp"
 

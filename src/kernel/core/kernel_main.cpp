@@ -8,7 +8,6 @@
 
 #include "arch/x86_64/apic/ioapic.hpp"
 #include "arch/x86_64/apic/lapic.hpp"
-#include "arch/x86_64/apic/mp.hpp"
 #include "arch/x86_64/apic/pic.hpp"
 #include "arch/x86_64/cpu/control_regs.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
@@ -28,6 +27,7 @@
 #include "mm/boot_reserve.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/platform.hpp"
+#include "platform/topology.hpp"
 #include "proc/thread.hpp"
 #include "proc/user_program.hpp"
 #include "sched/idle.hpp"

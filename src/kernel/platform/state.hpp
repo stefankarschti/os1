@@ -10,7 +10,6 @@ struct PlatformState
 {
     bool initialized;
     bool acpi_active;
-    bool used_legacy_mp_fallback;
     uint64_t lapic_base;
     size_t cpu_count;
     CpuInfo cpus[kPlatformMaxCpus];

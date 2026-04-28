@@ -11,7 +11,7 @@ constexpr size_t kPlatformMaxInterruptOverrides = 32;
 constexpr size_t kPlatformMaxPciEcamRegions = 8;
 constexpr size_t kPlatformMaxPciDevices = 256;
 
-// Normalized CPU topology record derived from ACPI MADT or legacy MP tables.
+// Normalized CPU topology record derived from ACPI MADT records.
 struct CpuInfo
 {
     uint32_t apic_id;
