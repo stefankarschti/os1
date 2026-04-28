@@ -1,6 +1,6 @@
 # GOALS
 
-This document captures the long-term direction of `os1`. For the concrete snapshot of what exists today, see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) (which now includes a system diagram and end-to-end workflow). For the build, run, and smoke workflow, see [README.md](README.md). For a full code-grounded project review, see [doc/2026-04-23-review.md](doc/2026-04-23-review.md). For the most recent completed operator-environment design, see [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md).
+This document captures the long-term direction of `os1`. For the concrete snapshot of what exists today, see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) (which now includes a system diagram and end-to-end workflow). For the build, run, and smoke workflow, see [README.md](README.md). For a full code-grounded project review, see [doc/latest-review.md](doc/latest-review.md). For the most recent completed operator-environment design, see [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md).
 
 ## Vision
 
@@ -100,6 +100,17 @@ Practical rule:
 - architect for portability early
 - implement portability only when justified
 
+Portability boundary rules:
+
+- the generic kernel core must not assume x86 interrupt, paging, or memory-ordering semantics
+- architecture ports must define the boot and handoff contract they consume
+- architecture ports must define CPU bring-up
+- architecture ports must define MMU and paging implementation
+- architecture ports must define trap and interrupt entry
+- architecture ports must define a timer source
+- architecture ports must define their platform-discovery source, such as ACPI, Device Tree, or SBI and other firmware contracts
+- the board or platform layer must stay separate from the ISA layer
+
 ### Boot strategy
 
 Current path:
@@ -125,9 +136,14 @@ The project should support modern machine discovery on `x86_64`, including:
 
 - memory map handoff
 - ACPI discovery and parsing
+- ACPI support that starts with RSDP/XSDT, MADT, FADT, MCFG, and HPET, while AML-based device and power-management support remains a later-stage goal
 - interrupt-controller discovery
 - timer discovery
 - PCI/PCIe enumeration
+- PCIe support that grows from enumeration into BAR and resource ownership, driver binding, bus mastering, MSI/MSI-X, and a path toward DMA-safe abstractions
+- USB host-controller discovery via PCI, with xHCI as the first USB transport
+- HID keyboard and mouse as the first USB class targets
+- USB mass storage later, after the base USB transport and class model are coherent
 - virtio-first VM devices, with `virtio-blk` as the first practical storage path
 
 ### Development target environments
@@ -140,6 +156,20 @@ Near-term development should optimize for:
 - predictable virtual hardware targets
 
 Real-hardware bring-up matters, but not before the architecture is coherent enough to justify it.
+
+### Real hardware enablement
+
+Real-hardware support is a goal once the emulator-first architecture is stable enough to carry it.
+
+Near-term real-hardware priorities:
+
+- USB through xHCI
+- GPT partition handling
+- NVMe or AHCI as the first non-virtio storage path
+- MSI/MSI-X enablement
+- robust ACPI table handling
+- tolerance for real-firmware variation and partial firmware quality
+- explicit hardware-quirk isolation instead of spreading quirks through generic paths
 
 ## User-facing system goals
 
@@ -236,6 +266,22 @@ Required eventual capabilities:
 
 Protected userland remains one of the most important architectural pillars in the project.
 
+### Native system interface
+
+`os1` should aim for POSIX compatibility where that improves portability and practical software reuse, but it should not be conceptually limited by POSIX.
+
+The native OS interface should instead be structured around an object-oriented system model.
+
+Core native-interface goals:
+
+- kernel-managed objects
+- rights-bearing handles
+- synchronous and asynchronous calls
+- properties and introspection
+- event subscription and delivery
+
+Where practical, POSIX compatibility should be implemented as a compatibility layer or mapping over these native primitives rather than treated as the only system model the kernel may expose.
+
 ### Process and scheduling model
 
 The system should support:
@@ -245,6 +291,8 @@ The system should support:
 - scheduler with clear policy
 - early SMP-aware design
 - eventual full user-process SMP scheduling across CPUs
+
+Early SMP work should target symmetric CPU scheduling on the primary architecture. Later designs should remain open to heterogeneous processor topologies with capability-aware scheduling and affinity policies.
 
 SMP should come early enough to shape:
 
@@ -293,7 +341,11 @@ Likely priorities:
 - console
 - timer
 - keyboard
+- USB host-controller discovery via PCI
+- xHCI as the first USB transport
+- USB HID keyboard and mouse as the first USB class targets
 - storage
+- USB mass storage later
 - network
 - framebuffer
 - interrupt-controller and SMP-enabling platform devices
@@ -391,6 +443,9 @@ The in-repo milestone designs (M1–M5) refine the coarser A–G map below into 
 - ACPI discovery ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented)
 - improved platform abstraction (M4 — implemented)
 - PCIe enumeration and first `virtio-blk` transport ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented)
+- ACPI-first machine discovery that begins with RSDP/XSDT, MADT, FADT, MCFG, and HPET; AML-based device and power support later
+- PCIe support that expands from enumeration into BAR/resource ownership, driver binding, bus mastering, MSI/MSI-X, and DMA-safe building blocks
+- USB host-controller discovery through PCI, with xHCI as the first USB transport and HID keyboard/mouse as the first USB class targets
 - early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, ACPI-derived AP bring-up, and AP idle state are implemented; SMP scheduling is still a follow-on)
 - early accelerator / GPU device discovery path where feasible
 
@@ -415,6 +470,7 @@ Implementation notes grounded in current source:
 
 - grow the current `BlockDevice` facade in [src/kernel/storage/block_device.hpp](src/kernel/storage/block_device.hpp) and [src/kernel/drivers/block/virtio_blk.cpp](src/kernel/drivers/block/virtio_blk.cpp) from polling smoke coverage into request ownership, completion, errors, and eventually write support
 - move `virtio-blk` to MSI/MSI-X *before* the filesystem layer is written on top
+- treat USB mass storage as a later storage target, after xHCI and the initial USB class model are stable
 - add argv/envp handoff in the initrd-backed loader under [src/kernel/proc/user_program.cpp](src/kernel/proc/user_program.cpp) so a real `init` can evolve apart from `/bin/sh`
 
 ### Milestone E: Networking foundation
@@ -464,6 +520,8 @@ These are strong candidates to adopt explicitly:
 - **QEMU-first developer workflow:** every major milestone should be reproducible in emulation
 - **deterministic milestone demos:** each milestone should have a short demonstration script
 - **architecture isolation:** keep `arch/x86_64` concerns separate from generic kernel code
+- **portable core discipline:** keep the generic kernel core free of baked-in x86 interrupt, paging, and memory-ordering assumptions
+- **board-vs-ISA separation:** keep board and platform plumbing separate from ISA mechanics so later ports and real-hardware quirks have a clean home
 - **clear trust boundaries:** document privileged vs unprivileged code paths early
 - **bring-up notebooks / logs:** preserve decisions, dead ends, and lessons learned
 - **target-state honesty:** clearly label what is current, what is experimental, and what is aspirational

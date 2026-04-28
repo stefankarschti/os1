@@ -2,7 +2,7 @@
 
 > generated-by: GitHub Copilot - generated-at: 2026-04-27 - git-state: working tree
 
-This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Review 2026-04-23](2026-04-23-review.md). The review documents under `doc/` are historical context, not the live system contract.
+This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Latest Review](latest-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
 `os1` currently has:
 
@@ -178,7 +178,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                          |                                 |
                          |  /bin/init -> /bin/sh           |
                          |  /bin/yield  /bin/fault         |
-                         |  /bin/copycheck                 |
+                         |  /bin/copycheck  /bin/ascii    |
                          |                                 |
                          |  syscalls:  write, read, exit,  |
                          |    yield, getpid, observe,      |
@@ -340,7 +340,7 @@ It also produces the boot payloads that feed those images:
 - `kernel_limine.elf`
 - `initrd.cpio`
 - `virtio-test-disk.raw`
-- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`, `user/copycheck.elf`
+- `user/init.elf`, `user/sh.elf`, `user/yield.elf`, `user/fault.elf`, `user/copycheck.elf`, `user/ascii.elf`
 
 The ISO stages these files:
 
@@ -585,12 +585,13 @@ Milestone 3 introduced a real split between the logical terminal model and the p
 
 [../src/kernel/console/terminal.cpp](../src/kernel/console/terminal.cpp) owns the text-cell model:
 
-- fixed 80x25 grid
+- geometry chosen at boot from the active display backend
+- VGA stays 80x25; the framebuffer path derives columns and rows from framebuffer size and 8x16 cells
 - cursor tracking
 - multiple terminal buffers
 - write/scroll/clear behavior
 
-The terminal remains fixed-size on both boot paths. That is intentional. It keeps the user-visible shell model stable while the display layer changes under it.
+The terminal remains fixed-size for the lifetime of a boot, but not across all boot paths. BIOS uses the traditional 80x25 VGA geometry. The framebuffer path instead sizes the terminal from the discovered framebuffer dimensions, for example `1024x768` becomes `128x48` text cells.
 
 ### Console Input Path
 
@@ -620,16 +621,15 @@ The active backend is chosen from `BootInfo`:
 
 The framebuffer backend is intentionally minimal:
 
-- fixed 80x25 text grid
-- public-domain `font8x8` bitmap glyphs, doubled vertically to 8x16
+- text grid derived from framebuffer geometry using 8x16 cells
+- bundled `font8x16` bitmap glyphs
 - white text on black background
 - software cursor by inverse cell rendering
-- centered text region with padding on larger framebuffers
-- full redraw on every present
+- cell-by-cell redraw only where content or cursor state changed
 
 This is not a full graphics subsystem. It is a presentation adapter for the existing terminal model.
 
-The full-redraw policy is deliberate. It keeps the first framebuffer path easy to reason about and debug. Serial remains the authoritative debug channel.
+The framebuffer renderer maintains a shadow buffer and skips unchanged rows and cells. Serial remains the authoritative debug channel.
 
 ## Memory Architecture
 
@@ -772,6 +772,7 @@ Current user programs:
 - `/bin/yield` — cooperative yield probe built from [`src/user/programs/yield.cpp`](../src/user/programs/yield.cpp)
 - `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.cpp`](../src/user/programs/fault.cpp)
 - `/bin/copycheck` — negative syscall-copy regression probe built from [`src/user/programs/copycheck.cpp`](../src/user/programs/copycheck.cpp)
+- `/bin/ascii` — ASCII table probe built from [`src/user/programs/ascii.cpp`](../src/user/programs/ascii.cpp) to visually verify 8x16 font rendering on the framebuffer text backend
 
 The kernel keeps its fixed `/bin/init` boot contract, but init is now a real first user process rather than an alias for the shell. It immediately calls `exec("/bin/sh")`, so later init responsibilities can grow without changing the kernel boot path. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
 
