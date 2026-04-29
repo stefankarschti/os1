@@ -62,6 +62,10 @@ The current frontends are:
 - `src/boot/bios/` building `kernel16.bin` plus `boot.bin` for the legacy BIOS raw-image path
 - `src/boot/limine/` building `kernel_limine.elf` for the default Limine/UEFI path
 
+Shared freestanding helpers that can be reused across boot and kernel code now live in:
+
+- `src/common/` with shared ELF and byte/string helpers such as `elf/elf64.hpp` and `freestanding/string.hpp`
+
 The shared kernel core is:
 
 - `kernel.elf`
@@ -69,6 +73,8 @@ The shared kernel core is:
 It is the shared higher-half kernel used by both paths. The physical load still starts near `0x00100000`, but the linker now gives the kernel a fixed higher-half virtual address at `kKernelVirtualOffset + physical_address`, so both BIOS and Limine enter the same higher-half `kernel_main(BootInfo*, cpu*)` ABI.
 
 This split still exists for a pragmatic reason: firmware-facing bootstrap code and bootloader protocol glue differ, while the kernel contract does not. The Limine frontend is now a higher-half shim that normalizes Limine responses, loads `kernel.elf` by physical `PT_LOAD` ranges, installs only the temporary transition mappings the kernel needs, and then transfers control into the shared kernel.
+
+That frontend is no longer one large translation unit. `src/boot/limine/entry.cpp` is the orchestration layer, while paging/translation, kernel ELF loading, BootInfo construction, and serial logging now live in focused helper files under `src/boot/limine/`.
 
 ## Source Tree Ownership
 
@@ -78,6 +84,7 @@ Top-level kernel source rules:
 
 - The `src/kernel/` top level currently keeps two loose ownership files: [../src/kernel/CMakeLists.txt](../src/kernel/CMakeLists.txt) for build grouping.
 - C++ sources are grouped in CMake by ownership: architecture, handoff, memory, console, drivers, filesystem, core, platform, process, scheduler, syscall, debug, and utilities.
+- Cross-frontend freestanding helpers that do not belong to one boot path or one kernel subsystem live under `src/common/`.
 - NASM include paths explicitly include architecture layout files, handoff layout files, and process thread-layout files so assembly does not rely on old flat-tree placement.
 - Internal C++ headers use `.hpp` and `#pragma once`; the remaining `.h` headers are deliberate C/UAPI/layout contracts.
 - Future-growth directories exist with ownership notes even before executable code lands, so later work has an obvious home.
@@ -205,11 +212,13 @@ The lifecycle below is the exact sequence the system follows today. Each phase i
 - **BIOS path:** BIOS loads `boot.bin` at `0x7C00`. The MBR chain-loads `kernel16.bin`, which enables A20, probes long-mode support, reads the kernel and initrd through BIOS EDD, captures the text cursor, collects E820 memory regions, scans standard BIOS ranges for the ACPI RSDP, builds temporary page tables, enables `LME`/`NXE`, and jumps to 64-bit code.
 - **UEFI path:** OVMF loads Limine. Limine parses `limine.conf`, loads `kernel_limine.elf` as the executable and publishes `kernel.elf` + `initrd.cpio` as modules. The shim's `_start` switches to its own 16 KiB stack and calls `limine_start_main`.
 
+The Limine frontend is now split by responsibility: `entry.cpp` sequences the handoff, `serial.cpp` owns early COM1 logging, `paging.cpp` owns Limine pointer translation plus transition mappings, `elf_loader.cpp` owns `kernel.elf` inspection/loading, and `handoff_builder.cpp` owns `BootInfo` normalization.
+
 Both paths finish this phase holding (or able to reach) every piece of bootloader-native data they need for the next step.
 
 ### Phase 2 — `BootInfo` build (one-shot, mirrored layout)
 
-On UEFI, `BuildBootInfo()` walks Limine's HHDM to read memmap entries, translates every Limine-virtual pointer (framebuffer, RSDP, SMBIOS, initrd) into physical addresses with `TranslateLimineVirtual()`, and writes the result into a `LowHandoffBootInfoStorage` block placed immediately after the loaded kernel image. On BIOS the 64-bit loader writes the same layout from E820 + EDD + CMOS + the earlier RSDP scan.
+On UEFI, `build_boot_info()` in `src/boot/limine/handoff_builder.cpp` walks Limine's HHDM to read memmap entries, translates every Limine-virtual pointer (framebuffer, RSDP, SMBIOS, initrd) into physical addresses with `translate_limine_virtual()`, and writes the result into a `LowHandoffBootInfoStorage` block placed immediately after the loaded kernel image. On BIOS the 64-bit loader writes the same layout from E820 + EDD + CMOS + the earlier RSDP scan.
 
 Both paths finalize identical low-memory arenas:
 
@@ -433,6 +442,8 @@ The default run path is:
 
 The Limine config currently requests a `1024x768x32` framebuffer and enables serial output so boot can always be verified through logs.
 
+`kernel_limine.elf` is now built from a small Limine-specific frontend set rather than one monolithic source file: `entry.cpp`, `serial.cpp`, `paging.cpp`, `elf_loader.cpp`, and `handoff_builder.cpp`.
+
 ### Limine Requests
 
 The frontend requests and consumes:
@@ -475,7 +486,7 @@ The shim does not pass those virtual addresses through to the kernel. Instead, `
 - following PML4/PML3/PML2/PML1 entries through HHDM
 - extracting the backing physical address
 
-That translation step is central to Milestone 3. It ensures `BootInfo` remains a physical-address contract rather than a Limine-virtual-address contract.
+That translation step, now localized in `src/boot/limine/paging.cpp`, is central to Milestone 3. It ensures `BootInfo` remains a physical-address contract rather than a Limine-virtual-address contract.
 
 ### Loading The Shared Higher-Half Kernel
 
@@ -486,6 +497,8 @@ Important implementation detail:
 - the shim validates the higher-half `p_vaddr == p_paddr + kKernelVirtualOffset` contract
 - it copies each `PT_LOAD` segment to `p_paddr`, not `p_vaddr`
 - it uses the HHDM only as a temporary way to reach those physical destinations
+
+The ELF layout/types used by both the Limine frontend and the kernel user-program loader now live in `src/common/elf/elf64.hpp` so this validation logic is shared instead of duplicated.
 
 This is why the modern path now works reliably. The shared kernel no longer depends on Limine leaving a broad low identity map behind, and the shim no longer treats the kernel virtual address as a physical load address.
 
@@ -528,6 +541,8 @@ The final transfer happens through `limine_enter_kernel()`, which:
 - passes `RDI = BootInfo*`
 - passes `RSI = cpu*`
 - calls the shared higher-half `kernel_main`
+
+That handoff assembly is sequenced in `src/boot/limine/entry.cpp`, while the storage/layout details live in `src/boot/limine/handoff_builder.cpp`.
 
 ## Legacy BIOS Compatibility Path
 
