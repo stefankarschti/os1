@@ -1,4 +1,4 @@
-; Exception/syscall vector stubs. Each label normalizes the CPU's interrupt
+; Exception vector stubs. Each label normalizes the CPU's interrupt
 ; stack frame by pushing an error-code slot and vector number, then jumps into
 ; the common trap-entry path in irqhandler.asm.
 

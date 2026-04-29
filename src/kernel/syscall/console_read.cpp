@@ -46,8 +46,11 @@ void wake_console_readers(PageFrameContainer& frames)
         }
 
         long result = -1;
-        if(!try_complete_console_read(
-               frames, thread, thread->wait_address, (size_t)thread->wait_length, result))
+        if(!try_complete_console_read(frames,
+                                      thread,
+                                      thread->wait.console_read.user_buffer,
+                                      (size_t)thread->wait.console_read.length,
+                                      result))
         {
             return;
         }

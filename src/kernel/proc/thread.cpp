@@ -236,7 +236,7 @@ void mark_thread_ready(Thread* thread)
     }
 }
 
-void block_current_thread(ThreadWaitReason reason, uint64_t wait_address, uint64_t wait_length)
+static void block_current_thread(ThreadWaitState wait)
 {
     KASSERT_ON_BSP();
     Thread* thread = current_thread();
@@ -246,15 +246,35 @@ void block_current_thread(ThreadWaitReason reason, uint64_t wait_address, uint64
         return;
     }
 
-    thread->wait_reason = reason;
-    thread->wait_address = wait_address;
-    thread->wait_length = wait_length;
+    thread->wait = wait;
     thread->state = ThreadState::Blocked;
     if(thread->process && (ProcessState::Dying != thread->process->state))
     {
         thread->process->state = ProcessState::Ready;
     }
     relink_runnable_threads();
+}
+
+void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length)
+{
+    ThreadWaitState wait{};
+    wait.reason = ThreadWaitReason::ConsoleRead;
+    wait.console_read = ConsoleReadWaitState{
+        .user_buffer = user_buffer,
+        .length = length,
+    };
+    block_current_thread(wait);
+}
+
+void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid)
+{
+    ThreadWaitState wait{};
+    wait.reason = ThreadWaitReason::ChildExit;
+    wait.child_exit = ChildExitWaitState{
+        .user_status_pointer = user_status_pointer,
+        .pid = pid,
+    };
+    block_current_thread(wait);
 }
 
 void clear_thread_wait(Thread* thread)
@@ -264,16 +284,14 @@ void clear_thread_wait(Thread* thread)
         return;
     }
 
-    thread->wait_reason = ThreadWaitReason::None;
-    thread->wait_address = 0;
-    thread->wait_length = 0;
+    thread->wait = ThreadWaitState{};
 }
 
 Thread* first_blocked_thread(ThreadWaitReason reason)
 {
     for(size_t i = 0; i < kMaxThreads; ++i)
     {
-        if((ThreadState::Blocked == threadTable[i].state) && (reason == threadTable[i].wait_reason))
+        if((ThreadState::Blocked == threadTable[i].state) && (reason == threadTable[i].wait.reason))
         {
             return threadTable + i;
         }

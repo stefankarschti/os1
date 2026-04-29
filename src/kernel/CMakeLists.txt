@@ -7,6 +7,7 @@ set(KERNEL_ARCH_SOURCES
   arch/x86_64/apic/lapic.cpp
   arch/x86_64/apic/pic.cpp
   arch/x86_64/cpu/cpu.cpp
+  arch/x86_64/cpu/syscall.cpp
   arch/x86_64/interrupt/interrupt.cpp
 )
 

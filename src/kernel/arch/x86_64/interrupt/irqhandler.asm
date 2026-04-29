@@ -1,4 +1,4 @@
-; Common trap-entry path for IRQs, exceptions, and int 0x80 syscalls. It saves
+; Common trap-entry path for IRQs and exceptions. It saves
 ; registers into either the current Thread frame or the per-CPU interrupt frame,
 ; calls C++ trap_dispatch, then resumes or switches threads.
 
@@ -9,6 +9,10 @@
 extern trap_dispatch
 extern restore_thread
 extern restore_frame_ptr
+
+%define USER_DATA_SEGMENT 0x1b
+%define USER_CODE_SEGMENT 0x23
+%define THREAD_STATE_RUNNING 2
 
 global trap_entry_common
 trap_entry_common:
@@ -119,6 +123,90 @@ trap_entry_common:
 	add rsp, 32
 	iretq
 
+global syscall_entry
+syscall_entry:
+	cld
+	mov [gs:CPU_INTERRUPT_FRAME + TF_R10], r10
+	mov r10, [gs:CPU_CURRENT_THREAD]
+	test r10, r10
+	jz .no_thread
+	lea r10, [r10 + THREAD_FRAME]
+
+	mov [r10 + TF_R15], r15
+	mov [r10 + TF_R14], r14
+	mov [r10 + TF_R13], r13
+	mov [r10 + TF_R12], r12
+	mov [r10 + TF_RDX], rdx
+	mov rdx, [gs:CPU_INTERRUPT_FRAME + TF_R10]
+	mov [r10 + TF_R10], rdx
+	mov [r10 + TF_R11], r11
+	mov [r10 + TF_R9], r9
+	mov [r10 + TF_R8], r8
+	mov [r10 + TF_RBP], rbp
+	mov [r10 + TF_RDI], rdi
+	mov [r10 + TF_RSI], rsi
+	mov [r10 + TF_RCX], rcx
+	mov [r10 + TF_RBX], rbx
+	mov [r10 + TF_RAX], rax
+
+	mov qword [r10 + TF_VECTOR], 0x80
+	mov qword [r10 + TF_ERROR_CODE], 0
+	mov [r10 + TF_RIP], rcx
+	mov qword [r10 + TF_CS], USER_CODE_SEGMENT
+	mov [r10 + TF_RFLAGS], r11
+	mov [r10 + TF_RSP], rsp
+	mov qword [r10 + TF_SS], USER_DATA_SEGMENT
+
+	mov r12, r10
+	mov r13, [gs:CPU_CURRENT_THREAD]
+	mov rsp, [r13 + THREAD_KERNEL_STACK_TOP]
+	and rsp, -16
+	mov rdi, r12
+	call trap_dispatch
+	test rax, rax
+	jz .resume_frame
+
+	mov rbx, [gs:CPU_CURRENT_THREAD]
+	cmp rax, rbx
+	jne .switch_thread
+	cmp dword [rax + THREAD_STATE], THREAD_STATE_RUNNING
+	jne .switch_thread
+
+	sub rsp, 8
+	mov rbx, [r12 + TF_RSP]
+	mov [rsp], rbx
+
+	mov r15, [r12 + TF_R15]
+	mov r14, [r12 + TF_R14]
+	mov r13, [r12 + TF_R13]
+	mov r10, [r12 + TF_R10]
+	mov r9,  [r12 + TF_R9]
+	mov r8,  [r12 + TF_R8]
+	mov rbp, [r12 + TF_RBP]
+	mov rdi, [r12 + TF_RDI]
+	mov rsi, [r12 + TF_RSI]
+	mov rdx, [r12 + TF_RDX]
+	mov rbx, [r12 + TF_RBX]
+	mov rax, [r12 + TF_RAX]
+	mov rcx, [r12 + TF_RIP]
+	mov r11, [r12 + TF_RFLAGS]
+	mov r12, [r12 + TF_R12]
+	mov rsp, [rsp]
+	o64 sysret
+
+.switch_thread:
+	mov rdi, rax
+	jmp restore_thread
+
+.resume_frame:
+	mov rdi, r12
+	jmp restore_frame_ptr
+
+.no_thread:
+	cli
+	hlt
+	jmp .no_thread
+
 %macro IRQ_STUB 1
 global irq%1
 irq%1:
@@ -143,9 +231,3 @@ IRQ_STUB 12
 IRQ_STUB 13
 IRQ_STUB 14
 IRQ_STUB 15
-
-global int_80h
-int_80h:
-	push qword 0
-	push qword 0x80
-	jmp trap_entry_common

@@ -97,14 +97,17 @@ void wake_child_waiters(PageFrameContainer& frames)
     {
         Thread* thread = threadTable + i;
         if((ThreadState::Blocked != thread->state) ||
-           (ThreadWaitReason::ChildExit != thread->wait_reason))
+           (ThreadWaitReason::ChildExit != thread->wait.reason))
         {
             continue;
         }
 
         long result = -1;
-        if(!try_complete_wait_pid(
-               frames, thread, thread->wait_length, thread->wait_address, result))
+        if(!try_complete_wait_pid(frames,
+                                  thread,
+                                  thread->wait.child_exit.pid,
+                                  thread->wait.child_exit.user_status_pointer,
+                                  result))
         {
             continue;
         }
