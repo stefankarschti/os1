@@ -242,6 +242,29 @@ const char* pci_bar_type_name(uint8_t type)
     }
 }
 
+const char* event_type_name(uint32_t type)
+{
+    switch(type)
+    {
+        case OS1_KERNEL_EVENT_TRAP:
+            return "trap";
+        case OS1_KERNEL_EVENT_SCHED_TRANSITION:
+            return "sched-transition";
+        case OS1_KERNEL_EVENT_IRQ:
+            return "irq";
+        case OS1_KERNEL_EVENT_BLOCK_IO:
+            return "block-io";
+        case OS1_KERNEL_EVENT_PCI_BIND:
+            return "pci-bind";
+        case OS1_KERNEL_EVENT_USER_COPY_FAILURE:
+            return "user-copy-failure";
+        case OS1_KERNEL_EVENT_SMOKE_MARKER:
+            return "smoke-marker";
+        default:
+            return "unknown";
+    }
+}
+
 void write_yes_no(bool value)
 {
     write_string(value ? "yes" : "no");
@@ -281,7 +304,7 @@ bool observe(uint32_t kind, const Record*& records, uint32_t& record_count)
 
 void run_help()
 {
-    write_string("help echo pid sys ps cpu pci initrd exec exit\n");
+    write_string("help echo pid sys ps cpu pci initrd events exec exit\n");
 }
 
 void run_echo(size_t argc, char* argv[kShellMaxTokens])
@@ -493,6 +516,45 @@ void run_initrd()
     }
 }
 
+void run_events()
+{
+    const Os1ObserveEventRecord* records = nullptr;
+    uint32_t record_count = 0;
+    if(!observe(OS1_OBSERVE_EVENTS, records, record_count))
+    {
+        write_observe_failure("events");
+        return;
+    }
+
+    write_string("event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3\n");
+    for(uint32_t i = 0; i < record_count; ++i)
+    {
+        write_string("event ");
+        write_string(event_type_name(records[i].type));
+        write_string(" seq=");
+        write_unsigned(records[i].sequence);
+        write_string(" tick=");
+        write_unsigned(records[i].tick_count);
+        write_string(" cpu=");
+        write_unsigned(records[i].cpu);
+        write_string(" pid=");
+        write_unsigned(records[i].pid);
+        write_string(" tid=");
+        write_unsigned(records[i].tid);
+        write_string(" flags=0x");
+        write_hex(records[i].flags, 1);
+        write_string(" arg0=0x");
+        write_hex(records[i].arg0, 1);
+        write_string(" arg1=0x");
+        write_hex(records[i].arg1, 1);
+        write_string(" arg2=0x");
+        write_hex(records[i].arg2, 1);
+        write_string(" arg3=0x");
+        write_hex(records[i].arg3, 1);
+        write_char('\n');
+    }
+}
+
 void run_unknown(const char* command)
 {
     write_string("unknown command: ");
@@ -680,6 +742,10 @@ int main(void)
         else if(strings_equal(tokens[0], "initrd"))
         {
             run_initrd();
+        }
+        else if(strings_equal(tokens[0], "events"))
+        {
+            run_events();
         }
         else if(strings_equal(tokens[0], "exec"))
         {

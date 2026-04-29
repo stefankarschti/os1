@@ -18,7 +18,7 @@ This document is the current-state source of truth for `os1`. It describes what 
 - a source tree split by major responsibility: `arch/x86_64`, `core`, `handoff`, `mm`, `proc`, `sched`, `syscall`, `console`, `drivers`, `platform`, `storage`, `fs`, `vfs`, `security`, `debug`, `util`, and `linker`
 - protected ring-3 user programs loaded from an initrd
 - a terminal-first operator environment that boots directly into a ring-3 shell
-- structured read-only observability snapshots exposed through a shared UAPI
+- structured read-only observability snapshots and kernel event records exposed through a shared UAPI
 - initrd-backed `spawn` / `waitpid` / `exec` process control for user commands
 - a terminal model that can render either through VGA text mode or a framebuffer text backend
 - serial-driven smoke coverage and interactive serial run targets for both the UEFI and BIOS paths
@@ -107,7 +107,7 @@ Current kernel folders:
 | [../src/kernel/fs/](../src/kernel/fs) | Concrete filesystem/archive parsers. Today this is the boot initrd CPIO parser, not a general namespace. | `initrd.*` |
 | [../src/kernel/vfs/](../src/kernel/vfs) | Future filesystem namespace layer: mount table, path lookup, file descriptors, and filesystem-backed `exec`. | `README.md` |
 | [../src/kernel/security/](../src/kernel/security) | Future credentials, permissions, and resource-boundary policy. | `README.md` |
-| [../src/kernel/debug/](../src/kernel/debug) | Serial debug logger and future tracing/counter surfaces. | `debug.*` |
+| [../src/kernel/debug/](../src/kernel/debug) | Serial debug logger and fixed-capacity structured event ring. | `debug.*`, `event_ring.*` |
 | [../src/kernel/util/](../src/kernel/util) | Small generic helpers with no subsystem ownership. | `assert.hpp`, `align.hpp`, `ctype.hpp`, `fixed_string.hpp`, `memory.h`, `string.*` |
 | [../src/kernel/linker/](../src/kernel/linker) | Kernel linker scripts and link-layout variants. | `kernel_core.ld`, `kernel_limine.ld` |
 
@@ -306,7 +306,7 @@ The shell runs a line-buffered REPL:
 
 1. `write(1, "os1> ")` via `int 0x80`.
 2. `read(0, buf, N)` blocks on `ThreadWaitReason::ConsoleRead` until enter commits a line.
-3. Tokens are dispatched: `help`, `echo`, `pid`, built-in observers (`sys`, `ps`, `cpu`, `pci`, `initrd`) each make one `observe(kind, buf, len)` call and render the resulting fixed-record table; `exec <path>` replaces the shell image in place; unknown tokens resolve via `/bin/<name>` and are run under `spawn` + `waitpid`.
+3. Tokens are dispatched: `help`, `echo`, `pid`, built-in observers (`sys`, `ps`, `cpu`, `pci`, `initrd`, `events`) each make one `observe(kind, buf, len)` call and render the resulting fixed-record table; `exec <path>` replaces the shell image in place; unknown tokens resolve via `/bin/<name>` and are run under `spawn` + `waitpid`.
 4. User exceptions (e.g. `/bin/fault`) are caught in `HandleException`, the thread is marked `Dying`, `ScheduleNext(false)` runs, and `reapDeadThreads` reclaims the thread stack and address space from a different stack on a later trap.
 
 ### Phase 6 — exec and in-place image replacement
@@ -760,8 +760,13 @@ Current observe kinds include:
 - discovered CPUs
 - enumerated PCI devices
 - packaged initrd files
+- fixed-capacity kernel event ring snapshot
 
-The ring-3 shell consumes those records through built-ins such as `sys`, `ps`, `cpu`, `pci`, and `initrd`, which keeps the user-facing observability contract explicit.
+The event ring currently stores 256 overwrite-on-full records with monotonic sequence numbers and direct `pid` / `tid` fields. Current event types cover traps, scheduler transitions, IRQs, block I/O, PCI binds, user-copy failures, and a smoke marker used by the observe smokes.
+
+`/bin/sh events` is a snapshot command. Continuous streaming and `Ctrl-C` cancellation are intentionally deferred until the console/process layer has nonblocking input, cancellation, or signal-like infrastructure.
+
+The ring-3 shell consumes those records through built-ins such as `sys`, `ps`, `cpu`, `pci`, `initrd`, and `events`, which keeps the user-facing observability contract explicit.
 
 ## Process And Userland Architecture
 
@@ -925,7 +930,7 @@ The baseline smoke tests cover the common boot and shell transcript on each fron
 
 The dedicated observe, spawn, and exec smokes then exercise the operator-facing behavior that Milestone 5 added:
 
-- structured `sys` / `ps` / `cpu` / `pci` / `initrd` output
+- structured `sys` / `ps` / `cpu` / `pci` / `initrd` / `events` output
 - child-process launch, user-fault containment, and prompt recovery
 - in-place `exec` replacement without the old shell prompt returning
 

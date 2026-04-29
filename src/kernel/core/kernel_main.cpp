@@ -19,6 +19,7 @@
 #include "core/kernel_state.hpp"
 #include "core/panic.hpp"
 #include "debug/debug.hpp"
+#include "debug/event_ring.hpp"
 #include "drivers/display/text_display.hpp"
 #include "drivers/timer/pit.hpp"
 #include "fs/initrd.hpp"
@@ -329,6 +330,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         return;
     }
 
+    kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
     debug("start multitasking")();
     write_console_line("starting first user process");
     set_timer(1000);

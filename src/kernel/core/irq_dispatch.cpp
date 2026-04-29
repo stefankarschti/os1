@@ -6,6 +6,7 @@
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "console/console_input.hpp"
 #include "core/kernel_state.hpp"
+#include "debug/event_ring.hpp"
 #include "proc/thread.hpp"
 #include "sched/scheduler.hpp"
 #include "syscall/console_read.hpp"
@@ -26,6 +27,15 @@ void acknowledge_legacy_irq(int irq)
 Thread* handle_irq(TrapFrame* frame)
 {
     const int irq = (int)(frame->vector - T_IRQ0);
+    if(IRQ_TIMER != irq)
+    {
+        kernel_event::record(OS1_KERNEL_EVENT_IRQ,
+                             0,
+                             static_cast<uint64_t>(irq),
+                             frame->vector,
+                             g_timer_ticks,
+                             0);
+    }
     if(IRQ_KBD == irq)
     {
         dispatch_irq_hook(irq);

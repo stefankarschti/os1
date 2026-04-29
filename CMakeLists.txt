@@ -551,7 +551,7 @@ set(OS1_SMOKE_REJECT_MARKERS
 # smoke runner observes it when the following command output flushes.
 set(OS1_SHELL_INPUT_EVENTS
   "shell prompt ready::help\\n"
-  "help echo pid sys ps cpu pci initrd exec exit::echo hi\\n"
+  "help echo pid sys ps cpu pci initrd events exec exit::echo hi\\n"
   "echo: hi::pid\\n"
 )
 
@@ -561,6 +561,7 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "pid tid pstate tstate mode cr3 name::cpu\\n"
   "cpu slot apic bsp booted pid tid::pci\\n"
   "pci 00:03.0 1af4:1042::initrd\\n"
+  "initrd /bin/fault size=::events\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -619,7 +620,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd exec exit"
+    "help echo pid sys ps cpu pci initrd events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -673,6 +674,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd /bin/yield size="
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
+    "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event smoke-marker seq="
     "idle thread online"
   )
 
@@ -813,7 +816,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd exec exit"
+    "help echo pid sys ps cpu pci initrd events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -865,6 +868,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd /bin/yield size="
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
+    "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event smoke-marker seq="
     "idle thread online"
   )
 
