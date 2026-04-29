@@ -3,7 +3,6 @@
 #include "handoff/boot_info.hpp"
 
 #include "freestanding/string.hpp"
-#include "util/memory.h"
 
 namespace
 {
@@ -47,16 +46,16 @@ const BootInfo* own_boot_info(const BootInfo* source)
         return nullptr;
     }
 
-    memset(&g_owned_boot_info, 0, sizeof(g_owned_boot_info));
+    freestanding::zero_bytes(&g_owned_boot_info, sizeof(g_owned_boot_info));
     g_owned_boot_info.info = *source;
 
     // Bootloader-owned pointers are copied into kernel BSS immediately so later
     // milestones can reclaim or replace the original boot staging memory safely.
     if(source->memory_map_count > 0)
     {
-        memcpy(g_owned_boot_info.memory_map,
-               source->memory_map,
-               source->memory_map_count * sizeof(BootMemoryRegion));
+        freestanding::copy_bytes(g_owned_boot_info.memory_map,
+                                  source->memory_map,
+                                  source->memory_map_count * sizeof(BootMemoryRegion));
         g_owned_boot_info.info.memory_map = g_owned_boot_info.memory_map;
     }
     else
@@ -66,9 +65,9 @@ const BootInfo* own_boot_info(const BootInfo* source)
 
     if(source->module_count > 0)
     {
-        memcpy(g_owned_boot_info.modules,
-               source->modules,
-               source->module_count * sizeof(BootModuleInfo));
+        freestanding::copy_bytes(g_owned_boot_info.modules,
+                                  source->modules,
+                                  source->module_count * sizeof(BootModuleInfo));
         for(size_t i = 0; i < source->module_count; ++i)
         {
             if(source->modules[i].name)

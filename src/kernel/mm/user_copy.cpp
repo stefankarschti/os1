@@ -3,56 +3,8 @@
 #include "mm/user_copy.hpp"
 
 #include "handoff/memory_layout.h"
+#include "mm/user_address.hpp"
 #include "util/memory.h"
-
-namespace
-{
-[[nodiscard]] bool is_canonical_virtual_address(uint64_t address)
-{
-    const uint64_t upper_bits = address >> 48;
-    return (0 == upper_bits) || (0xFFFFull == upper_bits);
-}
-
-[[nodiscard]] bool is_user_address_range(uint64_t address, size_t length)
-{
-    if(0 == length)
-    {
-        return true;
-    }
-    if((0 == address) || !is_canonical_virtual_address(address))
-    {
-        return false;
-    }
-
-    const uint64_t last_byte_offset = static_cast<uint64_t>(length - 1);
-    if(address > (~0ull - last_byte_offset))
-    {
-        return false;
-    }
-
-    const uint64_t end_address = address + last_byte_offset;
-    if(!is_canonical_virtual_address(end_address))
-    {
-        return false;
-    }
-
-    return (address >= kUserSpaceBase) && (end_address < kUserStackTop);
-}
-
-[[nodiscard]] bool has_required_user_flags(uint64_t flags, bool require_write)
-{
-    const PageFlags page_flags = static_cast<PageFlags>(flags);
-    if((page_flags & PageFlags::User) != PageFlags::User)
-    {
-        return false;
-    }
-    if(require_write && ((page_flags & PageFlags::Write) != PageFlags::Write))
-    {
-        return false;
-    }
-    return true;
-}
-}  // namespace
 
 bool copy_into_address_space(VirtualMemory& vm,
                              uint64_t virtual_address,
@@ -89,7 +41,7 @@ bool copy_to_user(PageFrameContainer& frames,
     {
         return false;
     }
-    if(!is_user_address_range(user_pointer, length))
+    if(!user_address::is_user_address_range(user_pointer, length))
     {
         return false;
     }
@@ -105,7 +57,7 @@ bool copy_to_user(PageFrameContainer& frames,
         {
             return false;
         }
-        if(!has_required_user_flags(flags, true))
+        if(!user_address::has_required_user_flags(flags, true))
         {
             return false;
         }
@@ -129,7 +81,7 @@ bool copy_from_user(PageFrameContainer& frames,
     {
         return false;
     }
-    if(!is_user_address_range(user_pointer, length))
+    if(!user_address::is_user_address_range(user_pointer, length))
     {
         return false;
     }
@@ -145,7 +97,7 @@ bool copy_from_user(PageFrameContainer& frames,
         {
             return false;
         }
-        if(!has_required_user_flags(flags, false))
+        if(!user_address::has_required_user_flags(flags, false))
         {
             return false;
         }

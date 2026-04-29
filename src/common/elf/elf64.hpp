@@ -45,6 +45,16 @@ struct Elf64ProgramHeader
     uint64_t align;
 } __attribute__((packed));
 
+[[nodiscard]] inline bool checked_add(uint64_t left, uint64_t right, uint64_t& result)
+{
+    if(left > (~0ull - right))
+    {
+        return false;
+    }
+    result = left + right;
+    return true;
+}
+
 [[nodiscard]] inline const Elf64Header* header_from_image(const void* image, uint64_t image_size)
 {
     if((nullptr == image) || (image_size < sizeof(Elf64Header)))
@@ -70,8 +80,21 @@ struct Elf64ProgramHeader
         return nullptr;
     }
 
-    const uint64_t program_offset = header.phoff + static_cast<uint64_t>(index) * header.phentsize;
-    if((program_offset + sizeof(Elf64ProgramHeader)) > image_size)
+    const uint64_t index_offset = static_cast<uint64_t>(index) * header.phentsize;
+    if((0 != header.phentsize) && (index_offset / header.phentsize != index))
+    {
+        return nullptr;
+    }
+
+    uint64_t program_offset = 0;
+    if(!checked_add(header.phoff, index_offset, program_offset))
+    {
+        return nullptr;
+    }
+
+    uint64_t program_end = 0;
+    if(!checked_add(program_offset, sizeof(Elf64ProgramHeader), program_end) ||
+       (program_end > image_size))
     {
         return nullptr;
     }
@@ -83,6 +106,8 @@ struct Elf64ProgramHeader
 [[nodiscard]] inline bool loadable_segment_bounds_valid(const Elf64ProgramHeader& program,
                                                         uint64_t image_size)
 {
-    return (program.memsz >= program.filesz) && ((program.offset + program.filesz) <= image_size);
+    uint64_t file_end = 0;
+    return (program.memsz >= program.filesz) && checked_add(program.offset, program.filesz, file_end) &&
+           (file_end <= image_size);
 }
 }  // namespace elf

@@ -1,0 +1,109 @@
+#include "mm/virtual_memory.hpp"
+
+#include "handoff/memory_layout.h"
+#include "support/physical_memory.hpp"
+
+#include <gtest/gtest.h>
+
+#include <array>
+
+namespace
+{
+constexpr uint64_t kArenaBytes = 32ull * 1024ull * 1024ull;
+constexpr uint64_t kBitmapPhysical = 0x300000;
+
+PageFrameContainer make_frames(os1::host_test::PhysicalMemoryArena& arena)
+{
+    (void)arena;
+    std::array<BootMemoryRegion, 1> regions{{
+        {0, kArenaBytes, BootMemoryType::Usable, 0},
+    }};
+    PageFrameContainer frames;
+    EXPECT_TRUE(frames.initialize(regions, kBitmapPhysical, kPageFrameBitmapQwordLimit));
+    return frames;
+}
+}  // namespace
+
+TEST(VirtualMemory, RejectsInvalidMapRequests)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = make_frames(arena);
+    VirtualMemory vm(frames);
+
+    EXPECT_FALSE(vm.map_physical(0x400000, 0x500000, 0, PageFlags::Present));
+    EXPECT_FALSE(vm.map_physical(0x400001, 0x500000, 1, PageFlags::Present));
+    EXPECT_FALSE(vm.map_physical(0x400000, 0x500001, 1, PageFlags::Present));
+}
+
+TEST(VirtualMemory, MapsProtectsAndTranslatesPages)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = make_frames(arena);
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(vm.map_physical(0x0000008000400000ull,
+                                0x00500000,
+                                2,
+                                PageFlags::Present | PageFlags::User | PageFlags::Write));
+
+    uint64_t physical = 0;
+    uint64_t flags = 0;
+    ASSERT_TRUE(vm.translate(0x0000008000400123ull, physical, flags));
+    EXPECT_EQ(0x00500123ull, physical);
+    EXPECT_EQ(static_cast<uint64_t>(PageFlags::Present | PageFlags::User | PageFlags::Write),
+              flags);
+
+    ASSERT_TRUE(vm.protect(0x0000008000400000ull,
+                           1,
+                           PageFlags::Present | PageFlags::User | PageFlags::NoExecute));
+    ASSERT_TRUE(vm.translate(0x0000008000400000ull, physical, flags));
+    EXPECT_EQ(0x00500000ull, physical);
+    EXPECT_EQ(static_cast<uint64_t>(PageFlags::Present | PageFlags::User | PageFlags::NoExecute),
+              flags);
+}
+
+TEST(VirtualMemory, AllocatesAndDestroysUserSlot)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = make_frames(arena);
+    VirtualMemory vm(frames);
+
+    const uint64_t before = frames.free_page_count();
+    uint64_t first_physical = 0;
+    ASSERT_TRUE(vm.allocate_and_map(kUserImageBase,
+                                    1,
+                                    PageFlags::Present | PageFlags::User | PageFlags::Write,
+                                    &first_physical));
+    EXPECT_NE(0ull, first_physical);
+    EXPECT_LT(frames.free_page_count(), before);
+
+    uint64_t translated = 0;
+    uint64_t flags = 0;
+    ASSERT_TRUE(vm.translate(kUserImageBase, translated, flags));
+    EXPECT_EQ(first_physical, translated);
+
+    ASSERT_TRUE(vm.destroy_user_slot(kUserPml4Index));
+    EXPECT_FALSE(vm.translate(kUserImageBase, translated, flags));
+}
+
+TEST(VirtualMemory, ClonesKernelAndDirectMapSlots)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = make_frames(arena);
+    VirtualMemory source(frames);
+    VirtualMemory target(frames);
+
+    ASSERT_TRUE(source.map_physical(kKernelVirtualBase, 0x100000, 1, PageFlags::Present));
+    ASSERT_TRUE(source.map_physical(phys_to_virt(0x700000),
+                                    0x700000,
+                                    1,
+                                    PageFlags::Present | PageFlags::Write));
+    ASSERT_TRUE(target.clone_kernel_mappings(source.root()));
+
+    uint64_t physical = 0;
+    uint64_t flags = 0;
+    EXPECT_TRUE(target.translate(kKernelVirtualBase, physical, flags));
+    EXPECT_EQ(0x100000ull, physical);
+    EXPECT_TRUE(target.translate(phys_to_virt(0x700000), physical, flags));
+    EXPECT_EQ(0x700000ull, physical);
+}

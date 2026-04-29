@@ -10,6 +10,8 @@ In the source tree, the two boot frontends are explicit peers under `src/boot/`:
 
 Required build tools:
 
+- `cmake`
+- `ninja`
 - `x86_64-elf-gcc`
 - `x86_64-elf-g++`
 - `x86_64-elf-ld`
@@ -30,6 +32,12 @@ brew install x86_64-elf-gcc nasm cpio xorriso qemu
 ```
 
 Homebrew `qemu` ships usable OVMF firmware files and the CMake build will auto-detect them. On Linux, install your distro's `ovmf` or `edk2-ovmf` package.
+
+This repository uses GoogleTest as a git submodule for host unit tests. Existing clones should initialize submodules once:
+
+```sh
+git submodule update --init --recursive
+```
 
 ## Build
 
@@ -65,6 +73,20 @@ This repo ships CMake presets for the supported workflows. In VS Code with the C
 - use the `smoke`, `smoke_observe`, `smoke_spawn`, `smoke_exec`, `smoke_bios`, `smoke_observe_bios`, `smoke_spawn_bios`, `smoke_exec_bios`, or `smoke_all` targets for tests
 
 If the extension still has stale cache or generator state from an older setup, run `CMake: Delete Cache and Reconfigure` once.
+
+## Host Unit Tests
+
+The host unit tests are a separate CMake project under `tests/host/` and use the platform compiler, not the `x86_64-elf` cross toolchain. They exercise parser and policy code that should not require QEMU: ELF helpers, freestanding strings, BootInfo ownership, CPIO newc parsing, user pointer policy, user ELF policy, page-frame allocation, page-table operations, and observe ABI layout.
+
+Configure, build, and run them with:
+
+```sh
+cmake -S tests/host -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-host-tests
+ctest --test-dir build-host-tests --output-on-failure --no-tests=error
+```
+
+These tests are intentionally separate from the root CMake project because the root build is freestanding and correctly requires the `x86_64-elf` toolchain.
 
 ## Run
 

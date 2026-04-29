@@ -11,8 +11,10 @@ extern "C"
 {
 #endif
 
+#if !defined(OS1_HOST_TEST)
     // Fill `num` bytes at `ptr` with the low byte of `value`.
     void memset(void* ptr, uint8_t value, uint64_t num);
+#endif
 
     // Fill `num` bytes at `ptr` with repeated 16-bit words.
     void memsetw(void* ptr, uint16_t value, uint64_t num);
@@ -23,8 +25,10 @@ extern "C"
     // Fill `num` bytes at `ptr` with repeated 64-bit quadwords.
     void memsetq(void* ptr, uint64_t value, uint64_t num);
 
+#if !defined(OS1_HOST_TEST)
     // Copy exactly `len` bytes from `src` to `dest`. Callers must avoid overlap.
     void memcpy(void* dest, const void* src, uint64_t len);
+#endif
 
 #ifdef __cplusplus
 }

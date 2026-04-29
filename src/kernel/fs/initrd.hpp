@@ -3,16 +3,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "fs/cpio_newc.hpp"
 #include "handoff/boot_info.hpp"
 
 // The initrd module is still a boot-time cpio archive owned by BootInfo.
 // Keep the parsing surface small so later filesystem work can replace it
 // without dragging CPIO details through unrelated kernel subsystems.
 
-using InitrdFileVisitor = bool (*)(const char* archive_name,
-                                   const uint8_t* file_data,
-                                   uint64_t file_size,
-                                   void* context);
+using InitrdFileVisitor = CpioNewcFileVisitor;
 
 // Bind the owned BootInfo so later initrd queries can locate the module list.
 void bind_initrd_boot_info(const BootInfo* boot_info);

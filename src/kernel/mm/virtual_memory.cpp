@@ -388,6 +388,10 @@ bool VirtualMemory::activate()
     {
         return false;
     }
+#if defined(OS1_HOST_TEST)
+    return true;
+#else
     asm volatile("mov %0, %%cr3" : : "r"(root_));
     return true;
+#endif
 }

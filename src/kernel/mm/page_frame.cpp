@@ -154,27 +154,35 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
     // mark bitmap_ pages as occupied
     if(result)
     {
-        uint64_t bitmap_end = (uint64_t)(bitmap_ + bitmap_limit_);
-        for(uint64_t vp = (uint64_t)bitmap_; vp < bitmap_end; vp += kPageSize)
-        {
-            set_busy(vp >> 12);
-        }
-    }
+        auto mark_busy_counted = [this](uint64_t ipage) {
+            if((ipage < page_count_) && is_free(ipage))
+            {
+                set_busy(ipage);
+                if(free_page_count_ > 0)
+                {
+                    --free_page_count_;
+                }
+            }
+        };
 
-    // mark kernel pages occupied
-    if(result)
-    {
+        const uint64_t bitmap_bytes = bitmap_limit_ * sizeof(uint64_t);
+        const uint64_t bitmap_end = bitmap_physical_address_ + bitmap_bytes;
+        for(uint64_t vp = bitmap_physical_address_; vp < bitmap_end; vp += kPageSize)
+        {
+            mark_busy_counted(vp >> 12);
+        }
+
         // mark kernel low data pages as busy
         for(uint64_t vp = 0; vp < kEarlyReservedPhysicalEnd; vp += kPageSize)
         {
-            set_busy(vp >> 12);
+            mark_busy_counted(vp >> 12);
         }
 
         // mark kernel code & stack as busy
         for(uint64_t vp = kKernelReservedPhysicalStart; vp < kKernelReservedPhysicalEnd;
             vp += kPageSize)
         {
-            set_busy(vp >> 12);
+            mark_busy_counted(vp >> 12);
         }
     }
 
