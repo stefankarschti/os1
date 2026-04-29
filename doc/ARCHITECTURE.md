@@ -845,6 +845,8 @@ The test ladder is now:
 
 The host unit tests live under `tests/host/` as a separate CMake project. They intentionally do not include the root `CMakeLists.txt`, because the root project is a freestanding `x86_64-elf` build and should continue to reject a hosted compiler.
 
+The current SMP synchronization contract is documented in [SMP Synchronization Contract - 2026-04-29](2026-04-29-smp-synchronization-contract.md). APs are still parked, so several global owners are explicitly marked `OS1_BSP_ONLY` in source until real locks or CPU-local ownership replace that assumption.
+
 ### Local Targets
 
 The main CMake targets are:

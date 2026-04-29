@@ -12,10 +12,12 @@
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
 #include "platform/topology.hpp"
+#include "sync/smp.hpp"
 #include "util/memory.h"
 
 bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm)
 {
+    KASSERT_ON_BSP();
     memset(&g_platform, 0, sizeof(g_platform));
 
     const bool acpi_available = discover_acpi_platform(kernel_vm,

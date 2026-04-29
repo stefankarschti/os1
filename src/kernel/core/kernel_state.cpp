@@ -3,11 +3,12 @@
 #include "core/kernel_state.hpp"
 
 Interrupts interrupts;
-PageFrameContainer page_frames;
+OS1_BSP_ONLY PageFrameContainer page_frames;
 Keyboard keyboard(interrupts);
 
-Terminal terminal[kNumTerminals];
-Terminal* active_terminal = nullptr;
+// BSP-only for now: terminal state is mutated only by the BSP console/input path.
+OS1_BSP_ONLY Terminal terminal[kNumTerminals];
+OS1_BSP_ONLY Terminal* active_terminal = nullptr;
 
 const BootInfo* g_boot_info = nullptr;
 uint64_t g_kernel_root_cr3 = 0;

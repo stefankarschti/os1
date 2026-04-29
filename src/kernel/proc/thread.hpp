@@ -9,6 +9,7 @@
 #include "arch/x86_64/interrupt/trap_frame.hpp"
 #include "mm/page_frame.hpp"
 #include "proc/process.hpp"
+#include "sync/smp.hpp"
 
 constexpr uint16_t kKernelCodeSegment = 0x08;
 constexpr uint16_t kKernelDataSegment = 0x10;
@@ -101,7 +102,8 @@ size_t runnable_thread_count(void);
 // Return the first runnable user thread, if any.
 Thread* first_runnable_user_thread(void);
 
-extern Thread* threadTable;
+// BSP-only for now: fixed thread table and runnable links are mutated only on the BSP.
+OS1_BSP_ONLY extern Thread* threadTable;
 
 #ifdef __cplusplus
 extern "C"

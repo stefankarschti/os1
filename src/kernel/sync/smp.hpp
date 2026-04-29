@@ -1,0 +1,133 @@
+// SMP synchronization contract. APs are online but parked today, so the shared
+// state annotations below make the current BSP-only assumptions explicit before
+// the scheduler grows multi-CPU execution.
+#pragma once
+
+#include <stdint.h>
+
+// Marker for global state that is intentionally mutated only on the bootstrap
+// CPU for now. This is documentation with compiler-visible placement; it is not
+// a lock and must be replaced or removed when the state becomes SMP-safe.
+#define OS1_BSP_ONLY [[maybe_unused]]
+
+#if defined(OS1_HOST_TEST)
+#define KASSERT_ON_BSP() \
+    do                   \
+    {                    \
+    } while(false)
+#else
+// Return true while executing on the bootstrap CPU. Before g_cpu_boot is
+// published, early boot is still single-CPU and is treated as BSP context.
+[[nodiscard]] bool kernel_on_bsp();
+
+// Serial-log and halt after a BSP-only invariant violation.
+[[noreturn]] void kassert_on_bsp_failed(const char* file, int line);
+
+#ifndef NDEBUG
+#define KASSERT_ON_BSP()                         \
+    do                                           \
+    {                                            \
+        if(!kernel_on_bsp())                     \
+        {                                        \
+            kassert_on_bsp_failed(__FILE__, __LINE__); \
+        }                                        \
+    } while(false)
+#else
+#define KASSERT_ON_BSP() \
+    do                   \
+    {                    \
+    } while(false)
+#endif
+#endif
+
+class Spinlock
+{
+public:
+    constexpr explicit Spinlock(const char* name) : name_(name) {}
+
+    Spinlock(const Spinlock&) = delete;
+    Spinlock& operator=(const Spinlock&) = delete;
+
+    void lock()
+    {
+        while(__atomic_exchange_n(&locked_, 1u, __ATOMIC_ACQUIRE) != 0u)
+        {
+            while(__atomic_load_n(&locked_, __ATOMIC_RELAXED) != 0u)
+            {
+                asm volatile("pause" ::: "memory");
+            }
+        }
+    }
+
+    [[nodiscard]] bool try_lock()
+    {
+        return __atomic_exchange_n(&locked_, 1u, __ATOMIC_ACQUIRE) == 0u;
+    }
+
+    void unlock()
+    {
+        __atomic_store_n(&locked_, 0u, __ATOMIC_RELEASE);
+    }
+
+    [[nodiscard]] bool locked() const
+    {
+        return __atomic_load_n(&locked_, __ATOMIC_RELAXED) != 0u;
+    }
+
+    [[nodiscard]] const char* name() const
+    {
+        return name_;
+    }
+
+private:
+    volatile uint32_t locked_ = 0;
+    const char* name_;
+};
+
+class IrqGuard
+{
+public:
+    IrqGuard() : saved_rflags_(read_rflags()), restore_interrupts_((saved_rflags_ & kInterruptFlag) != 0)
+    {
+        disable_interrupts();
+    }
+
+    IrqGuard(const IrqGuard&) = delete;
+    IrqGuard& operator=(const IrqGuard&) = delete;
+
+    ~IrqGuard()
+    {
+        if(restore_interrupts_)
+        {
+            enable_interrupts();
+        }
+    }
+
+    [[nodiscard]] bool interrupts_were_enabled() const
+    {
+        return restore_interrupts_;
+    }
+
+private:
+    static constexpr uint64_t kInterruptFlag = 1ull << 9;
+
+    [[nodiscard]] static uint64_t read_rflags()
+    {
+        uint64_t value = 0;
+        asm volatile("pushfq; popq %0" : "=r"(value) : : "memory");
+        return value;
+    }
+
+    static void disable_interrupts()
+    {
+        asm volatile("cli" ::: "memory");
+    }
+
+    static void enable_interrupts()
+    {
+        asm volatile("sti" ::: "memory");
+    }
+
+    uint64_t saved_rflags_;
+    bool restore_interrupts_;
+};

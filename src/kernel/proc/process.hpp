@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "sync/smp.hpp"
+
 class PageFrameContainer;
 
 // The kernel keeps a fixed process table until dynamic kernel allocation grows.
@@ -54,5 +56,5 @@ bool process_has_threads(Process* process);
 // Reclaim a process address space and table entry when all threads are gone.
 bool reap_process(Process* process, PageFrameContainer& frames);
 
-// Global fixed process table storage.
-extern Process* processTable;
+// BSP-only for now: global fixed process table storage.
+OS1_BSP_ONLY extern Process* processTable;
