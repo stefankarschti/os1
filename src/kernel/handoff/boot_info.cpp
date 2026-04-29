@@ -2,6 +2,7 @@
 // reclaimed after this module has copied pointed-to arrays and strings.
 #include "handoff/boot_info.hpp"
 
+#include "freestanding/string.hpp"
 #include "util/memory.h"
 
 namespace
@@ -17,29 +18,6 @@ struct OwnedBootInfoStorage
 };
 
 constinit OwnedBootInfoStorage g_owned_boot_info{};
-
-size_t copy_string(char* dest, size_t capacity, const char* source)
-{
-    if((nullptr == dest) || (0 == capacity))
-    {
-        return 0;
-    }
-    dest[0] = 0;
-    if(nullptr == source)
-    {
-        return 0;
-    }
-
-    size_t source_length = 0;
-    while(source[source_length])
-    {
-        ++source_length;
-    }
-    const size_t copy_length = (source_length < (capacity - 1)) ? source_length : (capacity - 1);
-    memcpy(dest, source, copy_length);
-    dest[copy_length] = 0;
-    return copy_length;
-}
 }  // namespace
 
 const BootInfo* own_boot_info(const BootInfo* source)
@@ -95,9 +73,9 @@ const BootInfo* own_boot_info(const BootInfo* source)
         {
             if(source->modules[i].name)
             {
-                copy_string(g_owned_boot_info.module_names[i],
-                            kBootInfoMaxModuleNameBytes,
-                            source->modules[i].name);
+                freestanding::copy_string(g_owned_boot_info.module_names[i],
+                                          kBootInfoMaxModuleNameBytes,
+                                          source->modules[i].name);
                 g_owned_boot_info.modules[i].name = g_owned_boot_info.module_names[i];
             }
             else
@@ -114,9 +92,9 @@ const BootInfo* own_boot_info(const BootInfo* source)
 
     if(source->bootloader_name)
     {
-        copy_string(g_owned_boot_info.bootloader_name,
-                    kBootInfoMaxBootloaderNameBytes,
-                    source->bootloader_name);
+        freestanding::copy_string(g_owned_boot_info.bootloader_name,
+                                  kBootInfoMaxBootloaderNameBytes,
+                                  source->bootloader_name);
         g_owned_boot_info.info.bootloader_name = g_owned_boot_info.bootloader_name;
     }
     else
@@ -126,7 +104,7 @@ const BootInfo* own_boot_info(const BootInfo* source)
 
     if(source->command_line)
     {
-        copy_string(
+        freestanding::copy_string(
             g_owned_boot_info.command_line, kBootInfoMaxCommandLineBytes, source->command_line);
         g_owned_boot_info.info.command_line = g_owned_boot_info.command_line;
     }

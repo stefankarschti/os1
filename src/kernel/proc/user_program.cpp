@@ -3,61 +3,15 @@
 #include "proc/user_program.hpp"
 
 #include "debug/debug.hpp"
+#include "elf/elf64.hpp"
 #include "fs/initrd.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/user_copy.hpp"
 #include "mm/virtual_memory.hpp"
+#include "util/align.hpp"
 
 namespace
 {
-constexpr uint32_t kElfMagic = 0x464C457F;
-constexpr uint16_t kElfTypeExec = 2;
-constexpr uint16_t kElfMachineX86_64 = 62;
-constexpr uint32_t kProgramTypeLoad = 1;
-constexpr uint32_t kProgramFlagExecute = 0x1;
-constexpr uint32_t kProgramFlagWrite = 0x2;
-
-struct Elf64Header
-{
-    uint32_t magic;
-    uint8_t ident[12];
-    uint16_t type;
-    uint16_t machine;
-    uint32_t version;
-    uint64_t entry;
-    uint64_t phoff;
-    uint64_t shoff;
-    uint32_t flags;
-    uint16_t ehsize;
-    uint16_t phentsize;
-    uint16_t phnum;
-    uint16_t shentsize;
-    uint16_t shnum;
-    uint16_t shstrndx;
-} __attribute__((packed));
-
-struct Elf64ProgramHeader
-{
-    uint32_t type;
-    uint32_t flags;
-    uint64_t offset;
-    uint64_t vaddr;
-    uint64_t paddr;
-    uint64_t filesz;
-    uint64_t memsz;
-    uint64_t align;
-} __attribute__((packed));
-
-[[nodiscard]] uint64_t align_down(uint64_t value, uint64_t alignment)
-{
-    return value & ~(alignment - 1);
-}
-
-[[nodiscard]] uint64_t align_up(uint64_t value, uint64_t alignment)
-{
-    return (value + alignment - 1) & ~(alignment - 1);
-}
-
 bool load_user_elf(PageFrameContainer& frames,
                    uint64_t kernel_root_cr3,
                    const uint8_t* image,
@@ -66,15 +20,14 @@ bool load_user_elf(PageFrameContainer& frames,
                    uint64_t& entry,
                    uint64_t& user_rsp)
 {
-    if((nullptr == image) || (image_size < sizeof(Elf64Header)))
+    if((nullptr == image) || (image_size < sizeof(elf::Elf64Header)))
     {
         return false;
     }
 
-    const Elf64Header* header = (const Elf64Header*)image;
-    if((header->magic != kElfMagic) || (header->type != kElfTypeExec) ||
-       (header->machine != kElfMachineX86_64) || (header->phoff >= image_size) ||
-       (header->phentsize != sizeof(Elf64ProgramHeader)))
+    const auto* header = elf::header_from_image(image, image_size);
+    if((nullptr == header) || (header->type != elf::kTypeExec) ||
+       (header->machine != elf::kMachineX86_64))
     {
         return false;
     }
@@ -88,15 +41,14 @@ bool load_user_elf(PageFrameContainer& frames,
     const uint64_t stack_guard_base = kUserStackTop - (kUserStackPages + 1) * kPageSize;
     for(uint16_t i = 0; i < header->phnum; ++i)
     {
-        const uint64_t ph_offset = header->phoff + i * sizeof(Elf64ProgramHeader);
-        if((ph_offset + sizeof(Elf64ProgramHeader)) > image_size)
+        const auto* program = elf::program_header_from_image(*header, image, image_size, i);
+        if(nullptr == program)
         {
             destroy_user_address_space(frames, vm.root());
             return false;
         }
 
-        const Elf64ProgramHeader* program = (const Elf64ProgramHeader*)(image + ph_offset);
-        if(kProgramTypeLoad != program->type)
+        if(elf::kProgramTypeLoad != program->type)
         {
             continue;
         }
@@ -104,7 +56,7 @@ bool load_user_elf(PageFrameContainer& frames,
         {
             continue;
         }
-        if((program->memsz < program->filesz) || ((program->offset + program->filesz) > image_size))
+        if(!elf::loadable_segment_bounds_valid(*program, image_size))
         {
             destroy_user_address_space(frames, vm.root());
             return false;
@@ -120,11 +72,11 @@ bool load_user_elf(PageFrameContainer& frames,
         }
 
         PageFlags page_flags = PageFlags::Present | PageFlags::User;
-        if(program->flags & kProgramFlagWrite)
+        if(program->flags & elf::kProgramFlagWrite)
         {
             page_flags |= PageFlags::Write;
         }
-        if(0 == (program->flags & kProgramFlagExecute))
+        if(0 == (program->flags & elf::kProgramFlagExecute))
         {
             page_flags |= PageFlags::NoExecute;
         }
