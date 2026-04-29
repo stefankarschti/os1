@@ -12,6 +12,15 @@ TEST(ObserveAbi, ConstantsAreStable)
     EXPECT_EQ(3, OS1_OBSERVE_CPUS);
     EXPECT_EQ(4, OS1_OBSERVE_PCI);
     EXPECT_EQ(5, OS1_OBSERVE_INITRD);
+    EXPECT_EQ(6, OS1_OBSERVE_EVENTS);
+    EXPECT_EQ(256, OS1_OBSERVE_EVENT_RING_CAPACITY);
+    EXPECT_EQ(1, OS1_KERNEL_EVENT_TRAP);
+    EXPECT_EQ(2, OS1_KERNEL_EVENT_SCHED_TRANSITION);
+    EXPECT_EQ(3, OS1_KERNEL_EVENT_IRQ);
+    EXPECT_EQ(4, OS1_KERNEL_EVENT_BLOCK_IO);
+    EXPECT_EQ(5, OS1_KERNEL_EVENT_PCI_BIND);
+    EXPECT_EQ(6, OS1_KERNEL_EVENT_USER_COPY_FAILURE);
+    EXPECT_EQ(7, OS1_KERNEL_EVENT_SMOKE_MARKER);
 }
 
 TEST(ObserveAbi, HeaderLayoutIsPacked)
@@ -40,4 +49,14 @@ TEST(ObserveAbi, RecordLayoutsArePacked)
 
     EXPECT_EQ(72u, sizeof(Os1ObserveInitrdRecord));
     EXPECT_EQ(64u, offsetof(Os1ObserveInitrdRecord, size));
+
+    EXPECT_EQ(80u, sizeof(Os1ObserveEventRecord));
+    EXPECT_EQ(0u, offsetof(Os1ObserveEventRecord, sequence));
+    EXPECT_EQ(8u, offsetof(Os1ObserveEventRecord, tick_count));
+    EXPECT_EQ(16u, offsetof(Os1ObserveEventRecord, pid));
+    EXPECT_EQ(24u, offsetof(Os1ObserveEventRecord, tid));
+    EXPECT_EQ(32u, offsetof(Os1ObserveEventRecord, arg0));
+    EXPECT_EQ(64u, offsetof(Os1ObserveEventRecord, type));
+    EXPECT_EQ(68u, offsetof(Os1ObserveEventRecord, flags));
+    EXPECT_EQ(72u, offsetof(Os1ObserveEventRecord, cpu));
 }

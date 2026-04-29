@@ -37,6 +37,7 @@ add_library(os1_host_support
   support/debug_stub.cpp
   support/memory_stubs.cpp
   support/physical_memory.cpp
+  "${OS1_REPO_ROOT}/src/kernel/debug/event_ring.cpp"
   "${OS1_REPO_ROOT}/src/kernel/fs/cpio_newc.cpp"
   "${OS1_REPO_ROOT}/src/kernel/handoff/boot_info.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/page_frame.cpp"
@@ -58,6 +59,7 @@ add_executable(os1_host_tests
   fs/cpio_newc_tests.cpp
   handoff/boot_info_tests.cpp
   kernel/utility_tests.cpp
+  kernel/event_ring_tests.cpp
   mm/page_frame_tests.cpp
   mm/user_address_tests.cpp
   mm/virtual_memory_tests.cpp

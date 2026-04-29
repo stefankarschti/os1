@@ -88,6 +88,7 @@ set(KERNEL_SYNC_SOURCES
 
 set(KERNEL_DEBUG_SOURCES
   debug/debug.cpp
+  debug/event_ring.cpp
 )
 
 set(KERNEL_UTIL_SOURCES

@@ -7,6 +7,7 @@
 #include "core/kernel_state.hpp"
 #include "core/panic.hpp"
 #include "debug/debug.hpp"
+#include "debug/event_ring.hpp"
 #include "proc/thread.hpp"
 #include "sched/scheduler.hpp"
 
@@ -85,6 +86,15 @@ void on_kernel_exception(TrapFrame* frame)
 
 Thread* handle_exception(TrapFrame* frame)
 {
+    const uint32_t flags =
+        trap_frame_is_user(*frame) ? static_cast<uint32_t>(OS1_KERNEL_EVENT_FLAG_USER) : 0u;
+    kernel_event::record(OS1_KERNEL_EVENT_TRAP,
+                         flags,
+                         frame->vector,
+                         frame->error_code,
+                         frame->rip,
+                         read_cr2());
+
     if(trap_frame_is_user(*frame))
     {
         const uint64_t pid =

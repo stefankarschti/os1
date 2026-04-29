@@ -4,6 +4,7 @@
 
 #include "arch/x86_64/cpu/x86.hpp"
 #include "debug/debug.hpp"
+#include "debug/event_ring.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
@@ -157,6 +158,13 @@ BlockDevice g_virtio_blk_device{};
     return *kernel_physical_pointer<volatile uint8_t>(config_physical + offset);
 }
 
+[[nodiscard]] uint64_t pci_bdf(const PciDevice& device)
+{
+    return (static_cast<uint64_t>(device.segment_group) << 16) |
+           (static_cast<uint64_t>(device.bus) << 8) |
+           (static_cast<uint64_t>(device.slot) << 3) | static_cast<uint64_t>(device.function);
+}
+
 [[nodiscard]] uint32_t pci_read32(uint64_t config_physical, uint16_t offset)
 {
     return *kernel_physical_pointer<volatile uint32_t>(config_physical + offset);
@@ -195,12 +203,31 @@ void write_device_status(volatile VirtioPciCommonCfg* common_cfg, uint8_t status
     auto& state = g_virtio_blk;
     if(!state.present || (nullptr == buffer) || (length > kVirtioSectorSize))
     {
+        kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                             OS1_KERNEL_EVENT_FLAG_FAILURE,
+                             sector,
+                             static_cast<uint64_t>(length),
+                             1,
+                             0);
         return false;
     }
     if(sector >= state.capacity_sectors)
     {
+        kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                             OS1_KERNEL_EVENT_FLAG_FAILURE,
+                             sector,
+                             static_cast<uint64_t>(length),
+                             2,
+                             state.capacity_sectors);
         return false;
     }
+
+    kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                         OS1_KERNEL_EVENT_FLAG_BEGIN,
+                         sector,
+                         static_cast<uint64_t>(length),
+                         0,
+                         0);
 
     memset(state.request_header, 0, sizeof(*state.request_header));
     memset(state.request_data, 0, kVirtioSectorSize);
@@ -239,15 +266,33 @@ void write_device_status(volatile VirtioPciCommonCfg* common_cfg, uint8_t status
             if(0 != *state.request_status)
             {
                 debug("virtio-blk: request failed status=") (*state.request_status)();
+                kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                                     OS1_KERNEL_EVENT_FLAG_FAILURE,
+                                     sector,
+                                     static_cast<uint64_t>(length),
+                                     *state.request_status,
+                                     state.last_used_idx);
                 return false;
             }
             memcpy(buffer, state.request_data, length);
+            kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                                 OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                                 sector,
+                                 static_cast<uint64_t>(length),
+                                 0,
+                                 state.last_used_idx);
             return true;
         }
         pause();
     }
 
     debug("virtio-blk: request timeout")();
+    kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                         OS1_KERNEL_EVENT_FLAG_FAILURE,
+                         sector,
+                         static_cast<uint64_t>(length),
+                         3,
+                         state.last_used_idx);
     return false;
 }
 
@@ -508,6 +553,12 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
 
     debug("virtio-blk: ready pci=")(device.bus, 16, 2)(":")(device.slot, 16, 2)(".")(
         device.function, 16, 1)(" sectors=")(state.capacity_sectors)(" qsize=")(state.queue_size)();
+    kernel_event::record(OS1_KERNEL_EVENT_PCI_BIND,
+                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                         static_cast<uint64_t>(device_index),
+                         pci_bdf(device),
+                         (static_cast<uint64_t>(device.vendor_id) << 16) | device.device_id,
+                         state.capacity_sectors);
     return true;
 }
 

@@ -3,11 +3,13 @@
 #include <os1/observe.h>
 
 #include "arch/x86_64/cpu/cpu.hpp"
+#include "debug/event_ring.hpp"
 #include "fs/initrd.hpp"
 #include "mm/user_copy.hpp"
 #include "platform/platform.hpp"
 #include "platform/topology.hpp"
 #include "proc/thread.hpp"
+#include "sync/smp.hpp"
 #include "util/fixed_string.hpp"
 
 namespace
@@ -404,6 +406,47 @@ long sys_observe_initrd(const ObserveContext& context,
     }
     return result;
 }
+
+OS1_BSP_ONLY Os1ObserveEventRecord g_event_observe_snapshot[OS1_OBSERVE_EVENT_RING_CAPACITY];
+
+long sys_observe_events(const ObserveContext& context,
+                        Thread* thread,
+                        uint64_t user_buffer,
+                        size_t length)
+{
+    const uint32_t record_count =
+        kernel_event::snapshot(g_event_observe_snapshot, OS1_OBSERVE_EVENT_RING_CAPACITY);
+
+    size_t offset = 0;
+    long result = -1;
+    if(!begin_observe_transfer(context,
+                               thread,
+                               user_buffer,
+                               length,
+                               OS1_OBSERVE_EVENTS,
+                               sizeof(Os1ObserveEventRecord),
+                               record_count,
+                               offset,
+                               result))
+    {
+        return -1;
+    }
+
+    for(uint32_t i = 0; i < record_count; ++i)
+    {
+        if(!write_observe_record(context,
+                                 thread,
+                                 user_buffer,
+                                 offset,
+                                 &g_event_observe_snapshot[i],
+                                 sizeof(g_event_observe_snapshot[i])))
+        {
+            return -1;
+        }
+    }
+
+    return result;
+}
 }  // namespace
 
 long sys_observe(const ObserveContext& context, uint64_t kind, uint64_t user_buffer, size_t length)
@@ -426,6 +469,8 @@ long sys_observe(const ObserveContext& context, uint64_t kind, uint64_t user_buf
             return sys_observe_pci(context, thread, user_buffer, length);
         case OS1_OBSERVE_INITRD:
             return sys_observe_initrd(context, thread, user_buffer, length);
+        case OS1_OBSERVE_EVENTS:
+            return sys_observe_events(context, thread, user_buffer, length);
         default:
             return -1;
     }
