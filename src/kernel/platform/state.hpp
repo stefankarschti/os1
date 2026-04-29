@@ -3,6 +3,7 @@
 #pragma once
 
 #include "platform/types.hpp"
+#include "sync/smp.hpp"
 
 struct BlockDevice;
 
@@ -19,11 +20,12 @@ struct PlatformState
     InterruptOverride overrides[kPlatformMaxInterruptOverrides];
     size_t ecam_region_count;
     PciEcamRegion ecam_regions[kPlatformMaxPciEcamRegions];
+    // BSP-only for now: PCI enumeration publishes this list once during boot.
     size_t device_count;
     PciDevice devices[kPlatformMaxPciDevices];
     const BlockDevice* block_device;
     VirtioBlkDevice virtio_blk_public;
 };
 
-// Single normalized platform state instance built by platform_init.
-extern PlatformState g_platform;
+// BSP-only for now: single normalized platform state instance built by platform_init.
+OS1_BSP_ONLY extern PlatformState g_platform;

@@ -6,14 +6,17 @@
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "sync/smp.hpp"
 #include "util/memory.h"
 
 namespace
 {
 constexpr size_t kThreadTablePageCount = (kMaxThreads * sizeof(Thread) + kPageSize - 1) / kPageSize;
 
-uint64_t g_next_tid = 1;
-Thread* g_idle_thread = nullptr;
+// BSP-only for now: TID allocation, idle-thread publication, and thread table
+// mutation have no SMP lock until APs leave the parked idle loop.
+OS1_BSP_ONLY uint64_t g_next_tid = 1;
+OS1_BSP_ONLY Thread* g_idle_thread = nullptr;
 
 Thread* next_free_thread()
 {
@@ -29,6 +32,7 @@ Thread* next_free_thread()
 
 bool initialize_thread_table(PageFrameContainer& frames)
 {
+    KASSERT_ON_BSP();
     g_next_tid = 1;
     g_idle_thread = nullptr;
 
@@ -53,10 +57,11 @@ bool initialize_thread_table(PageFrameContainer& frames)
 }
 }  // namespace
 
-Thread* threadTable = nullptr;
+OS1_BSP_ONLY Thread* threadTable = nullptr;
 
 bool init_tasks(PageFrameContainer& frames)
 {
+    KASSERT_ON_BSP();
     if(!initialize_process_table(frames) || !initialize_thread_table(frames))
     {
         return false;
@@ -67,6 +72,7 @@ bool init_tasks(PageFrameContainer& frames)
 
 void relink_runnable_threads()
 {
+    KASSERT_ON_BSP();
     Thread* first = nullptr;
     Thread* last = nullptr;
     for(size_t i = 0; i < kMaxThreads; ++i)
@@ -103,6 +109,7 @@ void clear_thread(Thread* thread)
 
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames)
 {
+    KASSERT_ON_BSP();
     Thread* thread = next_free_thread();
     if((nullptr == thread) || (nullptr == process) || (nullptr == entry))
     {
@@ -156,6 +163,7 @@ Thread* create_user_thread(Process* process,
                            uint64_t user_rsp,
                            PageFrameContainer& frames)
 {
+    KASSERT_ON_BSP();
     Thread* thread = next_free_thread();
     if(nullptr == thread)
     {
@@ -216,6 +224,7 @@ void set_current_thread(Thread* thread)
 
 void mark_thread_ready(Thread* thread)
 {
+    KASSERT_ON_BSP();
     if((nullptr != thread) && (ThreadState::Dying != thread->state) &&
        (ThreadState::Free != thread->state))
     {
@@ -229,6 +238,7 @@ void mark_thread_ready(Thread* thread)
 
 void block_current_thread(ThreadWaitReason reason, uint64_t wait_address, uint64_t wait_length)
 {
+    KASSERT_ON_BSP();
     Thread* thread = current_thread();
     if((nullptr == thread) || (ThreadState::Dying == thread->state) ||
        (ThreadState::Free == thread->state))
@@ -273,6 +283,7 @@ Thread* first_blocked_thread(ThreadWaitReason reason)
 
 void mark_current_thread_dying(int exit_status)
 {
+    KASSERT_ON_BSP();
     Thread* thread = current_thread();
     if(nullptr == thread)
     {

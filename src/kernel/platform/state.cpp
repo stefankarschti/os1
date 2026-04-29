@@ -3,7 +3,9 @@
 
 #include "storage/block_device.hpp"
 
-constinit PlatformState g_platform{};
+// BSP-only for now: PCI/device discovery state is populated on the BSP during
+// boot and exposed through read-only accessors.
+OS1_BSP_ONLY constinit PlatformState g_platform{};
 
 const BlockDevice* platform_block_device()
 {

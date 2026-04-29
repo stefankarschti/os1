@@ -4,6 +4,7 @@
 
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "sync/smp.hpp"
 #include "util/memory.h"
 
 PageFrameContainer::PageFrameContainer() : initialized_(false) {}
@@ -12,6 +13,7 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
                                     uint64_t bitmap_address,
                                     uint64_t bitmap_limit)
 {
+    KASSERT_ON_BSP();
     if(initialized_)
         return false;
     bool result = false;
@@ -206,6 +208,7 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
 
 void PageFrameContainer::enable_direct_map_access()
 {
+    KASSERT_ON_BSP();
     if(0 != bitmap_physical_address_)
     {
         bitmap_ = kernel_physical_pointer<uint64_t>(bitmap_physical_address_);
@@ -214,6 +217,7 @@ void PageFrameContainer::enable_direct_map_access()
 
 bool PageFrameContainer::allocate(uint64_t& address)
 {
+    KASSERT_ON_BSP();
     // check for successful initialization
     if(!initialized_)
         return false;
@@ -258,6 +262,7 @@ bool PageFrameContainer::allocate(uint64_t& address)
 
 bool PageFrameContainer::allocate(uint64_t& address, unsigned count)
 {
+    KASSERT_ON_BSP();
     // check for successful initialization
     if(!initialized_)
         return false;
@@ -296,6 +301,7 @@ bool PageFrameContainer::allocate(uint64_t& address, unsigned count)
 
 bool PageFrameContainer::free(uint64_t address)
 {
+    KASSERT_ON_BSP();
     if(!initialized_)
         return false;
     // check address align
@@ -326,6 +332,7 @@ bool PageFrameContainer::free(uint64_t address)
 
 bool PageFrameContainer::reserve_range(uint64_t address, uint64_t length)
 {
+    KASSERT_ON_BSP();
     if(!initialized_ || (0 == length))
     {
         return false;

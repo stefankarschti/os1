@@ -13,20 +13,21 @@
 #include "drivers/input/ps2_keyboard.hpp"
 #include "handoff/boot_info.hpp"
 #include "mm/page_frame.hpp"
+#include "sync/smp.hpp"
 
 // Kernel-wide interrupt descriptor table and IRQ callback registry.
 extern Interrupts interrupts;
 
-// Physical page allocator used by VM, process, syscall, and driver code.
-extern PageFrameContainer page_frames;
+// BSP-only for now: physical page allocator used by VM, process, syscall, and driver code.
+OS1_BSP_ONLY extern PageFrameContainer page_frames;
 
 // PS/2 keyboard device instance wired to the shared interrupt table.
 extern Keyboard keyboard;
 
-// The kernel keeps a small fixed terminal set until sessions/PTYs exist.
+// BSP-only for now: the kernel keeps a small fixed terminal set until sessions/PTYs exist.
 inline constexpr size_t kNumTerminals = 12;
-extern Terminal terminal[kNumTerminals];
-extern Terminal* active_terminal;
+OS1_BSP_ONLY extern Terminal terminal[kNumTerminals];
+OS1_BSP_ONLY extern Terminal* active_terminal;
 
 // Owned boot contract copied out of bootloader staging memory.
 extern const BootInfo* g_boot_info;

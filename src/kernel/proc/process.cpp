@@ -7,6 +7,7 @@
 #include "mm/page_frame.hpp"
 #include "mm/virtual_memory.hpp"
 #include "proc/thread.hpp"
+#include "sync/smp.hpp"
 #include "util/memory.h"
 
 namespace
@@ -14,8 +15,10 @@ namespace
 constexpr size_t kProcessTablePageCount =
     (kMaxProcesses * sizeof(Process) + kPageSize - 1) / kPageSize;
 
-uint64_t g_next_pid = 1;
-Process* g_kernel_process = nullptr;
+// BSP-only for now: PID allocation and process table ownership are serialized
+// by the parked-AP execution model, not by a real process-table lock.
+OS1_BSP_ONLY uint64_t g_next_pid = 1;
+OS1_BSP_ONLY Process* g_kernel_process = nullptr;
 
 Process* next_free_process()
 {
@@ -75,10 +78,11 @@ void fill_process_name(Process* process, const char* name)
 }
 }  // namespace
 
-Process* processTable = nullptr;
+OS1_BSP_ONLY Process* processTable = nullptr;
 
 bool initialize_process_table(PageFrameContainer& frames)
 {
+    KASSERT_ON_BSP();
     g_next_pid = 1;
     g_kernel_process = nullptr;
 
@@ -104,6 +108,7 @@ bool initialize_process_table(PageFrameContainer& frames)
 
 Process* create_kernel_process(uint64_t kernel_cr3)
 {
+    KASSERT_ON_BSP();
     Process* process = next_free_process();
     if(nullptr == process)
     {
@@ -121,6 +126,7 @@ Process* create_kernel_process(uint64_t kernel_cr3)
 
 Process* create_user_process(const char* name, uint64_t cr3)
 {
+    KASSERT_ON_BSP();
     Process* process = next_free_process();
     if(nullptr == process)
     {
@@ -154,6 +160,7 @@ bool process_has_threads(Process* process)
 
 bool reap_process(Process* process, PageFrameContainer& frames)
 {
+    KASSERT_ON_BSP();
     if((nullptr == process) || process_has_threads(process))
     {
         return false;
