@@ -2,6 +2,7 @@
 
 #include "arch/x86_64/apic/ioapic.hpp"
 #include "arch/x86_64/apic/lapic.hpp"
+#include "arch/x86_64/cpu/syscall.hpp"
 #include "arch/x86_64/cpu/x86.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/page_frame.hpp"
@@ -121,6 +122,7 @@ void cpu_init()
 
     asm volatile("lldt %%ax" ::"a"(0));
     ltr(CPU_GDT_TSS);
+    cpu_enable_syscall_entry();
 }
 
 extern PageFrameContainer page_frames;

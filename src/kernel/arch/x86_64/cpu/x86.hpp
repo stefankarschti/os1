@@ -204,6 +204,14 @@ static inline void wrmsr(uint32_t msr, uint64_t value)
     asm volatile("wrmsr" : : "c"(msr), "a"(lo), "d"(hi));
 }
 
+static inline uint64_t rdmsr(uint32_t msr)
+{
+    uint32_t lo = 0;
+    uint32_t hi = 0;
+    asm volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
+    return (static_cast<uint64_t>(hi) << 32) | lo;
+}
+
 // Enable external device interrupts.
 static inline void sti(void)
 {

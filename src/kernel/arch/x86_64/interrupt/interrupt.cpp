@@ -44,7 +44,6 @@ extern "C"
     int int_13h();
     int int_1Dh();
     int int_1Eh();
-    int int_80h();
 }
 
 namespace
@@ -160,8 +159,6 @@ bool Interrupts::initialize()
     set_idt(0x13, (uint64_t)int_13h);
     set_idt(0x1D, (uint64_t)int_1Dh);
     set_idt(0x1E, (uint64_t)int_1Eh);
-    set_idt(T_SYSCALL, (uint64_t)int_80h, 0xEE);
-
     for(int i = 0; i < 16; ++i)
     {
         irq_hook[i] = nullptr;

@@ -51,7 +51,7 @@ Thread* handle_syscall(TrapFrame* frame)
                 return thread;
             }
 
-            block_current_thread(ThreadWaitReason::ConsoleRead, frame->rsi, frame->rdx);
+            block_current_thread_on_console_read(frame->rsi, frame->rdx);
             return schedule_next(false);
         }
         case os1_sys_exit:
@@ -92,7 +92,7 @@ Thread* handle_syscall(TrapFrame* frame)
                 return thread;
             }
 
-            block_current_thread(ThreadWaitReason::ChildExit, frame->rsi, frame->rdi);
+            block_current_thread_on_child_exit(frame->rsi, frame->rdi);
             return schedule_next(false);
         }
         case os1_sys_exec:

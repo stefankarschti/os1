@@ -55,7 +55,7 @@ using ExceptionHandler = void (*)(TrapFrame*);
 class Interrupts
 {
 public:
-    // Build the IDT and install exception/syscall/IRQ stubs.
+    // Build the IDT and install exception/IRQ stubs.
     bool initialize();
     // Register a device IRQ callback for a legacy IRQ number.
     void set_irq_handler(int number, void (*pFunction)(void*), void* data);

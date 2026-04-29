@@ -177,8 +177,8 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 |  initrd (cpio newc) --> ELF64 load /bin/init --> exec /bin/sh               |
 +--------------------------------+----------------+---------------------------+
                                  |                |
-                      int 0x80   |                |   reads from console_input
-                      (vector 48)|                |   and observe buffers
+                      SYSCALL    |                |   reads from console_input
+                      SYSRET fast|                |   and observe buffers
                                  v                v
                          +-------+----------------+-------+
                          |  Ring-3 user processes          |
@@ -201,7 +201,7 @@ Key invariants visible in the diagram:
 - Two boot frontends, one `BootInfo` at a well-known low-memory address, one `kernel_main` entry.
 - The kernel never reads Limine-virtual pointers; everything is translated to physical before the kernel sees it.
 - ACPI drives both CPU topology (MADT) and PCIe windows (MCFG) on both boot paths.
-- User space reaches the kernel through a single interrupt gate (vector 48) and reads kernel state through one UAPI header.
+- User space reaches the kernel through the x86_64 `SYSCALL` MSR entry path and reads kernel state through one UAPI header.
 
 ## Boot And Runtime Workflow
 
@@ -304,8 +304,8 @@ Missing or malformed ACPI tables are a hard error on both boot paths. BIOS remai
 
 The shell runs a line-buffered REPL:
 
-1. `write(1, "os1> ")` via `int 0x80`.
-2. `read(0, buf, N)` blocks on `ThreadWaitReason::ConsoleRead` until enter commits a line.
+1. `write(1, "os1> ")` via `SYSCALL`.
+2. `read(0, buf, N)` blocks on the typed console-read wait state until enter commits a line.
 3. Tokens are dispatched: `help`, `echo`, `pid`, built-in observers (`sys`, `ps`, `cpu`, `pci`, `initrd`, `events`) each make one `observe(kind, buf, len)` call and render the resulting fixed-record table; `exec <path>` replaces the shell image in place; unknown tokens resolve via `/bin/<name>` and are run under `spawn` + `waitpid`.
 4. User exceptions (e.g. `/bin/fault`) are caught in `HandleException`, the thread is marked `Dying`, `ScheduleNext(false)` runs, and `reapDeadThreads` reclaims the thread stack and address space from a different stack on a later trap.
 
@@ -729,11 +729,11 @@ The assembly trap entry code now builds a shared `TrapFrame` layout for:
 - syscalls
 - scheduler return paths
 
-That means the C++ dispatch logic receives one coherent view of machine state, and the scheduler can return to either kernel or user contexts through the same `iretq`-based mechanism.
+That means the C++ dispatch logic receives one coherent view of machine state. Interrupts and scheduler switches still restore full frames through `iretq`; same-thread syscall returns use the `SYSRET` fast path.
 
 ### Syscalls
 
-The current syscall ABI uses `int 0x80` on vector `48`, configured as a user-callable interrupt gate.
+The current syscall ABI uses x86_64 `SYSCALL`/`SYSRET`. Each CPU programs `IA32_STAR`, `IA32_LSTAR`, `IA32_FMASK`, and `EFER.SCE` during CPU initialization. The assembly entry path switches from the user stack to the current thread's kernel stack, materializes the normal `TrapFrame`, and then calls the shared syscall dispatcher.
 
 Current syscalls:
 
@@ -958,7 +958,6 @@ Major constraints that remain:
 - the broad final-kernel identity map is gone, but boot still retains narrow low bootstrap identity exceptions for the live handoff stack and AP startup state until early stack handoff and AP startup are redesigned
 - the framebuffer path is a text presenter, not a graphics stack
 - userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
-- syscalls still use `int 0x80`, not `SYSCALL`/`SYSRET`
 - the first `virtio-blk` path is polling-only and smoke-oriented, with only a minimal block-device facade rather than a general block layer
 - MSI / MSI-X, `virtio-net`, NVMe, and real filesystem-backed storage are still follow-on work
 

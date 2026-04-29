@@ -34,6 +34,29 @@ enum class ThreadWaitReason : uint32_t
     ChildExit = 2,
 };
 
+struct ConsoleReadWaitState
+{
+    uint64_t user_buffer = 0;
+    uint64_t length = 0;
+};
+
+struct ChildExitWaitState
+{
+    uint64_t user_status_pointer = 0;
+    uint64_t pid = 0;
+};
+
+struct ThreadWaitState
+{
+    ThreadWaitReason reason = ThreadWaitReason::None;
+    uint32_t reserved = 0;
+    union
+    {
+        ConsoleReadWaitState console_read;
+        ChildExitWaitState child_exit;
+    };
+};
+
 struct Thread
 {
     Thread* next = nullptr;
@@ -48,10 +71,7 @@ struct Thread
     uint64_t kernel_stack_top = 0;
     int exit_status = 0;
     TrapFrame frame{};
-    ThreadWaitReason wait_reason = ThreadWaitReason::None;
-    uint32_t reserved2 = 0;
-    uint64_t wait_address = 0;
-    uint64_t wait_length = 0;
+    ThreadWaitState wait{};
 };
 
 #define THREAD_STATIC_ASSERT(name, expr) typedef char thread_static_assert_##name[(expr) ? 1 : -1]
@@ -83,10 +103,10 @@ void relink_runnable_threads();
 void set_current_thread(Thread* thread);
 // Mark a thread ready and update its owning process state if needed.
 void mark_thread_ready(Thread* thread);
-// Block the current thread on a typed wait object.
-void block_current_thread(ThreadWaitReason reason,
-                          uint64_t wait_address = 0,
-                          uint64_t wait_length = 0);
+// Block the current thread until console input can complete a read.
+void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length);
+// Block the current thread until the selected child can be reaped.
+void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid);
 // clear a thread's wait metadata after the wait has completed.
 void clear_thread_wait(Thread* thread);
 // Return the first thread blocked on a wait reason.
