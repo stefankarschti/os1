@@ -9,6 +9,7 @@ set(KERNEL_ARCH_SOURCES
   arch/x86_64/cpu/cpu.cpp
   arch/x86_64/cpu/syscall.cpp
   arch/x86_64/interrupt/interrupt.cpp
+  arch/x86_64/interrupt/vector_allocator.cpp
 )
 
 set(KERNEL_HANDOFF_SOURCES

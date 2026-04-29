@@ -39,6 +39,9 @@
 #define IRQ_SPURIOUS 7
 #define IRQ_IDE 14
 
+constexpr uint8_t kDynamicIrqVectorBase = 0x50;
+constexpr uint8_t kDynamicIrqVectorLimit = 0xEF;
+
 struct IDTDescriptor
 {
     uint16_t offset_1;
@@ -51,14 +54,17 @@ struct IDTDescriptor
 } __attribute__((packed));
 
 using ExceptionHandler = void (*)(TrapFrame*);
+using InterruptHandler = void (*)(void*);
 
 class Interrupts
 {
 public:
     // Build the IDT and install exception/IRQ stubs.
     bool initialize();
+    // Register a device IRQ callback for one interrupt vector.
+    void set_vector_handler(uint8_t vector, InterruptHandler pFunction, void* data);
     // Register a device IRQ callback for a legacy IRQ number.
-    void set_irq_handler(int number, void (*pFunction)(void*), void* data);
+    void set_irq_handler(int number, InterruptHandler pFunction, void* data);
     // Register a high-level exception callback for a CPU exception vector.
     void set_exception_handler(int number, ExceptionHandler handler);
 
@@ -70,7 +76,26 @@ private:
     void clear_idt(int index);
 };
 
+// Run the registered callback for one interrupt vector.
+void dispatch_interrupt_vector(uint8_t vector);
+// Return true when one handler is registered for the vector.
+[[nodiscard]] bool interrupt_vector_has_handler(uint8_t vector);
 // Run the registered callback for one legacy IRQ vector.
 void dispatch_irq_hook(int number);
 // Run the registered exception callback for one CPU exception vector.
 void dispatch_exception_handler(int number, TrapFrame* frame);
+
+[[nodiscard]] inline bool interrupt_vector_is_external(uint8_t vector)
+{
+    return (vector >= T_IRQ0) && (vector != T_SYSCALL);
+}
+
+[[nodiscard]] inline bool interrupt_vector_is_legacy_irq(uint8_t vector)
+{
+    return (vector >= T_IRQ0) && (vector < (T_IRQ0 + 16));
+}
+
+[[nodiscard]] inline int legacy_irq_from_vector(uint8_t vector)
+{
+    return interrupt_vector_is_legacy_irq(vector) ? static_cast<int>(vector - T_IRQ0) : -1;
+}

@@ -207,27 +207,55 @@ syscall_entry:
 	hlt
 	jmp .no_thread
 
-%macro IRQ_STUB 1
+%macro LEGACY_IRQ_STUB 2
 global irq%1
+global irq_vector_%2
 irq%1:
+irq_vector_%2:
 	push qword 0
-	push qword (32 + %1)
+	push qword %2
 	jmp trap_entry_common
 %endmacro
 
-IRQ_STUB 0
-IRQ_STUB 1
-IRQ_STUB 2
-IRQ_STUB 3
-IRQ_STUB 4
-IRQ_STUB 5
-IRQ_STUB 6
-IRQ_STUB 7
-IRQ_STUB 8
-IRQ_STUB 9
-IRQ_STUB 10
-IRQ_STUB 11
-IRQ_STUB 12
-IRQ_STUB 13
-IRQ_STUB 14
-IRQ_STUB 15
+LEGACY_IRQ_STUB 0, 32
+LEGACY_IRQ_STUB 1, 33
+LEGACY_IRQ_STUB 2, 34
+LEGACY_IRQ_STUB 3, 35
+LEGACY_IRQ_STUB 4, 36
+LEGACY_IRQ_STUB 5, 37
+LEGACY_IRQ_STUB 6, 38
+LEGACY_IRQ_STUB 7, 39
+LEGACY_IRQ_STUB 8, 40
+LEGACY_IRQ_STUB 9, 41
+LEGACY_IRQ_STUB 10, 42
+LEGACY_IRQ_STUB 11, 43
+LEGACY_IRQ_STUB 12, 44
+LEGACY_IRQ_STUB 13, 45
+LEGACY_IRQ_STUB 14, 46
+LEGACY_IRQ_STUB 15, 47
+
+%assign vector 48
+%rep 208
+%if vector <> 128
+global irq_vector_%+vector
+irq_vector_%+vector:
+	push qword 0
+	push qword vector
+	jmp trap_entry_common
+%endif
+%assign vector vector + 1
+%endrep
+
+section .rodata
+align 8
+global interrupt_vector_stub_table
+interrupt_vector_stub_table:
+%assign vector 0
+%rep 256
+%if (vector < 32) || (vector = 128)
+	dq 0
+%else
+	dq irq_vector_%+vector
+%endif
+%assign vector vector + 1
+%endrep

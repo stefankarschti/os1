@@ -12,13 +12,13 @@ extern "C" Thread* trap_dispatch(TrapFrame* frame)
         return nullptr;
     }
 
-    if((frame->vector >= T_IRQ0) && (frame->vector < (T_IRQ0 + 16)))
-    {
-        return handle_irq(frame);
-    }
     if(frame->vector == T_SYSCALL)
     {
         return handle_syscall(frame);
+    }
+    if(interrupt_vector_is_external(static_cast<uint8_t>(frame->vector)))
+    {
+        return handle_irq(frame);
     }
     return handle_exception(frame);
 }

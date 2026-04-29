@@ -13,9 +13,14 @@
 
 namespace
 {
-void acknowledge_legacy_irq(int irq)
+void acknowledge_irq_vector(uint8_t vector)
 {
     lapic_eoi();
+    const int irq = legacy_irq_from_vector(vector);
+    if(irq < 0)
+    {
+        return;
+    }
     outb(0x20, 0x20);
     if(irq >= 8)
     {
@@ -26,27 +31,25 @@ void acknowledge_legacy_irq(int irq)
 
 Thread* handle_irq(TrapFrame* frame)
 {
-    const int irq = (int)(frame->vector - T_IRQ0);
+    const uint8_t vector = static_cast<uint8_t>(frame->vector);
+    const int irq = legacy_irq_from_vector(vector);
     if(IRQ_TIMER != irq)
     {
         kernel_event::record(OS1_KERNEL_EVENT_IRQ,
                              0,
-                             static_cast<uint64_t>(irq),
+                             (irq >= 0) ? static_cast<uint64_t>(irq) : static_cast<uint64_t>(vector),
                              frame->vector,
                              g_timer_ticks,
                              0);
     }
-    if(IRQ_KBD == irq)
-    {
-        dispatch_irq_hook(irq);
-    }
-    else if(IRQ_TIMER == irq)
+    if(IRQ_TIMER == irq)
     {
         console_input_poll_serial();
         ++g_timer_ticks;
     }
+    dispatch_interrupt_vector(vector);
 
-    acknowledge_legacy_irq(irq);
+    acknowledge_irq_vector(vector);
     wake_console_readers(page_frames);
 
     if(nullptr == current_thread())
