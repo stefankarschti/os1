@@ -37,6 +37,7 @@ set(KERNEL_DRIVER_SOURCES
 )
 
 set(KERNEL_FS_SOURCES
+  fs/cpio_newc.cpp
   fs/initrd.cpp
 )
 
@@ -63,6 +64,7 @@ set(KERNEL_PROC_SOURCES
   proc/process.cpp
   proc/reaper.cpp
   proc/thread.cpp
+  proc/user_elf.cpp
   proc/user_program.cpp
 )
 

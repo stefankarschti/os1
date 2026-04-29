@@ -836,6 +836,15 @@ APs still enter `cpu_idle_loop()`, an explicit interrupt-disabled `cli; hlt` loo
 
 ## Test And CI Architecture
 
+The test ladder is now:
+
+1. Host GoogleTest unit tests for parser, ABI, memory-policy, and page-table logic.
+2. Build-time layout contract scripts for boot image and Limine shim invariants.
+3. QEMU UEFI and BIOS CTest smokes for boot, platform discovery, shell, observe, spawn, and exec behavior.
+4. Manual QEMU debug runs through the `run*` targets.
+
+The host unit tests live under `tests/host/` as a separate CMake project. They intentionally do not include the root `CMakeLists.txt`, because the root project is a freestanding `x86_64-elf` build and should continue to reject a hosted compiler.
+
 ### Local Targets
 
 The main CMake targets are:
@@ -863,6 +872,32 @@ The default build produces both `os1.iso` and `os1.raw`, so a normal
 has all boot artifacts needed by the registered tests. The aggregate
 `smoke_all` target remains the shortest target-driven way to rebuild artifacts
 and run the full smoke matrix.
+
+### Host Unit Tests
+
+The host unit test harness uses the vendored GoogleTest submodule at `third_party/googletest`. It compiles with the platform C++ compiler and currently covers:
+
+- `src/common/elf/elf64.hpp`
+- `src/common/freestanding/string.hpp`
+- `src/kernel/handoff/boot_info.cpp`
+- `src/kernel/fs/cpio_newc.cpp`
+- `src/kernel/mm/page_frame.cpp`
+- `src/kernel/mm/user_address.hpp`
+- `src/kernel/mm/virtual_memory.cpp`
+- `src/kernel/proc/user_elf.cpp`
+- `src/kernel/util/align.hpp`
+- `src/kernel/util/fixed_string.hpp`
+- `src/uapi/os1/observe.h`
+
+Run it locally with:
+
+```sh
+cmake -S tests/host -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-host-tests
+ctest --test-dir build-host-tests --output-on-failure --no-tests=error
+```
+
+The host support layer under `tests/host/support/` provides serial-debug stubs, word-fill stubs, and a synthetic physical-memory arena. That support layer is test-only; production kernel code must not include GoogleTest or depend on host support files.
 
 ### Smoke Tests
 
@@ -896,7 +931,9 @@ The dedicated observe, spawn, and exec smokes then exercise the operator-facing 
 
 GitHub Actions runs on `ubuntu-24.04` and does all of the following on every push and pull request:
 
+- checkout submodules, including vendored GoogleTest
 - install host tools including `cpio`, `xorriso`, `ovmf`, `qemu-system-x86`
+- configure, build, and run the host GoogleTest suite
 - install the `x86_64-elf` cross toolchain through Homebrew
 - configure the project
 - build the default modern artifact

@@ -8,7 +8,7 @@
 #include "handoff/memory_layout.h"
 #include "mm/user_copy.hpp"
 #include "mm/virtual_memory.hpp"
-#include "util/align.hpp"
+#include "proc/user_elf.hpp"
 
 namespace
 {
@@ -26,8 +26,7 @@ bool load_user_elf(PageFrameContainer& frames,
     }
 
     const auto* header = elf::header_from_image(image, image_size);
-    if((nullptr == header) || (header->type != elf::kTypeExec) ||
-       (header->machine != elf::kMachineX86_64))
+    if((nullptr == header) || !user_elf::validate_user_elf_image(*header, image, image_size))
     {
         return false;
     }
@@ -38,7 +37,6 @@ bool load_user_elf(PageFrameContainer& frames,
         return false;
     }
 
-    const uint64_t stack_guard_base = kUserStackTop - (kUserStackPages + 1) * kPageSize;
     for(uint16_t i = 0; i < header->phnum; ++i)
     {
         const auto* program = elf::program_header_from_image(*header, image, image_size, i);
@@ -56,33 +54,17 @@ bool load_user_elf(PageFrameContainer& frames,
         {
             continue;
         }
-        if(!elf::loadable_segment_bounds_valid(*program, image_size))
+        user_elf::LoadSegmentPlan segment{};
+        if(!user_elf::plan_load_segment(*program, image_size, segment))
         {
             destroy_user_address_space(frames, vm.root());
             return false;
-        }
-
-        const uint64_t segment_start = align_down(program->vaddr, kPageSize);
-        const uint64_t segment_end = align_up(program->vaddr + program->memsz, kPageSize);
-        if((segment_start < kUserSpaceBase) || (segment_end > stack_guard_base) ||
-           (((segment_start >> 39) & 0x1FFull) != kUserPml4Index))
-        {
-            destroy_user_address_space(frames, vm.root());
-            return false;
-        }
-
-        PageFlags page_flags = PageFlags::Present | PageFlags::User;
-        if(program->flags & elf::kProgramFlagWrite)
-        {
-            page_flags |= PageFlags::Write;
-        }
-        if(0 == (program->flags & elf::kProgramFlagExecute))
-        {
-            page_flags |= PageFlags::NoExecute;
         }
 
         if(!vm.allocate_and_map(
-               segment_start, (segment_end - segment_start) / kPageSize, page_flags))
+               segment.segment_start,
+               (segment.segment_end - segment.segment_start) / kPageSize,
+               segment.page_flags))
         {
             destroy_user_address_space(frames, vm.root());
             return false;
@@ -95,7 +77,7 @@ bool load_user_elf(PageFrameContainer& frames,
         }
     }
 
-    const uint64_t user_stack_base = kUserStackTop - kUserStackPages * kPageSize;
+    const uint64_t user_stack_base = user_elf::stack_base();
     if(!vm.allocate_and_map(
            user_stack_base,
            kUserStackPages,
@@ -117,7 +99,7 @@ bool load_user_elf(PageFrameContainer& frames,
     entry = header->entry;
     // Like kernel threads, first user entry reaches `_start` via `iretq`, so we
     // reserve one dummy slot to match the SysV function-entry stack shape.
-    user_rsp = align_down(kUserStackTop, 16) - sizeof(uint64_t);
+    user_rsp = user_elf::initial_stack_pointer();
     return true;
 }
 }  // namespace

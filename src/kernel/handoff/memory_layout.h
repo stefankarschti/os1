@@ -108,6 +108,15 @@ constexpr uint64_t kInvalidPhysicalAddress = ~0ull;
 	return kInvalidPhysicalAddress;
 }
 
+#if defined(OS1_HOST_TEST)
+[[nodiscard]] void* os1_host_physical_pointer(uint64_t physical_address);
+
+template<typename T>
+[[nodiscard]] inline T* kernel_physical_pointer(uint64_t physical_address)
+{
+	return static_cast<T*>(os1_host_physical_pointer(physical_address));
+}
+#else
 extern bool g_kernel_direct_map_ready;
 
 template<typename T>
@@ -117,6 +126,7 @@ template<typename T>
 		g_kernel_direct_map_ready ? phys_to_virt(physical_address) : physical_address;
 	return reinterpret_cast<T*>(virtual_address);
 }
+#endif
 
 
 // User mappings stay in their own PML4 slot even after the higher-half
