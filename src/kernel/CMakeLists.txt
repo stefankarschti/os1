@@ -88,6 +88,14 @@ set(KERNEL_UTIL_SOURCES
   util/string.cpp
 )
 
+set(KERNEL_LIMINE_SOURCES
+  "${PROJECT_SOURCE_DIR}/src/boot/limine/elf_loader.cpp"
+  "${PROJECT_SOURCE_DIR}/src/boot/limine/entry.cpp"
+  "${PROJECT_SOURCE_DIR}/src/boot/limine/handoff_builder.cpp"
+  "${PROJECT_SOURCE_DIR}/src/boot/limine/paging.cpp"
+  "${PROJECT_SOURCE_DIR}/src/boot/limine/serial.cpp"
+)
+
 set(KERNEL_CXX_SOURCES
   ${KERNEL_ARCH_SOURCES}
   ${KERNEL_HANDOFF_SOURCES}
@@ -107,6 +115,7 @@ set(KERNEL_CXX_SOURCES
 
 add_library(kernel_core_objects OBJECT ${KERNEL_CXX_SOURCES})
 target_include_directories(kernel_core_objects PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/common"
   "${OS1_GENERATED_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${KERNEL_ARCH_DIR}"
@@ -134,8 +143,9 @@ target_compile_options(
     $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
 )
 
-add_library(kernel_limine_frontend OBJECT "${PROJECT_SOURCE_DIR}/src/boot/limine/entry.cpp")
+add_library(kernel_limine_frontend OBJECT ${KERNEL_LIMINE_SOURCES})
 target_include_directories(kernel_limine_frontend PRIVATE
+  "${PROJECT_SOURCE_DIR}/src/common"
   "${OS1_GENERATED_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${KERNEL_ARCH_DIR}"
