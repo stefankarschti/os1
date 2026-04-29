@@ -11,9 +11,13 @@ class VirtualMemory;
 struct BlockDevice;
 struct BootInfo;
 
-// Discover machine topology, map interrupt controllers, enumerate PCI, and run
-// the current virtio-blk probe path.
-bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm);
+// Discover machine topology, map interrupt controllers, and enumerate PCI. This
+// stage does not activate device drivers yet.
+bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm);
+
+// Probe supported devices from the discovered PCI table and publish driver
+// facades once the generic interrupt machinery is online.
+bool platform_probe_devices(VirtualMemory& kernel_vm);
 
 // Route an ISA IRQ through the discovered IOAPIC override table.
 bool platform_enable_isa_irq(int bus_irq, int irq = -1);

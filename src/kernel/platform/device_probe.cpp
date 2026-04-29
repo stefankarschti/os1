@@ -11,8 +11,9 @@
 
 extern PageFrameContainer page_frames;
 
-bool probe_devices(VirtualMemory& kernel_vm)
+bool platform_probe_devices(VirtualMemory& kernel_vm)
 {
+    g_platform.block_device = nullptr;
     memset(&g_platform.virtio_blk_public, 0, sizeof(g_platform.virtio_blk_public));
     for(size_t i = 0; i < g_platform.device_count; ++i)
     {

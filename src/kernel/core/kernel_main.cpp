@@ -193,7 +193,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     g_cpu_boot->tss.rsp0 = 0;
     cpu_init();
 
-    if(!platform_init(*g_boot_info, kvm))
+    if(!platform_discover(*g_boot_info, kvm))
     {
         return;
     }
@@ -295,6 +295,13 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     for(size_t i = 0; i < sizeof(kernel_fault_vectors); ++i)
     {
         interrupts.set_exception_handler(kernel_fault_vectors[i], on_kernel_exception);
+    }
+
+    // Driver probing stays after the IDT and local interrupt controllers are
+    // online so later MSI/MSI-X work does not need another boot-order split.
+    if(!platform_probe_devices(kvm))
+    {
+        return;
     }
 
     keyboard.initialize();

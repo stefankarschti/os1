@@ -27,5 +27,6 @@ struct PlatformState
     VirtioBlkDevice virtio_blk_public;
 };
 
-// BSP-only for now: single normalized platform state instance built by platform_init.
+// BSP-only for now: single normalized platform state instance built during
+// platform discovery and later augmented by device probing.
 OS1_BSP_ONLY extern PlatformState g_platform;
