@@ -19,6 +19,7 @@ set(KERNEL_HANDOFF_SOURCES
 set(KERNEL_MM_SOURCES
   mm/boot_mapping.cpp
   mm/boot_reserve.cpp
+  mm/dma.cpp
   mm/page_frame.cpp
   mm/user_copy.cpp
   mm/virtual_memory.cpp
@@ -33,9 +34,15 @@ set(KERNEL_CONSOLE_SOURCES
 
 set(KERNEL_DRIVER_SOURCES
   drivers/block/virtio_blk.cpp
+  drivers/bus/device.cpp
+  drivers/bus/driver_registry.cpp
+  drivers/bus/pci_bus.cpp
+  drivers/bus/resource.cpp
   drivers/display/text_display.cpp
   drivers/input/ps2_keyboard.cpp
   drivers/timer/pit.cpp
+  drivers/virtio/pci_transport.cpp
+  drivers/virtio/virtqueue.cpp
 )
 
 set(KERNEL_FS_SOURCES
@@ -57,7 +64,11 @@ set(KERNEL_PLATFORM_SOURCES
   platform/device_probe.cpp
   platform/init.cpp
   platform/irq_routing.cpp
+  platform/irq_registry.cpp
   platform/pci.cpp
+  platform/pci_capability.cpp
+  platform/pci_config.cpp
+  platform/pci_msi.cpp
   platform/state.cpp
   platform/topology.cpp
 )

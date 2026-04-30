@@ -91,7 +91,7 @@ bool initialize_process_table(PageFrameContainer& frames)
         uint64_t process_table_address = 0;
         if(!frames.allocate(process_table_address, kProcessTablePageCount))
         {
-            debug("process table allocation failed")();
+            debug("process table allocation failed free=")(frames.free_page_count())();
             return false;
         }
         processTable = kernel_physical_pointer<Process>(process_table_address);

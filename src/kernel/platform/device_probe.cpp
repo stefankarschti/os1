@@ -3,6 +3,8 @@
 
 #include "debug/debug.hpp"
 #include "drivers/block/virtio_blk.hpp"
+#include "drivers/bus/driver_registry.hpp"
+#include "drivers/bus/pci_bus.hpp"
 #include "mm/page_frame.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/state.hpp"
@@ -14,14 +16,13 @@ extern PageFrameContainer page_frames;
 bool platform_probe_devices(VirtualMemory& kernel_vm)
 {
     g_platform.block_device = nullptr;
+    g_platform.device_binding_count = 0;
     memset(&g_platform.virtio_blk_public, 0, sizeof(g_platform.virtio_blk_public));
-    for(size_t i = 0; i < g_platform.device_count; ++i)
+    driver_registry_reset();
+    if(!driver_registry_add_pci_driver(virtio_blk_pci_driver()) ||
+       !pci_bus_probe_all(kernel_vm, page_frames))
     {
-        if(!probe_virtio_blk_device(
-               kernel_vm, page_frames, g_platform.devices[i], i, g_platform.virtio_blk_public))
-        {
-            return false;
-        }
+        return false;
     }
     if(!g_platform.virtio_blk_public.present)
     {

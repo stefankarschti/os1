@@ -48,6 +48,8 @@ extern uint8_t __kernel_bss_end[];
 
 namespace
 {
+Thread g_boot_irq_thread{};
+
 bool map_kernel_section(VirtualMemory& vm, uint8_t* start, uint8_t* end, PageFlags flags)
 {
     if(start >= end)
@@ -288,6 +290,12 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         return;
     }
 
+    memset(&g_boot_irq_thread, 0, sizeof(g_boot_irq_thread));
+    g_boot_irq_thread.state = ThreadState::Running;
+    g_boot_irq_thread.address_space_cr3 = g_kernel_root_cr3;
+    g_boot_irq_thread.kernel_stack_top = read_rsp();
+    set_current_thread(&g_boot_irq_thread);
+
     const uint8_t kernel_fault_vectors[] = {T_DIVIDE, T_DEBUG, T_NMI,    T_BRKPT,  T_OFLOW,
                                             T_BOUND,  T_ILLOP, T_DEVICE, T_DBLFLT, T_TSS,
                                             T_SEGNP,  T_STACK, T_GPFLT,  T_PGFLT,  T_FPERR,
@@ -309,7 +317,11 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     console_input_initialize();
     if(ismp)
     {
-        if(!platform_enable_isa_irq(IRQ_TIMER, IRQ_TIMER) || !platform_enable_isa_irq(IRQ_KBD))
+        if(!platform_route_isa_irq(DeviceId{DeviceBus::Platform, 0},
+                                   IRQ_TIMER,
+                                   T_IRQ0 + IRQ_TIMER) ||
+           !platform_route_isa_irq(
+               DeviceId{DeviceBus::Platform, 1}, IRQ_KBD, T_IRQ0 + IRQ_KBD))
         {
             return;
         }

@@ -19,8 +19,9 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm);
 // facades once the generic interrupt machinery is online.
 bool platform_probe_devices(VirtualMemory& kernel_vm);
 
-// Route an ISA IRQ through the discovered IOAPIC override table.
-bool platform_enable_isa_irq(int bus_irq, int irq = -1);
+// Route an ISA IRQ through the discovered IOAPIC override table onto one IDT
+// vector chosen by the caller.
+bool platform_route_isa_irq(DeviceId owner, int bus_irq, uint8_t vector);
 
 // Return the currently selected generic block device, if any.
 const BlockDevice* platform_block_device();
@@ -33,3 +34,9 @@ size_t platform_pci_device_count();
 
 // Return the fixed PCI device table owned by platform state.
 const PciDevice* platform_pci_devices();
+
+// Return the number of active IRQ resource records.
+size_t platform_irq_route_count();
+
+// Return the fixed IRQ route table owned by platform state.
+const IrqRoute* platform_irq_routes();

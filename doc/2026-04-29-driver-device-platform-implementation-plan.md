@@ -1,7 +1,8 @@
 # Driver, Device Model, And Platform Implementation Plan - 2026-04-29
 
 This document is a source-grounded implementation plan for the missing driver,
-device-model, and platform substrate in `os1`.
+device-model, and platform substrate in `os1`. It was originally written as the
+2026-04-29 plan and now also records the 2026-04-30 implementation pass.
 
 It is based on the current source tree plus the latest review documents:
 
@@ -10,11 +11,14 @@ It is based on the current source tree plus the latest review documents:
 - [Architecture](ARCHITECTURE.md)
 - [GOALS](../GOALS.md)
 
-The central conclusion is unchanged across the last reviews: the kernel has a
-good ACPI and PCI enumeration substrate, but it does not yet have a driver model.
-`virtio-blk` is still a smoke path, not a storage subsystem. The next driver work
-should first create resource ownership, IRQ allocation, MSI/MSI-X, DMA ownership,
-and a shared virtio transport. No second virtio device should land before that.
+The original conclusion was unchanged across the last reviews: the kernel had a
+good ACPI and PCI enumeration substrate, but it did not yet have a driver model.
+The 2026-04-30 implementation pass landed the first driver/device substrate:
+resource ownership, IRQ allocation, MSI/MSI-X with INTx fallback, DMA buffers,
+a shared virtio transport, a request-shaped block facade, and interrupt-driven
+`virtio-blk` reads and writes. The remaining platform work is HPET/LAPIC timer
+migration, real hotplug sources, `virtio-net`, xHCI, and AML-backed ACPI device
+and power management.
 
 ## Source Inputs Scanned
 
@@ -52,7 +56,63 @@ It does not propose a Linux-sized driver core. The right target for `os1` is a
 small static driver registry, fixed-size tables at first, clear resource
 ownership, and APIs that remain testable from the host suite.
 
+## Implementation Status - 2026-04-30
+
+Implemented in this pass:
+
+- Boot order split: ACPI/topology/PCI discovery now happens before interrupt
+  bring-up, while device probing and the block smoke path run after IDT/LAPIC
+  initialization.
+- Dynamic external interrupt stubs are installed for hardware vectors outside
+  the legacy ISA window, with a BSP-owned allocator for `0x50..0xef`.
+- The interrupt callback table is vector-addressed. Platform IRQ route records
+  track legacy ISA, local APIC, MSI, and MSI-X ownership.
+- PCI config access and capability walking are shared by the platform, PCI MSI,
+  and virtio transport code.
+- PCI BAR ownership records exist under `drivers/bus/resource.*`.
+- MSI-X, MSI, and IOAPIC INTx fallback are implemented through
+  `pci_enable_best_interrupt()`. MSI-X maps only the table subrange, programs a
+  table entry with an x86 LAPIC message, and assigns the virtio queue's MSI-X
+  table entry separately from the CPU vector.
+- DMA buffers now carry owner, virtual address, physical address, size,
+  direction, page count, and active state. The current implementation is
+  coherent direct-map DMA on top of the page-frame allocator.
+- `drivers/bus/` contains a minimal static PCI driver registry, binding table,
+  PCI probe loop, and remove hook.
+- `drivers/virtio/` contains shared PCI transport and virtqueue helpers.
+- `virtio-blk` now uses the shared transport, DMA buffers, an interrupt
+  completion handler, read and write requests, and a scratch-sector write/read
+  smoke check.
+- `storage/block_device.hpp` now exposes request-shaped submit/flush callbacks
+  and synchronous read/write wrappers for early callers.
+- A hot-remove skeleton releases the virtio block interrupt, DMA buffers,
+  virtqueue memory, BAR claims, IRQ routes, binding record, and block facade.
+
+Still intentionally incomplete:
+
+- Block I/O is request-shaped but still single in-flight and synchronous at the
+  public wrapper layer. The driver waits for an IRQ-set completion flag rather
+  than polling the used ring directly.
+- PCI INTx fallback is best-effort and still depends on firmware-populated
+  `interrupt_line`; AML `_PRT` routing is not implemented.
+- DMA sync is a barrier/no-op model for coherent x86_64 direct-map buffers. No
+  low-address allocator, cacheability policy, pinned user pages, or IOMMU exists.
+- Hot-add/hot-remove is a lifecycle path only. There is no PCIe or ACPI hotplug
+  event source yet.
+- HPET, LAPIC timer migration, `virtio-net`, xHCI, AML, and ACPI power
+  management remain future phases.
+
+Verification completed after the implementation:
+
+- `cmake --build build`
+- `ctest --test-dir build --output-on-failure`
+- `cmake --build build-host-tests`
+- `ctest --test-dir build-host-tests --output-on-failure`
+
 ## Current State Assessment
+
+This section preserves the source assessment from 2026-04-29, before the
+2026-04-30 implementation pass summarized above.
 
 ### Platform Discovery
 
@@ -214,8 +274,8 @@ src/kernel/platform/pci_msi.cpp
 
 src/kernel/arch/x86_64/interrupt/vector_allocator.hpp
 src/kernel/arch/x86_64/interrupt/vector_allocator.cpp
-src/kernel/arch/x86_64/interrupt/irq_registry.hpp
-src/kernel/arch/x86_64/interrupt/irq_registry.cpp
+src/kernel/platform/irq_registry.hpp
+src/kernel/platform/irq_registry.cpp
 
 src/kernel/mm/dma.hpp
 src/kernel/mm/dma.cpp
@@ -981,6 +1041,23 @@ ring records are enough for the first MSI and block migration.
 
 ## Implementation Phases
 
+Status after the 2026-04-30 pass:
+
+| Phase | Status |
+| --- | --- |
+| 1. Split platform discovery from driver activation | Implemented |
+| 2. Generic IRQ registry and vector allocator | Implemented for BSP-owned vectors |
+| 3. PCI config, capabilities, BAR ownership | Implemented |
+| 4. MSI/MSI-X and IOAPIC fallback | Implemented for one vector per PCI device |
+| 5. DMA API | Implemented for coherent direct-map buffers |
+| 6. Shared virtio transport | Implemented |
+| 7. BlockDevice V2 and interrupt-driven `virtio-blk` | Implemented with queue depth 1 |
+| 8. Driver registry and hot-remove skeleton | Implemented as a minimal static PCI path |
+| 9. HPET and LAPIC timer migration | Not started |
+| 10. First second device: `virtio-net` | Not started |
+| 11. xHCI | Not started |
+| 12. AML, ACPI device model, and power | Not started |
+
 ### Phase 1 - Split Platform Discovery From Driver Activation
 
 Deliverables:
@@ -1179,24 +1256,42 @@ Acceptance:
 - ACPI-described platform devices can be represented as `Device` records.
 - Drivers that implement suspend/resume can be called in a deterministic order.
 
-## Immediate Next Patch Sequence
+## Delivered Patch Sequence
 
-The most practical next commits are:
+The first implementation sequence has landed:
 
 1. Split `platform_init()` so device probing and block smoke happen after
    interrupt initialization.
-2. Add generic IRQ vector stubs, vector allocator, and per-vector handler table.
-3. Convert legacy timer and keyboard IRQs to the generic IRQ registry.
-4. Extract PCI config helpers and capability walker.
-5. Add BAR claim/release ownership.
-6. Add MSI-X parser and table programming for one vector.
-7. Wire `virtio-blk` queue MSI-X and drain completions in the handler.
-8. Add DMA buffer objects and refit queue/request memory.
-9. Extract `drivers/virtio/` transport.
-10. Land `BlockDeviceV2`, writes, and the read/write smoke.
+2. Added generic external vector stubs, a dynamic vector allocator, and a
+   per-vector callback table.
+3. Converted legacy timer and keyboard IRQ routing to explicit vector routes.
+4. Extracted PCI config helpers and capability walkers.
+5. Added BAR claim/release ownership.
+6. Added MSI-X and MSI parsing/programming plus INTx fallback.
+7. Wired `virtio-blk` queue interrupts and used-ring completion draining.
+8. Added DMA buffer objects and refit queue/request memory.
+9. Extracted `drivers/virtio/` PCI transport and virtqueue helpers.
+10. Landed request-shaped block I/O, write support, and read/write smoke checks.
+11. Added the static PCI driver registry, binding table, and hot-remove
+    resource-release skeleton.
 
-This order keeps each patch reviewable and prevents the second virtio driver
-from inheriting the current polling and private-capability-walk design.
+## Remaining Patch Sequence
+
+The next practical commits should build on the new substrate:
+
+1. Add host tests for PCI driver matching and remove-path resource release.
+2. Add observe records for bound devices, IRQ routes, BAR claims, and DMA
+   allocations.
+3. Replace the single in-flight `virtio-blk` slot with a small request table and
+   descriptor ownership bitmap.
+4. Add a kernel completion or `ThreadWaitReason::BlockIo` path so synchronous
+   block wrappers can sleep after the scheduler is online.
+5. Parse HPET, add a clocksource abstraction, and migrate scheduler ticks to the
+   LAPIC timer with PIT fallback.
+6. Start `virtio-net` only after the multi-request virtqueue path is reliable.
+7. Start xHCI after the timer and hot-remove paths have more coverage.
+8. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
+   before treating INTx as robust on real hardware.
 
 ## Main Risks
 
@@ -1231,3 +1326,8 @@ The missing driver/device/platform work can be considered implemented when:
 - HPET/LAPIC timer migration has a clear fallback to PIT.
 - xHCI and `virtio-net` can be added without duplicating PCI capability walking,
   vector allocation, DMA ownership, or virtqueue setup.
+
+As of 2026-04-30, the first nine bullets are implemented in the narrow static
+form described above. The definition is not fully complete until timer
+migration, a second virtio driver, xHCI, and AML-backed ACPI routing/power are
+implemented and covered by tests.

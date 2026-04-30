@@ -10,6 +10,7 @@
 
 global start_multi_task
 global enter_first_thread
+global kernel_thread_start
 global restore_thread
 global restore_frame_ptr
 
@@ -20,6 +21,16 @@ enter_first_thread:
 
 start_multi_task:
 	jmp restore_thread
+
+kernel_thread_start:
+	; Synthetic kernel threads arrive via iretq, so align the stack before
+	; calling their C++ entry point in RDI.
+	sub rsp, 8
+	call rdi
+.kernel_thread_returned:
+	cli
+	hlt
+	jmp .kernel_thread_returned
 
 ; Install the selected thread into per-CPU state, load its CR3/RSP0, and resume
 ; from the embedded TrapFrame.
@@ -45,18 +56,36 @@ restore_frame_ptr:
 	jmp .resume_user
 
 .kernel_return:
+	cmp qword [r11 + TF_SS], 0
+	je .kernel_same_cpl_return
+
+	mov rax, [r11 + TF_RSP]
+	sub rax, 40
+	mov [rsp], rax
+
+	mov rdx, [r11 + TF_RIP]
+	mov [rax], rdx
+	mov rdx, [r11 + TF_CS]
+	mov [rax + 8], rdx
+	mov rdx, [r11 + TF_RFLAGS]
+	mov [rax + 16], rdx
+	mov rdx, [r11 + TF_RSP]
+	mov [rax + 24], rdx
+	mov rdx, [r11 + TF_SS]
+	mov [rax + 32], rdx
+	jmp .resume_kernel
+
+.kernel_same_cpl_return:
 	mov rax, [r11 + TF_RSP]
 	sub rax, 24
-	mov rcx, [r11 + TF_RIP]
-	mov [rax], rcx
-	mov rcx, [r11 + TF_CS]
-	mov [rax + 8], rcx
-	mov rcx, [r11 + TF_RFLAGS]
-	mov [rax + 16], rcx
-	mov rcx, [r11 + TF_RSP]
-	mov [rax + 24], rcx
-	mov qword [rax + 32], KERNEL_DATA_SEGMENT
 	mov [rsp], rax
+
+	mov rdx, [r11 + TF_RIP]
+	mov [rax], rdx
+	mov rdx, [r11 + TF_CS]
+	mov [rax + 8], rdx
+	mov rdx, [r11 + TF_RFLAGS]
+	mov [rax + 16], rdx
 	jmp .resume_kernel
 
 .resume_user:
@@ -82,6 +111,11 @@ restore_frame_ptr:
 	iretq
 
 .resume_kernel:
+	mov ax, KERNEL_DATA_SEGMENT
+	mov ds, ax
+	mov es, ax
+	mov ss, ax
+
 	mov rax, [r11 + TF_R11]
 	mov [rsp + 8], rax
 
@@ -101,8 +135,4 @@ restore_frame_ptr:
 	mov rax, [r11 + TF_RAX]
 	mov r11, [rsp + 8]
 	mov rsp, [rsp]
-	mov ax, KERNEL_DATA_SEGMENT
-	mov ds, ax
-	mov es, ax
-	mov ss, ax
 	iretq

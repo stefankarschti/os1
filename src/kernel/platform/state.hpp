@@ -23,6 +23,14 @@ struct PlatformState
     // BSP-only for now: PCI enumeration publishes this list once during boot.
     size_t device_count;
     PciDevice devices[kPlatformMaxPciDevices];
+    size_t irq_route_count;
+    IrqRoute irq_routes[kPlatformMaxIrqRoutes];
+    size_t device_binding_count;
+    DeviceBinding device_bindings[kPlatformMaxDeviceBindings];
+    size_t bar_claim_count;
+    PciBarClaim bar_claims[kPlatformMaxPciBarClaims];
+    size_t dma_allocation_count;
+    DmaAllocationRecord dma_allocations[kPlatformMaxDmaAllocations];
     const BlockDevice* block_device;
     VirtioBlkDevice virtio_blk_public;
 };

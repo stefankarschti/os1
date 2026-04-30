@@ -113,12 +113,20 @@ void cpu_init()
     asm volatile("lgdt %0" : : "m"(gdtr));
 
     asm volatile("movw %%ax,%%gs" ::"a"(CPU_GDT_KDATA));
-    asm volatile("movw %%ax,%%fs" ::"a"(CPU_GDT_KDATA));
-    asm volatile("movw %%ax,%%es" ::"a"(CPU_GDT_KDATA));
-    asm volatile("movw %%ax,%%ds" ::"a"(CPU_GDT_KDATA));
-    asm volatile("movw %%ax,%%ss" ::"a"(CPU_GDT_KDATA));
-    asm volatile("jmp 1f\n1:\n");
-    wrmsr(0xC0000101, (uint64_t)c);
+	asm volatile("movw %%ax,%%fs" ::"a"(CPU_GDT_KDATA));
+	asm volatile("movw %%ax,%%es" ::"a"(CPU_GDT_KDATA));
+	asm volatile("movw %%ax,%%ds" ::"a"(CPU_GDT_KDATA));
+	asm volatile("movw %%ax,%%ss" ::"a"(CPU_GDT_KDATA));
+	asm volatile(
+	    "pushq %[code]\n"
+	    "leaq 1f(%%rip), %%rax\n"
+	    "pushq %%rax\n"
+	    "lretq\n"
+	    "1:\n"
+	    :
+	    : [code] "i"(CPU_GDT_KCODE)
+	    : "rax", "memory");
+	wrmsr(0xC0000101, (uint64_t)c);
 
     asm volatile("lldt %%ax" ::"a"(0));
     ltr(CPU_GDT_TSS);

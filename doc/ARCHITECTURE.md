@@ -1,6 +1,6 @@
 # os1 Architecture
 
-> generated-by: GitHub Copilot - generated-at: 2026-04-28 - git-state: working tree
+> generated-by: GitHub Copilot - generated-at: 2026-04-30 - git-state: working tree
 
 This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Latest Review](latest-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
@@ -12,7 +12,13 @@ This document is the current-state source of truth for `os1`. It describes what 
 - one kernel-facing boot contract: `BootInfo`
 - an ACPI-first platform-discovery layer on both boot frontends
 - PCIe enumeration through ACPI `MCFG` and ECAM
-- a first practical modern device path through `virtio-blk`
+- a minimal static PCI driver model with binding, BAR ownership, IRQ route
+  ownership, DMA records, and remove hooks
+- dynamic IRQ vector allocation plus MSI-X, MSI, and IOAPIC INTx fallback for
+  PCI devices
+- coherent direct-map DMA buffers with explicit physical/virtual lifetime
+- shared virtio PCI transport and virtqueue helpers
+- an interrupt-driven modern `virtio-blk` path with reads and writes
 - a freestanding `C++20` kernel core with narrow assembly boundaries
 - a higher-half shared kernel image plus a kernel-owned direct map
 - a source tree split by major responsibility: `arch/x86_64`, `core`, `handoff`, `mm`, `proc`, `sched`, `syscall`, `console`, `drivers`, `platform`, `storage`, `fs`, `vfs`, `security`, `debug`, `util`, and `linker`
@@ -96,14 +102,14 @@ Current kernel folders:
 | [../src/kernel/core/](../src/kernel/core) | Shared kernel orchestration, trap classification, IRQ dispatch, fault policy, panic/halt, and temporary global kernel state. | `kernel_main.cpp`, `kernel_state.hpp`, `trap_dispatch.cpp`, `irq_dispatch.hpp`, `fault.hpp`, `panic.hpp` |
 | [../src/kernel/handoff/](../src/kernel/handoff) | Bootloader-to-kernel ABI and fixed early memory layout shared by BIOS, Limine, C++, and NASM. | `boot_info.hpp`, `boot_info.cpp`, `memory_layout.h`, `memory_layout.inc` |
 | [../src/kernel/arch/x86_64/](../src/kernel/arch/x86_64) | x86_64 CPU, APIC, interrupt, assembly, and processor helper code. Generic kernel code should include the narrowest architecture header it needs. | `cpu/`, `apic/`, `interrupt/`, `asm/`, `include/` |
-| [../src/kernel/mm/](../src/kernel/mm) | Physical page allocation, page-table management, user-copy validation, and boot-critical mapping/reservation helpers. | `page_frame.*`, `virtual_memory.*`, `user_copy.*`, `boot_mapping.*`, `boot_reserve.*` |
+| [../src/kernel/mm/](../src/kernel/mm) | Physical page allocation, page-table management, DMA buffer ownership, user-copy validation, and boot-critical mapping/reservation helpers. | `page_frame.*`, `virtual_memory.*`, `dma.*`, `user_copy.*`, `boot_mapping.*`, `boot_reserve.*` |
 | [../src/kernel/proc/](../src/kernel/proc) | Process and thread object lifecycle, process table ownership, thread frame setup, deferred reaping, and initrd-backed user-program loading. | `process.*`, `thread.*`, `thread_layout.inc`, `reaper.cpp`, `user_program.*` |
 | [../src/kernel/sched/](../src/kernel/sched) | Scheduling policy, runnable selection, scheduler handoff, and idle-thread behavior. | `scheduler.*`, `thread_queue.cpp`, `idle.*` |
 | [../src/kernel/syscall/](../src/kernel/syscall) | User/kernel ABI numbers, register-level dispatch, and individual syscall bodies. | `abi.hpp`, `dispatch.hpp`, `process.hpp`, `console_read.hpp`, `wait.hpp`, `observe.hpp`; syscall numbers live in [../src/uapi/os1/syscall_numbers.h](../src/uapi/os1/syscall_numbers.h) |
 | [../src/kernel/console/](../src/kernel/console) | Logical terminals, console byte streams, serial/keyboard line input, and terminal switching policy. | `terminal.*`, `console.*`, `console_input.*`, `terminal_switcher.*`, `pty/README.md` |
-| [../src/kernel/drivers/](../src/kernel/drivers) | Device-specific hardware drivers. Driver folders must not own platform-wide discovery policy. | `block/virtio_blk.*`, `display/text_display.*`, `input/ps2_keyboard.*`, `timer/pit.*`, future `bus/`, `net/`, `virtio/` notes |
-| [../src/kernel/platform/](../src/kernel/platform) | ACPI/PCI machine discovery, normalized platform state, CPU/APIC topology publication, ISA IRQ routing, and device-probe sequencing. | `platform.hpp`, `types.hpp`, `state.hpp`, `init.cpp`, `acpi.hpp`, `pci.hpp`, `topology.hpp`, `irq_routing.hpp`, `device_probe.hpp` |
-| [../src/kernel/storage/](../src/kernel/storage) | Generic storage abstractions above concrete block drivers. | `block_device.hpp`, `README.md` |
+| [../src/kernel/drivers/](../src/kernel/drivers) | Device-specific hardware drivers plus the minimal bus/virtio helper layers. Driver folders must not own platform-wide discovery policy. | `bus/`, `virtio/`, `block/virtio_blk.*`, `display/text_display.*`, `input/ps2_keyboard.*`, `timer/pit.*`, `net/README.md` |
+| [../src/kernel/platform/](../src/kernel/platform) | ACPI/PCI machine discovery, normalized platform state, CPU/APIC topology publication, IRQ routing records, PCI config/capability helpers, MSI/MSI-X programming, and device-probe sequencing. | `platform.hpp`, `types.hpp`, `state.hpp`, `init.cpp`, `acpi.hpp`, `pci.hpp`, `pci_config.hpp`, `pci_capability.hpp`, `pci_msi.hpp`, `irq_registry.hpp`, `irq_routing.hpp`, `device_probe.hpp` |
+| [../src/kernel/storage/](../src/kernel/storage) | Generic request-shaped block abstractions above concrete block drivers. | `block_device.hpp`, `README.md` |
 | [../src/kernel/fs/](../src/kernel/fs) | Concrete filesystem/archive parsers. Today this is the boot initrd CPIO parser, not a general namespace. | `initrd.*` |
 | [../src/kernel/vfs/](../src/kernel/vfs) | Future filesystem namespace layer: mount table, path lookup, file descriptors, and filesystem-backed `exec`. | `README.md` |
 | [../src/kernel/security/](../src/kernel/security) | Future credentials, permissions, and resource-boundary policy. | `README.md` |
@@ -160,17 +166,20 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 |                                                                             |
 |  own_boot_info --> PFA(bitmap) --> kernel page tables --> CR3 switch          |
 |                                                                             |
-|  platform_init:   ACPI discovery --> PCIe ECAM enumeration                   |
-|                   | CPUs, IOAPIC, LAPIC, IRQ overrides                      |
-|                   | BAR sizing, virtio-blk probe                            |
-|                   v BlockDevice facade + sector 0/1 smoke                   |
+|  platform_discover: ACPI discovery --> PCIe ECAM enumeration                 |
+|                     | CPUs, IOAPIC, LAPIC, IRQ overrides, BAR sizing          |
 |                                                                             |
 |  PIC+IOAPIC+LAPIC  -->  cpu_bootothers  -->  APs in cpu_idle_loop (cli;hlt) |
 |                                                                             |
 |  Terminals[12]  -->  Display backend: VgaText | FramebufferText | serial    |
 |  console_input:  PS/2 scancodes + serial RX ---> pending line buffer        |
 |                                                                             |
-|  IDT + exception handlers + IRQ0 (timer 1000 Hz) + IRQ1 (keyboard)          |
+|  IDT + vector IRQ table + exception handlers                                |
+|                   v MSI/MSI-X/INTx-capable PCI probe                        |
+|                   v Driver binding + resource ownership                     |
+|                   v interrupt-driven BlockDevice + read/write smoke         |
+|                                                                             |
+|  IRQ0 (timer 1000 Hz) + IRQ1 (keyboard)                                     |
 |                                                                             |
 |  Task tables (Process, Thread) + idle thread + round-robin scheduler        |
 |                                                                             |
@@ -240,15 +249,30 @@ The shared entry runs one deterministic sequence:
 5. `reserve_tracked_physical_range` reserves every initrd module and the framebuffer.
 6. Kernel page tables map the shared higher-half kernel window, build the kernel-owned direct map, and explicitly carry forward the boot-critical low ranges and physical resources the kernel still needs during bring-up.
 7. `kvm.activate()` switches CR3 to the kernel root; `g_kernel_root_cr3` records it; the page-frame allocator and bootstrap CPU state are then rebound through the direct map before steady-state CPU descriptor state is reloaded.
-8. `platform_init(*g_boot_info, kvm)` runs the ACPI → PCIe → virtio-blk pipeline (see Phase 4).
-9. `pic_init`, `ioapic_init`, `lapic_init`, `cpu_bootothers(g_kernel_root_cr3)` bring up the 8259 in masked mode, program the IOAPIC, activate the LAPIC, and start APs. APs land in `cpu_idle_loop()` (`cli; hlt`).
-10. 12 terminals are allocated (one page each), the display backend is selected from `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints `[kernel64] hello`.
-11. IDT initialization registers every exception handler with `on_kernel_exception`, the keyboard and console-input subsystems are initialized, and ISA IRQs for timer and keyboard are routed through the IOAPIC when SMP is active.
-12. Task tables (`Process[32]`, `Thread[32]`) are allocated from page frames, a kernel process is created, and a kernel idle thread is created.
-13. `LoadUserProgram("/bin/init")` loads the first user program from the initrd (`ET_EXEC`, `PT_LOAD` segments only, SysV-shaped initial stack). `/bin/init` then replaces itself with `/bin/sh` through `exec`.
-14. `set_timer(1000)` sets the 1000 Hz PIT tick, `start_multi_task(init_thread)` enters the first user process via `iretq`.
+8. `platform_discover(*g_boot_info, kvm)` parses ACPI, normalizes topology,
+   maps interrupt-controller MMIO, and enumerates PCIe functions.
+9. `pic_init`, `ioapic_init`, `lapic_init`, `cpu_bootothers(g_kernel_root_cr3)`
+   bring up the 8259 in masked mode, program the IOAPIC, activate the LAPIC, and
+   start APs. APs land in `cpu_idle_loop()` (`cli; hlt`).
+10. 12 terminals are allocated, the display backend is selected from
+    `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints
+    `[kernel64] hello`.
+11. IDT initialization installs external interrupt stubs, resets the dynamic
+    vector allocator, and registers exception handlers.
+12. `platform_probe_devices(kvm)` registers the static PCI drivers, probes PCI
+    devices, binds `virtio-blk`, claims BAR/DMA/IRQ resources, enables
+    MSI-X/MSI/INTx as available, and runs the read/write block smoke.
+13. The keyboard and console-input subsystems are initialized, and ISA IRQs for
+    timer and keyboard are routed through the IOAPIC when SMP is active.
+14. Task tables (`Process[32]`, `Thread[32]`) are allocated from page frames, a
+    kernel process is created, and a kernel idle thread is created.
+15. `LoadUserProgram("/bin/init")` loads the first user program from the initrd
+    (`ET_EXEC`, `PT_LOAD` segments only, SysV-shaped initial stack). `/bin/init`
+    then replaces itself with `/bin/sh` through `exec`.
+16. `set_timer(1000)` sets the 1000 Hz PIT tick, `enter_first_thread(init_thread,
+    init_thread->kernel_stack_top)` enters the first user process via `iretq`.
 
-### Phase 4 — ACPI, PCIe, and storage probe (inside `platform_init`)
+### Phase 4 — ACPI, PCIe, driver binding, and storage probe
 
 ```text
 BootInfo.rsdp_physical
@@ -270,15 +294,25 @@ BootInfo.rsdp_physical
         |           BAR sizing with command register IO-disable
         |           window
         v
- ProbeVirtioBlkDevice  ---> vendor-specific cap walk,
-        |                   common_cfg/notify_cfg/device_cfg,
-        |                   feature negotiation (VERSION_1),
-        |                   3-page queue (desc/avail/used),
-        |                   request scratch page
+ IDT + LAPIC online
+        |
         v
- BlockDevice(read + stub write) ---> read sector 0, verify prefix
-        |                          read sector 1, verify prefix
-        v                          -> "virtio-blk smoke ok"
+ platform_probe_devices
+        |
+        |-- driver_registry_add_pci_driver(virtio-blk)
+        |-- pci_bus_probe_all
+        |     |-- match modern virtio-blk PCI function
+        |     |-- bind shared virtio PCI transport
+        |     |-- claim BARs used by virtio capabilities
+        |     |-- negotiate VERSION_1
+        |     |-- allocate DMA for queue and request buffer
+        |     |-- enable MSI-X, MSI, or IOAPIC INTx fallback
+        |     |-- setup queue and publish BlockDevice
+        v
+ BlockDevice submit/read/write ---> read sector 0, verify prefix
+        |                         read sector 1, verify prefix
+        |                         write scratch sector 2, read back
+        v                         -> "virtio-blk smoke ok"
  RunVirtioBlkSmoke
 ```
 
@@ -579,16 +613,18 @@ The high-level sequence is:
 6. build kernel-owned identity-mapped page tables
 7. map boot-critical non-usable ranges such as initrd, framebuffer, and the initial RSDP page
 8. switch to the kernel's `CR3`
-9. run `platform_init()` to parse ACPI, normalize topology, enumerate PCIe, and probe `virtio-blk`
+9. run `platform_discover()` to parse ACPI, normalize topology, and enumerate PCIe
 10. initialize PIC, IOAPIC, LAPIC
 11. start APs when available
 12. allocate terminals
 13. select display backend
-14. initialize interrupts and keyboard
-15. initialize scheduler tables
-16. create kernel idle thread
-17. load user programs from initrd
-18. start multitasking
+14. initialize interrupts
+15. run `platform_probe_devices()` to bind drivers and run device smoke checks
+16. initialize keyboard and console input
+17. initialize scheduler tables
+18. create kernel idle thread
+19. load user programs from initrd
+20. start multitasking
 
 The important architectural point is that the boot frontends stop mattering almost immediately after `own_boot_info()`. After that point, the system is running on kernel-owned page tables and kernel-owned copies of boot metadata.
 
@@ -833,7 +869,22 @@ The kernel now:
 - uses `MADT` as the primary source of CPU, LAPIC, IOAPIC, and IRQ-override topology
 - uses `MCFG` to discover PCIe ECAM ranges
 - enumerates PCIe devices and records BAR information
-- probes a modern `virtio-blk` PCI device, publishes it through a minimal `BlockDevice` facade with implemented reads and stubbed writes, and validates raw sector reads during boot
+- separates platform discovery from driver activation so MSI/MSI-X-capable
+  drivers bind only after the IDT and LAPIC are online
+- installs external interrupt stubs and a dynamic vector allocator for device
+  vectors in `0x50..0xef`
+- tracks IRQ route ownership for legacy ISA, local APIC, MSI, and MSI-X routes
+- provides shared PCI config and capability helpers
+- claims PCI BARs through `drivers/bus/resource.*`
+- enables PCI interrupts through MSI-X first, MSI second, and IOAPIC INTx as a
+  best-effort fallback
+- allocates coherent DMA buffers with explicit owner, virtual address, physical
+  address, direction, page count, and active state
+- binds drivers through a static PCI registry and publishes device binding state
+- probes a modern `virtio-blk` PCI device through the shared virtio transport,
+  publishes a request-shaped `BlockDevice`, completes reads and writes through
+  queue interrupts, and validates raw sector reads plus a scratch-sector write
+  during boot
 
 On the default `q35` targets, both boot paths now discover four CPUs from ACPI and successfully bring up the APs.
 
@@ -888,6 +939,12 @@ The host unit test harness uses the vendored GoogleTest submodule at `third_part
 - `src/common/freestanding/string.hpp`
 - `src/kernel/handoff/boot_info.cpp`
 - `src/kernel/fs/cpio_newc.cpp`
+- `src/kernel/arch/x86_64/interrupt/vector_allocator.cpp`
+- `src/kernel/platform/irq_registry.cpp`
+- `src/kernel/platform/pci_capability.cpp`
+- `src/kernel/platform/pci_msi.cpp`
+- `src/kernel/drivers/bus/resource.cpp`
+- `src/kernel/mm/dma.cpp`
 - `src/kernel/mm/page_frame.cpp`
 - `src/kernel/mm/user_address.hpp`
 - `src/kernel/mm/virtual_memory.cpp`
@@ -924,7 +981,8 @@ The baseline smoke tests cover the common boot and shell transcript on each fron
 - boot-source identification and stable prompt reachability
 - ACPI `MADT` topology discovery
 - ACPI `MCFG` discovery
-- PCIe enumeration and successful `virtio-blk` sector reads
+- PCIe enumeration and successful interrupt-driven `virtio-blk` sector reads
+  plus scratch-sector write verification
 - initrd discovery and first user-process startup
 - stable shell built-ins such as `help`, `echo`, and `pid`
 
@@ -958,14 +1016,24 @@ Major constraints that remain:
 - the broad final-kernel identity map is gone, but boot still retains narrow low bootstrap identity exceptions for the live handoff stack and AP startup state until early stack handoff and AP startup are redesigned
 - the framebuffer path is a text presenter, not a graphics stack
 - userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
-- the first `virtio-blk` path is polling-only and smoke-oriented, with only a minimal block-device facade rather than a general block layer
-- MSI / MSI-X, `virtio-net`, NVMe, and real filesystem-backed storage are still follow-on work
+- block I/O is request-shaped and interrupt-completed, but still single
+  in-flight and synchronous at the wrapper layer
+- PCI INTx fallback is best-effort until AML `_PRT` routing exists
+- DMA is coherent direct-map only; there is no low-address allocator, pinned
+  user-buffer mapping, cacheability policy, or IOMMU
+- hot-remove exists as a driver/resource lifecycle path, but there are no PCIe
+  or ACPI hotplug event sources yet
+- HPET/LAPIC timer migration, `virtio-net`, xHCI, NVMe, AML, and real
+  filesystem-backed storage are still follow-on work
 
-The next major work is therefore not another boot or shell bring-up refactor. It is storage, networking, and richer filesystem-backed userland on top of the current platform and operator shell base:
+The next major work is therefore not another boot or shell bring-up refactor. It is deeper device-platform work, storage, networking, and richer filesystem-backed userland on top of the current platform and operator shell base:
 
-- block-device growth beyond the current polling `virtio-blk` facade
+- block-device growth beyond the current single-request `virtio-blk` path
+- sleeping block completions once scheduler wait primitives exist
 - filesystem-backed loading instead of initrd-only demos
 - `virtio-net` and later NIC work
-- timer / interrupt refinements such as MSI / MSI-X and HPET follow-on support
+- timer migration through HPET and the LAPIC timer
+- xHCI once DMA, MSI/MSI-X, and hot-remove coverage are stronger
+- AML-backed ACPI device routing and power management
 
-At this point the architecture is intentionally in a good place for that work: the boot path is modernized, the kernel entry contract is shared, ACPI and PCIe discovery are in place, and both modern and legacy boot paths remain continuously testable on the same `q35` virtual platform.
+At this point the architecture is intentionally in a good place for that work: the boot path is modernized, the kernel entry contract is shared, ACPI and PCIe discovery are in place, drivers bind through owned resources, and both modern and legacy boot paths remain continuously testable on the same `q35` virtual platform.

@@ -10,6 +10,44 @@ constexpr size_t kPlatformMaxIoApics = 8;
 constexpr size_t kPlatformMaxInterruptOverrides = 32;
 constexpr size_t kPlatformMaxPciEcamRegions = 8;
 constexpr size_t kPlatformMaxPciDevices = 256;
+constexpr size_t kPlatformMaxIrqRoutes = 64;
+constexpr size_t kPlatformMaxDeviceBindings = 64;
+constexpr size_t kPlatformMaxPciBarClaims = 128;
+constexpr size_t kPlatformMaxDmaAllocations = 128;
+
+enum class DeviceBus : uint8_t
+{
+    Platform = 0,
+    Pci = 1,
+    Acpi = 2,
+};
+
+struct DeviceId
+{
+    DeviceBus bus;
+    uint16_t index;
+};
+
+enum class DeviceState : uint8_t
+{
+    Discovered = 0,
+    Probing = 1,
+    Bound = 2,
+    Started = 3,
+    Stopping = 4,
+    Removed = 5,
+    Failed = 6,
+};
+
+struct DeviceBinding
+{
+    bool active;
+    DeviceId id;
+    DeviceState state;
+    uint16_t pci_index;
+    const char* driver_name;
+    void* driver_state;
+};
 
 // Normalized CPU topology record derived from ACPI MADT records.
 struct CpuInfo
@@ -36,6 +74,27 @@ struct InterruptOverride
     uint32_t global_irq;
 };
 
+enum class IrqRouteKind : uint8_t
+{
+    LegacyIsa = 1,
+    LocalApic = 2,
+    Msi = 3,
+    Msix = 4,
+};
+
+struct IrqRoute
+{
+    bool active;
+    IrqRouteKind kind;
+    DeviceId owner;
+    uint8_t vector;
+    uint8_t source_irq;
+    uint16_t flags;
+    uint32_t gsi;
+    uint16_t source_id;
+    uint16_t reserved1;
+};
+
 // PCI ECAM window published by ACPI MCFG.
 struct PciEcamRegion
 {
@@ -52,6 +111,17 @@ enum class PciBarType : uint8_t
     Mmio32 = 1,
     Mmio64 = 2,
     Io = 3,
+};
+
+struct PciBarClaim
+{
+    bool active;
+    DeviceId owner;
+    uint16_t pci_index;
+    uint8_t bar_index;
+    PciBarType type;
+    uint64_t base;
+    uint64_t size;
 };
 
 // Sized PCI BAR descriptor produced by the ECAM enumerator.
@@ -91,4 +161,23 @@ struct VirtioBlkDevice
     uint16_t queue_size;
     uint16_t pci_index;
     uint64_t capacity_sectors;
+};
+
+enum class DmaDirection : uint8_t
+{
+    Bidirectional = 0,
+    ToDevice = 1,
+    FromDevice = 2,
+};
+
+struct DmaAllocationRecord
+{
+    bool active;
+    DeviceId owner;
+    DmaDirection direction;
+    bool coherent;
+    uint16_t reserved0;
+    uint32_t page_count;
+    uint64_t physical_base;
+    uint64_t size_bytes;
 };
