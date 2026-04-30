@@ -15,6 +15,7 @@
 #include "platform/pci_config.hpp"
 #include "platform/irq_registry.hpp"
 #include "platform/state.hpp"
+#include "proc/thread.hpp"
 #include "storage/block_device.hpp"
 #include "util/string.h"
 
@@ -30,6 +31,9 @@ constexpr PciMatch kVirtioBlkMatches[]{{
 constexpr uint32_t kVirtioBlkRequestIn = 0;
 constexpr uint32_t kVirtioBlkRequestOut = 1;
 constexpr uint16_t kVirtioBlkQueueTargetSize = 8;
+constexpr uint16_t kVirtioBlkDescriptorsPerRequest = 3;
+constexpr uint16_t kVirtioBlkMaxRequestSlots =
+    kVirtqueueMaxSize / kVirtioBlkDescriptorsPerRequest;
 constexpr uint64_t kVirtioSectorSize = 512;
 constexpr const char* kVirtioSector0Prefix = "OS1 VIRTIO TEST DISK SECTOR 0 SIGNATURE";
 constexpr const char* kVirtioSector1Prefix = "OS1 VIRTIO TEST DISK SECTOR 1 PAYLOAD";
@@ -54,27 +58,220 @@ struct [[gnu::packed]] VirtioBlkRequestHeader
     uint64_t sector;
 };
 
+struct VirtioBlkRequestSlot
+{
+    bool active = false;
+    uint16_t head_descriptor = 0;
+    uint16_t descriptor_mask = 0;
+    DmaBuffer buffer{};
+    VirtioBlkRequestHeader* header = nullptr;
+    uint8_t* data = nullptr;
+    volatile uint8_t* status = nullptr;
+    BlockRequest* request = nullptr;
+};
+
 struct VirtioBlkState
 {
     bool present = false;
     DeviceId owner{DeviceBus::Pci, 0};
     uint16_t queue_size = 0;
+    uint16_t request_slot_count = 0;
     uint16_t pci_index = 0;
+    uint16_t descriptor_in_use_mask = 0;
     uint64_t capacity_sectors = 0;
     VirtioPciTransport transport{};
     Virtqueue queue{};
-    DmaBuffer request_buffer{};
-    VirtioBlkRequestHeader* request_header = nullptr;
-    uint8_t* request_data = nullptr;
-    volatile uint8_t* request_status = nullptr;
-    volatile bool request_inflight = false;
-    volatile bool request_completed = false;
-    volatile uint8_t last_completion_status = 0xFFu;
-    volatile uint32_t last_completion_bytes = 0;
+    VirtioBlkRequestSlot request_slots[kVirtioBlkMaxRequestSlots]{};
 };
 
 constinit VirtioBlkState g_virtio_blk{};
 BlockDevice g_virtio_blk_device{};
+
+[[nodiscard]] uint16_t virtio_blk_slot_count(uint16_t queue_size)
+{
+    return static_cast<uint16_t>(queue_size / kVirtioBlkDescriptorsPerRequest);
+}
+
+[[nodiscard]] uint16_t virtio_blk_descriptor_mask(uint16_t head_descriptor)
+{
+    return static_cast<uint16_t>((1u << head_descriptor) | (1u << (head_descriptor + 1u)) |
+                                 (1u << (head_descriptor + 2u)));
+}
+
+void virtio_blk_fail_immediately(BlockRequest& request, BlockRequestStatus status)
+{
+    request.completed = true;
+    request.status = status;
+    request.bytes_transferred = 0;
+    request.driver_context = nullptr;
+}
+
+bool virtio_blk_allocate_request_buffers(PageFrameContainer& frames, VirtioBlkState& state)
+{
+    const size_t request_buffer_size = sizeof(VirtioBlkRequestHeader) + kVirtioSectorSize + 1u;
+    for(uint16_t slot_index = 0; slot_index < state.request_slot_count; ++slot_index)
+    {
+        auto& slot = state.request_slots[slot_index];
+        slot = {};
+        slot.head_descriptor = static_cast<uint16_t>(slot_index * kVirtioBlkDescriptorsPerRequest);
+        slot.descriptor_mask = virtio_blk_descriptor_mask(slot.head_descriptor);
+        if(!dma_allocate_buffer(
+               frames, state.owner, request_buffer_size, DmaDirection::Bidirectional, slot.buffer))
+        {
+            return false;
+        }
+
+        slot.header = static_cast<VirtioBlkRequestHeader*>(slot.buffer.virtual_address);
+        slot.data = static_cast<uint8_t*>(slot.buffer.virtual_address) + sizeof(VirtioBlkRequestHeader);
+        slot.status = reinterpret_cast<volatile uint8_t*>(
+            static_cast<uint8_t*>(slot.buffer.virtual_address) + sizeof(VirtioBlkRequestHeader) +
+            kVirtioSectorSize);
+    }
+    return true;
+}
+
+void virtio_blk_release_request_slot(VirtioBlkState& state, VirtioBlkRequestSlot& slot)
+{
+    state.descriptor_in_use_mask =
+        static_cast<uint16_t>(state.descriptor_in_use_mask & ~slot.descriptor_mask);
+    slot.active = false;
+    slot.request = nullptr;
+}
+
+void virtio_blk_release_request_buffers(PageFrameContainer& frames, VirtioBlkState& state)
+{
+    for(uint16_t slot_index = 0; slot_index < kVirtioBlkMaxRequestSlots; ++slot_index)
+    {
+        auto& slot = state.request_slots[slot_index];
+        if(nullptr != slot.request)
+        {
+            block_request_complete(*slot.request, BlockRequestStatus::Timeout);
+        }
+        dma_release_buffer(frames, slot.buffer);
+        slot = {};
+    }
+    state.request_slot_count = 0;
+    state.descriptor_in_use_mask = 0;
+}
+
+void virtio_blk_release_runtime_resources(PageFrameContainer& frames, VirtioBlkState& state)
+{
+    if(nullptr != state.transport.device)
+    {
+        pci_release_interrupt(*state.transport.device, state.transport.interrupt);
+    }
+    virtio_blk_release_request_buffers(frames, state);
+    virtqueue_release(frames, state.queue);
+    release_pci_bars_for_owner(state.owner);
+    platform_release_irq_routes_for_owner(state.owner);
+}
+
+VirtioBlkRequestSlot* virtio_blk_find_request_slot(VirtioBlkState& state, uint16_t head_descriptor)
+{
+    for(uint16_t slot_index = 0; slot_index < state.request_slot_count; ++slot_index)
+    {
+        auto& slot = state.request_slots[slot_index];
+        if(slot.head_descriptor == head_descriptor)
+        {
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+VirtioBlkRequestSlot* virtio_blk_acquire_request_slot(VirtioBlkState& state)
+{
+    for(uint16_t slot_index = 0; slot_index < state.request_slot_count; ++slot_index)
+    {
+        auto& slot = state.request_slots[slot_index];
+        if(slot.active || (0 != (state.descriptor_in_use_mask & slot.descriptor_mask)))
+        {
+            continue;
+        }
+
+        slot.active = true;
+        state.descriptor_in_use_mask =
+            static_cast<uint16_t>(state.descriptor_in_use_mask | slot.descriptor_mask);
+        return &slot;
+    }
+    return nullptr;
+}
+
+void virtio_blk_drain_used(VirtioBlkState& state)
+{
+    dma_sync_for_cpu(state.queue.ring_memory);
+
+    VirtqUsedElem used{};
+    while(virtqueue_consume_used(state.queue, used))
+    {
+        auto* slot = virtio_blk_find_request_slot(state, static_cast<uint16_t>(used.id));
+        if((nullptr == slot) || !slot->active || (nullptr == slot->request))
+        {
+            continue;
+        }
+
+        BlockRequest* request = slot->request;
+        dma_sync_for_cpu(slot->buffer);
+
+        const uint8_t completion_status = *slot->status;
+        const uint32_t completion_bytes = used.len;
+        const bool success = kVirtioStatusOk == completion_status;
+        if(success && (BlockOperation::Read == request->operation) && (nullptr != request->buffer))
+        {
+            memcpy(request->buffer, slot->data, kVirtioSectorSize);
+        }
+
+        virtio_blk_release_request_slot(state, *slot);
+        request->driver_context = nullptr;
+        if(success)
+        {
+            kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                                 OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                                 request->sector,
+                                 kVirtioSectorSize,
+                                 static_cast<uint64_t>(request->operation),
+                                 completion_bytes);
+            block_request_complete(*request,
+                                   BlockRequestStatus::Success,
+                                   static_cast<uint32_t>(kVirtioSectorSize));
+            continue;
+        }
+
+        kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
+                             OS1_KERNEL_EVENT_FLAG_FAILURE,
+                             request->sector,
+                             kVirtioSectorSize,
+                             completion_status,
+                             completion_bytes);
+        block_request_complete(*request, BlockRequestStatus::DeviceError);
+    }
+}
+
+bool virtio_blk_wait_for_boot_completion(VirtioBlkState& state, BlockRequest& request)
+{
+    Thread* thread = current_thread();
+    if((nullptr == thread) || (nullptr != thread->process))
+    {
+        return true;
+    }
+
+    for(uint32_t spin = 0; spin < 10000000u; ++spin)
+    {
+        if(request.completed)
+        {
+            return true;
+        }
+
+        virtio_blk_drain_used(state);
+        if(request.completed)
+        {
+            return true;
+        }
+
+        pause();
+    }
+    return false;
+}
 
 void virtio_blk_irq(void* data)
 {
@@ -85,42 +282,20 @@ void virtio_blk_irq(void* data)
         (void)*state.transport.isr_status;
     }
 
-    VirtqUsedElem used{};
-    while(virtqueue_consume_used(state.queue, used))
-    {
-        state.last_completion_status = *state.request_status;
-        state.last_completion_bytes = used.len;
-        state.request_completed = true;
-        state.request_inflight = false;
-    }
-}
-
-bool virtio_blk_wait_for_completion(VirtioBlkState& state)
-{
-    for(uint32_t spin = 0; spin < 10000000u; ++spin)
-    {
-        if(state.request_completed)
-        {
-            return true;
-        }
-        pause();
-    }
-    return false;
+    virtio_blk_drain_used(state);
 }
 
 bool virtio_blk_submit_request(BlockDevice& device, BlockRequest& request)
 {
     auto& state = *static_cast<VirtioBlkState*>(device.driver_state);
-    if(!state.present || state.request_inflight || (nullptr == request.buffer) || (1u != request.sector_count))
+    if(!state.present || (nullptr == request.buffer) || (1u != request.sector_count))
     {
-        request.completed = true;
-        request.status = BlockRequestStatus::Invalid;
+        virtio_blk_fail_immediately(request, BlockRequestStatus::Invalid);
         return false;
     }
     if(request.sector >= state.capacity_sectors)
     {
-        request.completed = true;
-        request.status = BlockRequestStatus::Invalid;
+        virtio_blk_fail_immediately(request, BlockRequestStatus::Invalid);
         return false;
     }
 
@@ -128,8 +303,14 @@ bool virtio_blk_submit_request(BlockDevice& device, BlockRequest& request)
     const bool is_write = BlockOperation::Write == request.operation;
     if(!is_read && !is_write)
     {
-        request.completed = true;
-        request.status = BlockRequestStatus::Invalid;
+        virtio_blk_fail_immediately(request, BlockRequestStatus::Invalid);
+        return false;
+    }
+
+    auto* slot = virtio_blk_acquire_request_slot(state);
+    if(nullptr == slot)
+    {
+        virtio_blk_fail_immediately(request, BlockRequestStatus::Busy);
         return false;
     }
 
@@ -140,89 +321,67 @@ bool virtio_blk_submit_request(BlockDevice& device, BlockRequest& request)
                          static_cast<uint64_t>(request.operation),
                          0);
 
-    memset(state.request_header, 0, sizeof(*state.request_header));
-    memset(state.request_data, 0, static_cast<uint64_t>(kVirtioSectorSize));
-    *state.request_status = 0xFFu;
+    request.completed = false;
+    request.status = BlockRequestStatus::Pending;
+    request.bytes_transferred = 0;
+    request.driver_context = slot;
+    slot->request = &request;
+
+    memset(slot->header, 0, sizeof(*slot->header));
+    memset(slot->data, 0, static_cast<uint64_t>(kVirtioSectorSize));
+    *slot->status = 0xFFu;
     if(is_write)
     {
-        memcpy(state.request_data, request.buffer, kVirtioSectorSize);
+        memcpy(slot->data, request.buffer, kVirtioSectorSize);
     }
 
-    state.request_header->type = is_read ? kVirtioBlkRequestIn : kVirtioBlkRequestOut;
-    state.request_header->sector = request.sector;
+    slot->header->type = is_read ? kVirtioBlkRequestIn : kVirtioBlkRequestOut;
+    slot->header->sector = request.sector;
 
-    state.queue.desc[0].addr = state.request_buffer.physical_address;
-    state.queue.desc[0].len = sizeof(VirtioBlkRequestHeader);
-    state.queue.desc[0].flags = kVirtqDescFlagNext;
-    state.queue.desc[0].next = 1;
+    state.queue.desc[slot->head_descriptor].addr = slot->buffer.physical_address;
+    state.queue.desc[slot->head_descriptor].len = sizeof(VirtioBlkRequestHeader);
+    state.queue.desc[slot->head_descriptor].flags = kVirtqDescFlagNext;
+    state.queue.desc[slot->head_descriptor].next = static_cast<uint16_t>(slot->head_descriptor + 1u);
 
-    state.queue.desc[1].addr = state.request_buffer.physical_address + sizeof(VirtioBlkRequestHeader);
-    state.queue.desc[1].len = kVirtioSectorSize;
-    state.queue.desc[1].flags = is_read ? static_cast<uint16_t>(kVirtqDescFlagWrite | kVirtqDescFlagNext)
-                                        : kVirtqDescFlagNext;
-    state.queue.desc[1].next = 2;
+    state.queue.desc[slot->head_descriptor + 1u].addr =
+        slot->buffer.physical_address + sizeof(VirtioBlkRequestHeader);
+    state.queue.desc[slot->head_descriptor + 1u].len = kVirtioSectorSize;
+    state.queue.desc[slot->head_descriptor + 1u].flags =
+        is_read ? static_cast<uint16_t>(kVirtqDescFlagWrite | kVirtqDescFlagNext) : kVirtqDescFlagNext;
+    state.queue.desc[slot->head_descriptor + 1u].next = static_cast<uint16_t>(slot->head_descriptor + 2u);
 
-    state.queue.desc[2].addr =
-        state.request_buffer.physical_address + sizeof(VirtioBlkRequestHeader) + kVirtioSectorSize;
-    state.queue.desc[2].len = 1;
-    state.queue.desc[2].flags = kVirtqDescFlagWrite;
-    state.queue.desc[2].next = 0;
+    state.queue.desc[slot->head_descriptor + 2u].addr =
+        slot->buffer.physical_address + sizeof(VirtioBlkRequestHeader) + kVirtioSectorSize;
+    state.queue.desc[slot->head_descriptor + 2u].len = 1;
+    state.queue.desc[slot->head_descriptor + 2u].flags = kVirtqDescFlagWrite;
+    state.queue.desc[slot->head_descriptor + 2u].next = 0;
 
-    dma_sync_for_device(state.request_buffer);
+    dma_sync_for_device(slot->buffer);
     dma_sync_for_device(state.queue.ring_memory);
-    state.request_completed = false;
-    state.request_inflight = true;
-    state.last_completion_status = 0xFFu;
-    state.last_completion_bytes = 0;
-    if(!virtqueue_submit(state.queue, 0))
+    if(!virtqueue_submit(state.queue, slot->head_descriptor))
     {
-        state.request_inflight = false;
-        request.completed = true;
-        request.status = BlockRequestStatus::Invalid;
+        request.driver_context = nullptr;
+        virtio_blk_release_request_slot(state, *slot);
+        virtio_blk_fail_immediately(request, BlockRequestStatus::Invalid);
         return false;
     }
     virtio_pci_notify_queue(state.transport, 0);
-
-    if(!virtio_blk_wait_for_completion(state))
+    if(!virtio_blk_wait_for_boot_completion(state, request))
     {
-        state.request_inflight = false;
-        request.completed = true;
-        request.status = BlockRequestStatus::Timeout;
+        request.driver_context = nullptr;
+        if(slot->active && (slot->request == &request))
+        {
+            virtio_blk_release_request_slot(state, *slot);
+        }
         kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
                              OS1_KERNEL_EVENT_FLAG_FAILURE,
                              request.sector,
                              device.sector_size,
                              3,
                              0);
+        virtio_blk_fail_immediately(request, BlockRequestStatus::Timeout);
         return false;
     }
-
-    dma_sync_for_cpu(state.request_buffer);
-    request.completed = true;
-    if(kVirtioStatusOk != state.last_completion_status)
-    {
-        request.status = BlockRequestStatus::DeviceError;
-        kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
-                             OS1_KERNEL_EVENT_FLAG_FAILURE,
-                             request.sector,
-                             device.sector_size,
-                             state.last_completion_status,
-                             state.last_completion_bytes);
-        return false;
-    }
-
-    if(is_read)
-    {
-        memcpy(request.buffer, state.request_data, kVirtioSectorSize);
-    }
-    request.bytes_transferred = static_cast<uint32_t>(kVirtioSectorSize);
-    request.status = BlockRequestStatus::Success;
-    kernel_event::record(OS1_KERNEL_EVENT_BLOCK_IO,
-                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
-                         request.sector,
-                         device.sector_size,
-                         static_cast<uint64_t>(request.operation),
-                         state.last_completion_bytes);
     return true;
 }
 
@@ -270,6 +429,19 @@ bool verify_virtio_blk_write(BlockDevice& device)
         return false;
     }
     return true;
+}
+
+void virtio_blk_threaded_smoke_thread()
+{
+    BlockDevice* device = const_cast<BlockDevice*>(virtio_blk_block_device());
+    const bool ok = (nullptr != device) && verify_virtio_blk_prefix(*device, 0, kVirtioSector0Prefix) &&
+                    verify_virtio_blk_write(*device);
+    debug(ok ? "virtio-blk threaded smoke ok" : "virtio-blk threaded smoke failed")();
+    mark_current_thread_dying(ok ? 0 : 1);
+    for(;;)
+    {
+        asm volatile("hlt" : : : "memory");
+    }
 }
 }  // namespace
 
@@ -322,29 +494,31 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
     }
     state.queue_size =
         (device_queue_size < kVirtioBlkQueueTargetSize) ? device_queue_size : kVirtioBlkQueueTargetSize;
+    state.request_slot_count = virtio_blk_slot_count(state.queue_size);
+    if(0 == state.request_slot_count)
+    {
+        debug("virtio-blk: queue leaves no request slots")();
+        return false;
+    }
 
     if(!virtqueue_allocate(frames, state.owner, state.queue_size, state.queue))
     {
         debug("virtio-blk: queue DMA allocation failed")();
         return false;
     }
-    if(!dma_allocate_buffer(
-           frames, state.owner, sizeof(VirtioBlkRequestHeader) + kVirtioSectorSize + 1u, DmaDirection::Bidirectional, state.request_buffer))
+    if(!virtio_blk_allocate_request_buffers(frames, state))
     {
         debug("virtio-blk: request DMA allocation failed")();
+        virtqueue_release(frames, state.queue);
         return false;
     }
-
-    state.request_header = static_cast<VirtioBlkRequestHeader*>(state.request_buffer.virtual_address);
-    state.request_data =
-        static_cast<uint8_t*>(state.request_buffer.virtual_address) + sizeof(VirtioBlkRequestHeader);
-    state.request_status = reinterpret_cast<volatile uint8_t*>(
-        static_cast<uint8_t*>(state.request_buffer.virtual_address) + sizeof(VirtioBlkRequestHeader) +
-        kVirtioSectorSize);
 
     if(!virtio_pci_bind_queue_interrupt(kernel_vm, state.transport, 0, 0, virtio_blk_irq, &state))
     {
         debug("virtio-blk: interrupt bind failed")();
+        virtio_blk_release_request_buffers(frames, state);
+        virtqueue_release(frames, state.queue);
+        release_pci_bars_for_owner(state.owner);
         return false;
     }
     if(!virtio_pci_setup_queue(state.transport,
@@ -355,6 +529,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
                                state.queue.ring_memory.physical_address + 2u * kPageSize))
     {
         debug("virtio-blk: queue setup failed")();
+        virtio_blk_release_runtime_resources(frames, state);
         return false;
     }
 
@@ -374,7 +549,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
     g_virtio_blk_device.sector_count = state.capacity_sectors;
     g_virtio_blk_device.sector_size = static_cast<uint32_t>(kVirtioSectorSize);
     g_virtio_blk_device.max_sectors_per_request = 1;
-    g_virtio_blk_device.queue_depth = 1;
+    g_virtio_blk_device.queue_depth = state.request_slot_count;
     g_virtio_blk_device.driver_state = &state;
     g_virtio_blk_device.submit = virtio_blk_submit_request;
     g_virtio_blk_device.flush = virtio_blk_flush;
@@ -384,7 +559,7 @@ bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
 
     debug("virtio-blk: ready pci=")(device.bus, 16, 2)(":")(device.slot, 16, 2)(".")(
         device.function, 16, 1)(" sectors=")(state.capacity_sectors)(" qsize=")(state.queue_size)(
-        " irq=")(state.transport.interrupt.vector, 16, 2)();
+        " depth=")(state.request_slot_count)(" irq=")(state.transport.interrupt.vector, 16, 2)();
     kernel_event::record(OS1_KERNEL_EVENT_PCI_BIND,
                          OS1_KERNEL_EVENT_FLAG_SUCCESS,
                          static_cast<uint64_t>(device_index),
@@ -412,11 +587,7 @@ void remove_virtio_blk_device(DeviceId id)
         return;
     }
 
-    pci_release_interrupt(*g_virtio_blk.transport.device, g_virtio_blk.transport.interrupt);
-    dma_release_buffer(page_frames, g_virtio_blk.request_buffer);
-    virtqueue_release(page_frames, g_virtio_blk.queue);
-    release_pci_bars_for_owner(id);
-    platform_release_irq_routes_for_owner(id);
+    virtio_blk_release_runtime_resources(page_frames, g_virtio_blk);
     device_binding_remove(id);
     g_platform.block_device = nullptr;
     memset(&g_platform.virtio_blk_public, 0, sizeof(g_platform.virtio_blk_public));
@@ -460,4 +631,18 @@ bool run_virtio_blk_smoke()
     }
     debug("virtio-blk smoke ok")();
     return true;
+}
+
+Thread* start_virtio_blk_threaded_smoke(Process* kernel_process, PageFrameContainer& frames)
+{
+    if(!g_virtio_blk.present)
+    {
+        return nullptr;
+    }
+    if(nullptr == kernel_process)
+    {
+        return nullptr;
+    }
+
+    return create_kernel_thread(kernel_process, virtio_blk_threaded_smoke_thread, frames);
 }

@@ -51,6 +51,10 @@ set(KERNEL_FS_SOURCES
   fs/initrd.cpp
 )
 
+set(KERNEL_STORAGE_SOURCES
+  storage/block_device.cpp
+)
+
 set(KERNEL_CORE_SOURCES
   core/fault.cpp
   core/irq_dispatch.cpp
@@ -126,6 +130,7 @@ set(KERNEL_CXX_SOURCES
   ${KERNEL_CONSOLE_SOURCES}
   ${KERNEL_DRIVER_SOURCES}
   ${KERNEL_FS_SOURCES}
+  ${KERNEL_STORAGE_SOURCES}
   ${KERNEL_CORE_SOURCES}
   ${KERNEL_PLATFORM_SOURCES}
   ${KERNEL_PROC_SOURCES}

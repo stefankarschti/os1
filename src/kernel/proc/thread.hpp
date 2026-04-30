@@ -32,6 +32,7 @@ enum class ThreadWaitReason : uint32_t
     None = 0,
     ConsoleRead = 1,
     ChildExit = 2,
+    BlockIo = 3,
 };
 
 struct ConsoleReadWaitState
@@ -46,6 +47,11 @@ struct ChildExitWaitState
     uint64_t pid = 0;
 };
 
+struct BlockIoWaitState
+{
+    uint64_t completion_flag = 0;
+};
+
 struct ThreadWaitState
 {
     ThreadWaitReason reason = ThreadWaitReason::None;
@@ -54,6 +60,7 @@ struct ThreadWaitState
     {
         ConsoleReadWaitState console_read;
         ChildExitWaitState child_exit;
+        BlockIoWaitState block_io;
     };
 };
 
@@ -107,10 +114,17 @@ void mark_thread_ready(Thread* thread);
 void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length);
 // Block the current thread until the selected child can be reaped.
 void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid);
+// Block the current thread until a block-I/O completion flag is signaled.
+void block_current_thread_on_block_io(uint64_t completion_flag);
 // clear a thread's wait metadata after the wait has completed.
 void clear_thread_wait(Thread* thread);
+// Wake a blocked thread, preserving the currently running thread state when the
+// wake happens from an interrupt on that same thread.
+void wake_blocked_thread(Thread* thread);
 // Return the first thread blocked on a wait reason.
 Thread* first_blocked_thread(ThreadWaitReason reason);
+// Wake any thread blocked on a matching block-I/O completion flag.
+void wake_block_io_waiters(uint64_t completion_flag);
 // Mark the current thread dying and publish its process exit status.
 void mark_current_thread_dying(int exit_status);
 // Reset a thread table entry to the free state.

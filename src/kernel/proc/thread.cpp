@@ -283,6 +283,16 @@ void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t p
     block_current_thread(wait);
 }
 
+void block_current_thread_on_block_io(uint64_t completion_flag)
+{
+    ThreadWaitState wait{};
+    wait.reason = ThreadWaitReason::BlockIo;
+    wait.block_io = BlockIoWaitState{
+        .completion_flag = completion_flag,
+    };
+    block_current_thread(wait);
+}
+
 void clear_thread_wait(Thread* thread)
 {
     if(nullptr == thread)
@@ -291,6 +301,28 @@ void clear_thread_wait(Thread* thread)
     }
 
     thread->wait = ThreadWaitState{};
+}
+
+void wake_blocked_thread(Thread* thread)
+{
+    KASSERT_ON_BSP();
+    if(nullptr == thread)
+    {
+        return;
+    }
+
+    clear_thread_wait(thread);
+    if(thread == current_thread())
+    {
+        thread->state = ThreadState::Running;
+        if(thread->process && (ProcessState::Dying != thread->process->state))
+        {
+            thread->process->state = ProcessState::Running;
+        }
+        return;
+    }
+
+    mark_thread_ready(thread);
 }
 
 Thread* first_blocked_thread(ThreadWaitReason reason)
@@ -308,6 +340,27 @@ Thread* first_blocked_thread(ThreadWaitReason reason)
         }
     }
     return nullptr;
+}
+
+void wake_block_io_waiters(uint64_t completion_flag)
+{
+    if((0 == completion_flag) || (nullptr == threadTable))
+    {
+        return;
+    }
+
+    for(size_t i = 0; i < kMaxThreads; ++i)
+    {
+        Thread* thread = threadTable + i;
+        if((ThreadState::Blocked != thread->state) ||
+           (ThreadWaitReason::BlockIo != thread->wait.reason) ||
+           (completion_flag != thread->wait.block_io.completion_flag))
+        {
+            continue;
+        }
+
+        wake_blocked_thread(thread);
+    }
 }
 
 void mark_current_thread_dying(int exit_status)

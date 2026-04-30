@@ -18,6 +18,7 @@ enum class BlockRequestStatus : uint8_t
     DeviceError = 2,
     Invalid = 3,
     Timeout = 4,
+    Busy = 5,
 };
 
 struct BlockRequest
@@ -54,54 +55,15 @@ inline bool block_request_succeeded(const BlockRequest& request)
     return request.completed && (BlockRequestStatus::Success == request.status);
 }
 
-inline bool block_read_sync(BlockDevice& device,
-                            uint64_t sector,
-                            void* buffer,
-                            uint32_t sector_count)
-{
-    if((nullptr == device.submit) || (nullptr == buffer) || (0 == sector_count))
-    {
-        return false;
-    }
-
-    for(uint32_t i = 0; i < sector_count; ++i)
-    {
-        BlockRequest request{};
-        request.operation = BlockOperation::Read;
-        request.sector = sector + i;
-        request.buffer = static_cast<uint8_t*>(buffer) +
-                         static_cast<size_t>(i) * static_cast<size_t>(device.sector_size);
-        request.sector_count = 1;
-        if(!device.submit(device, request) || !block_request_succeeded(request))
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-inline bool block_write_sync(BlockDevice& device,
-                             uint64_t sector,
-                             const void* buffer,
-                             uint32_t sector_count)
-{
-    if((nullptr == device.submit) || (nullptr == buffer) || (0 == sector_count))
-    {
-        return false;
-    }
-
-    for(uint32_t i = 0; i < sector_count; ++i)
-    {
-        BlockRequest request{};
-        request.operation = BlockOperation::Write;
-        request.sector = sector + i;
-        request.buffer = const_cast<uint8_t*>(static_cast<const uint8_t*>(buffer) +
-                                              static_cast<size_t>(i) * static_cast<size_t>(device.sector_size));
-        request.sector_count = 1;
-        if(!device.submit(device, request) || !block_request_succeeded(request))
-        {
-            return false;
-        }
-    }
-    return true;
-}
+void block_request_complete(BlockRequest& request,
+                            BlockRequestStatus status,
+                            uint32_t bytes_transferred = 0);
+bool block_request_wait(BlockRequest& request);
+bool block_read_sync(BlockDevice& device,
+                     uint64_t sector,
+                     void* buffer,
+                     uint32_t sector_count);
+bool block_write_sync(BlockDevice& device,
+                      uint64_t sector,
+                      const void* buffer,
+                      uint32_t sector_count);

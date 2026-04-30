@@ -21,6 +21,7 @@
 #include "core/timer_source.hpp"
 #include "debug/debug.hpp"
 #include "debug/event_ring.hpp"
+#include "drivers/block/virtio_blk.hpp"
 #include "drivers/display/text_display.hpp"
 #include "drivers/timer/pit.hpp"
 #include "fs/initrd.hpp"
@@ -512,11 +513,15 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
-
     Thread* init_thread = load_user_program(page_frames, g_kernel_root_cr3, "/bin/init");
     if(nullptr == init_thread)
     {
         write_console_line("failed to load /bin/init");
+        return;
+    }
+    Thread* block_smoke_thread = start_virtio_blk_threaded_smoke(kernel_process, page_frames);
+    if((nullptr != platform_virtio_blk()) && (nullptr == block_smoke_thread))
+    {
         return;
     }
 
@@ -527,6 +532,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
-    enter_first_thread(init_thread, init_thread->kernel_stack_top);
+    Thread* first_thread = (nullptr != block_smoke_thread) ? block_smoke_thread : init_thread;
+    enter_first_thread(first_thread, first_thread->kernel_stack_top);
     halt_forever();
 }

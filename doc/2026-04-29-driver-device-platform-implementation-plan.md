@@ -104,9 +104,10 @@ Implemented in this pass:
 
 Still intentionally incomplete:
 
-- Block I/O is request-shaped but still single in-flight and synchronous at the
-  public wrapper layer. The driver waits for an IRQ-set completion flag rather
-  than polling the used ring directly.
+- Block I/O now uses a small fixed `virtio-blk` request table plus threaded
+  completion wakeups, but the public synchronous wrappers still issue one
+  sector at a time and there is no block scheduler, request merging, or
+  filesystem-facing cache yet.
 - PCI INTx fallback is best-effort and still depends on firmware-populated
   `interrupt_line`; AML `_PRT` routing is not implemented.
 - DMA sync is a barrier/no-op model for coherent x86_64 direct-map buffers. No
@@ -916,12 +917,14 @@ The block driver should not spin on `used->idx` in the normal path.
 
 ### Queue Depth
 
-The first interrupt-driven version can keep one in-flight request to reduce
-state-machine risk. The API should still include `max_in_flight`, request slots,
-and descriptor ownership so increasing queue depth later is a contained change.
+The current interrupt-driven path keeps a small fixed request table and
+descriptor ownership bitmap. With queue size 8 and three descriptors per
+request, the current depth is 2 so one request can complete while another is
+already in flight without reopening the single-slot bottleneck.
 
-With queue size 8 and three descriptors per request, a conservative first depth
-is 1 or 2. Expanding queue size can follow after completion is reliable.
+The next queue-depth increase should stay behind the same request-slot and
+descriptor-ownership abstractions. Expanding queue size can follow once broader
+storage users create real parallel pressure.
 
 ## Timer Migration: HPET And LAPIC Timer
 
@@ -1306,12 +1309,10 @@ The first implementation sequence has landed:
 
 The next practical commits should build on the new substrate:
 
-1. Replace the single in-flight `virtio-blk` slot with a small request table and
-   descriptor ownership bitmap.
-2. Add a kernel completion or `ThreadWaitReason::BlockIo` path so synchronous
-   block wrappers can sleep after the scheduler is online.
-3. Start xHCI after the timer and hot-remove paths have more coverage.
-4. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
+1. Expand the fixed `virtio-blk` request table only after broader storage or
+  buffered I/O paths create real parallel demand.
+2. Start xHCI after the timer and hot-remove paths have more coverage.
+3. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
    before treating INTx as robust on real hardware.
 
 ## Main Risks
