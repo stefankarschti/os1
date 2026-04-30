@@ -551,7 +551,7 @@ set(OS1_SMOKE_REJECT_MARKERS
 # smoke runner observes it when the following command output flushes.
 set(OS1_SHELL_INPUT_EVENTS
   "shell prompt ready::help\\n"
-  "help echo pid sys ps cpu pci initrd events exec exit::echo hi\\n"
+  "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit::echo hi\\n"
   "echo: hi::pid\\n"
 )
 
@@ -561,7 +561,10 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "pid tid pstate tstate mode cr3 name::cpu\\n"
   "cpu slot apic bsp booted pid tid::pci\\n"
   "pci 00:03.0 1af4:1042::initrd\\n"
-  "initrd complete::events\\n"
+  "initrd complete::devices\\n"
+  "device bus id state pci driver::irqs\\n"
+  "irq vector kind owner source gsi flags::resources\\n"
+  "resource kind owner ref detail base size extra::events\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -620,7 +623,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd events exec exit"
+    "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -674,6 +677,13 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd /bin/yield size="
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
+    "device bus id state pci driver"
+    "device pci 3 started 3 virtio-blk"
+    "irq vector kind owner source gsi flags"
+    "irq 33 legacy-isa platform:1 irq=1 id=0 gsi=1 flags=0x0"
+    "resource kind owner ref detail base size extra"
+    "resource bar pci:3 pci=3 bar="
+    "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event timer-source-lapic seq="
     "event smoke-marker seq="
@@ -817,7 +827,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd events exec exit"
+    "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -869,6 +879,13 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd /bin/yield size="
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
+    "device bus id state pci driver"
+    "device pci 3 started 3 virtio-blk"
+    "irq vector kind owner source gsi flags"
+    "irq 33 legacy-isa platform:1 irq=1 id=0 gsi=1 flags=0x0"
+    "resource kind owner ref detail base size extra"
+    "resource bar pci:3 pci=3 bar="
+    "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event timer-source-lapic seq="
     "event smoke-marker seq="

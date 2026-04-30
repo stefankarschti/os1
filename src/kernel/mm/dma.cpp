@@ -95,3 +95,13 @@ void dma_sync_for_cpu(const DmaBuffer& buffer)
     (void)buffer;
     asm volatile("" : : : "memory");
 }
+
+size_t dma_allocation_count()
+{
+    return g_platform.dma_allocation_count;
+}
+
+const DmaAllocationRecord* dma_allocation_records()
+{
+    return g_platform.dma_allocations;
+}

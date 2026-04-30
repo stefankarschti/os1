@@ -193,6 +193,21 @@ const char* console_kind_name(uint32_t kind)
     }
 }
 
+const char* device_bus_name(uint32_t bus)
+{
+    switch(bus)
+    {
+        case 0:
+            return "platform";
+        case 1:
+            return "pci";
+        case 2:
+            return "acpi";
+        default:
+            return "unknown";
+    }
+}
+
 const char* process_state_name(uint32_t state)
 {
     switch(state)
@@ -227,6 +242,29 @@ const char* thread_state_name(uint32_t state)
     }
 }
 
+const char* device_state_name(uint32_t state)
+{
+    switch(state)
+    {
+        case 0:
+            return "discovered";
+        case 1:
+            return "probing";
+        case 2:
+            return "bound";
+        case 3:
+            return "started";
+        case 4:
+            return "stopping";
+        case 5:
+            return "removed";
+        case 6:
+            return "failed";
+        default:
+            return "unknown";
+    }
+}
+
 const char* pci_bar_type_name(uint8_t type)
 {
     switch(type)
@@ -239,6 +277,51 @@ const char* pci_bar_type_name(uint8_t type)
             return "io";
         default:
             return "unused";
+    }
+}
+
+const char* irq_kind_name(uint8_t kind)
+{
+    switch(kind)
+    {
+        case 1:
+            return "legacy-isa";
+        case 2:
+            return "local-apic";
+        case 3:
+            return "msi";
+        case 4:
+            return "msix";
+        default:
+            return "unknown";
+    }
+}
+
+const char* resource_kind_name(uint8_t kind)
+{
+    switch(kind)
+    {
+        case OS1_OBSERVE_RESOURCE_PCI_BAR:
+            return "bar";
+        case OS1_OBSERVE_RESOURCE_DMA:
+            return "dma";
+        default:
+            return "unknown";
+    }
+}
+
+const char* dma_direction_name(uint8_t direction)
+{
+    switch(direction)
+    {
+        case 0:
+            return "bidirectional";
+        case 1:
+            return "to-device";
+        case 2:
+            return "from-device";
+        default:
+            return "unknown";
     }
 }
 
@@ -289,6 +372,13 @@ const char* event_record_name(const Os1ObserveEventRecord& record)
     return event_type_name(record.type);
 }
 
+void write_bus_owner(uint32_t bus, uint64_t id)
+{
+    write_string(device_bus_name(bus));
+    write_char(':');
+    write_unsigned(id);
+}
+
 void write_yes_no(bool value)
 {
     write_string(value ? "yes" : "no");
@@ -328,7 +418,7 @@ bool observe(uint32_t kind, const Record*& records, uint32_t& record_count)
 
 void run_help()
 {
-    write_string("help echo pid sys ps cpu pci initrd events exec exit\n");
+    write_string("help echo pid sys ps cpu pci initrd devices irqs resources events exec exit\n");
 }
 
 void run_echo(size_t argc, char* argv[kShellMaxTokens])
@@ -539,6 +629,119 @@ void run_initrd()
         write_char('\n');
     }
     write_string("initrd complete\n");
+}
+
+void run_devices()
+{
+    const Os1ObserveDeviceRecord* records = nullptr;
+    uint32_t record_count = 0;
+    if(!observe(OS1_OBSERVE_DEVICES, records, record_count))
+    {
+        write_observe_failure("devices");
+        return;
+    }
+
+    write_string("device bus id state pci driver\n");
+    for(uint32_t i = 0; i < record_count; ++i)
+    {
+        write_string("device ");
+        write_string(device_bus_name(records[i].bus));
+        write_char(' ');
+        write_unsigned(records[i].id);
+        write_char(' ');
+        write_string(device_state_name(records[i].state));
+        write_char(' ');
+        if(OS1_OBSERVE_INDEX_NONE == records[i].pci_index)
+        {
+            write_char('-');
+        }
+        else
+        {
+            write_unsigned(records[i].pci_index);
+        }
+        write_char(' ');
+        write_string((0 != records[i].driver_name[0]) ? records[i].driver_name : "-");
+        write_char('\n');
+    }
+}
+
+void run_irqs()
+{
+    const Os1ObserveIrqRecord* records = nullptr;
+    uint32_t record_count = 0;
+    if(!observe(OS1_OBSERVE_IRQS, records, record_count))
+    {
+        write_observe_failure("irqs");
+        return;
+    }
+
+    write_string("irq vector kind owner source gsi flags\n");
+    for(uint32_t i = 0; i < record_count; ++i)
+    {
+        write_string("irq ");
+        write_unsigned(records[i].vector);
+        write_char(' ');
+        write_string(irq_kind_name(records[i].kind));
+        write_char(' ');
+        write_bus_owner(records[i].owner_bus, records[i].owner_id);
+        write_string(" irq=");
+        write_unsigned(records[i].source_irq);
+        write_string(" id=");
+        write_unsigned(records[i].source_id);
+        write_string(" gsi=");
+        write_unsigned(records[i].gsi);
+        write_string(" flags=0x");
+        write_hex(records[i].flags, 1);
+        write_char('\n');
+    }
+}
+
+void run_resources()
+{
+    const Os1ObserveResourceRecord* records = nullptr;
+    uint32_t record_count = 0;
+    if(!observe(OS1_OBSERVE_RESOURCES, records, record_count))
+    {
+        write_observe_failure("resources");
+        return;
+    }
+
+    write_string("resource kind owner ref detail base size extra\n");
+    for(uint32_t i = 0; i < record_count; ++i)
+    {
+        write_string("resource ");
+        write_string(resource_kind_name(records[i].kind));
+        write_char(' ');
+        write_bus_owner(records[i].owner_bus, records[i].owner_id);
+        write_char(' ');
+        if(OS1_OBSERVE_RESOURCE_PCI_BAR == records[i].kind)
+        {
+            write_string("pci=");
+            write_unsigned(records[i].reference_id);
+            write_string(" bar=");
+            write_unsigned(records[i].entry_index);
+            write_string(" type=");
+            write_string(pci_bar_type_name(records[i].detail));
+        }
+        else if(OS1_OBSERVE_RESOURCE_DMA == records[i].kind)
+        {
+            write_string("dir=");
+            write_string(dma_direction_name(records[i].detail));
+            write_string(" pages=");
+            write_unsigned(records[i].page_count);
+            write_string(" coherent=");
+            write_yes_no(0 != (records[i].flags & OS1_OBSERVE_RESOURCE_FLAG_COHERENT));
+        }
+        else
+        {
+            write_string("detail=unknown");
+        }
+        write_string(" base=0x");
+        write_hex(records[i].base, 1);
+        write_string(" size=0x");
+        write_hex(records[i].size, 1);
+        write_char('\n');
+    }
 }
 
 void run_events()
@@ -767,6 +970,18 @@ int main(void)
         else if(strings_equal(tokens[0], "initrd"))
         {
             run_initrd();
+        }
+        else if(strings_equal(tokens[0], "devices"))
+        {
+            run_devices();
+        }
+        else if(strings_equal(tokens[0], "irqs"))
+        {
+            run_irqs();
+        }
+        else if(strings_equal(tokens[0], "resources"))
+        {
+            run_resources();
         }
         else if(strings_equal(tokens[0], "events"))
         {

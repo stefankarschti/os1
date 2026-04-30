@@ -90,6 +90,10 @@ Implemented in this pass:
 - The event ring now records whether the scheduler timer stayed on PIT or
   switched to LAPIC, and the shell observe path prints `timer-source-pit` or
   `timer-source-lapic` accordingly.
+- The observe ABI now exposes `OS1_OBSERVE_DEVICES`,
+  `OS1_OBSERVE_RESOURCES`, and `OS1_OBSERVE_IRQS`, and the shell prints bound
+  devices, IRQ routes, BAR claims, and DMA ownership through `devices`,
+  `resources`, and `irqs` commands.
 - `virtio-blk` now uses the shared transport, DMA buffers, an interrupt
   completion handler, read and write requests, and a scratch-sector write/read
   smoke check.
@@ -1037,7 +1041,7 @@ The event ring is already present. Add event types as the driver model lands:
 - DMA allocation/free
 - device remove/failure
 
-The observe ABI can grow a new record kind later:
+The observe ABI growth called out in the original plan is now implemented:
 
 ```text
 OS1_OBSERVE_DEVICES
@@ -1045,8 +1049,8 @@ OS1_OBSERVE_RESOURCES
 OS1_OBSERVE_IRQS
 ```
 
-Do not block implementation on observe ABI expansion. Serial debug plus event
-ring records are enough for the first MSI and block migration.
+These record kinds now expose bound devices, IRQ routes, BAR claims, and DMA
+ownership through the existing shell observe path.
 
 ## Implementation Phases
 
@@ -1302,15 +1306,13 @@ The first implementation sequence has landed:
 
 The next practical commits should build on the new substrate:
 
-1. Add observe records for bound devices, IRQ routes, BAR claims, and DMA
-   allocations.
-2. Replace the single in-flight `virtio-blk` slot with a small request table and
+1. Replace the single in-flight `virtio-blk` slot with a small request table and
    descriptor ownership bitmap.
-3. Add a kernel completion or `ThreadWaitReason::BlockIo` path so synchronous
+2. Add a kernel completion or `ThreadWaitReason::BlockIo` path so synchronous
    block wrappers can sleep after the scheduler is online.
-4. Start `virtio-net` only after the multi-request virtqueue path is reliable.
-5. Start xHCI after the timer and hot-remove paths have more coverage.
-6. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
+3. Start `virtio-net` only after the multi-request virtqueue path is reliable.
+4. Start xHCI after the timer and hot-remove paths have more coverage.
+5. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
    before treating INTx as robust on real hardware.
 
 ## Main Risks

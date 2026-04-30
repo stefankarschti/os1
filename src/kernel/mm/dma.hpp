@@ -29,3 +29,6 @@ void dma_release_buffer(PageFrameContainer& frames, DmaBuffer& buffer);
 
 void dma_sync_for_device(const DmaBuffer& buffer);
 void dma_sync_for_cpu(const DmaBuffer& buffer);
+
+size_t dma_allocation_count();
+const DmaAllocationRecord* dma_allocation_records();
