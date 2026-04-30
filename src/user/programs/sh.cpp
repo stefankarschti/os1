@@ -345,6 +345,8 @@ const char* event_type_name(uint32_t type)
             return "smoke-marker";
         case OS1_KERNEL_EVENT_TIMER_SOURCE:
             return "timer-source";
+        case OS1_KERNEL_EVENT_NET_RX:
+            return "net-rx";
         default:
             return "unknown";
     }

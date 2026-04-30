@@ -1067,7 +1067,7 @@ Status after the 2026-04-30 pass:
 | 7. BlockDevice V2 and interrupt-driven `virtio-blk` | Implemented with queue depth 1 |
 | 8. Driver registry and hot-remove skeleton | Implemented as a minimal static PCI path |
 | 9. HPET and LAPIC timer migration | Implemented |
-| 10. First second device: `virtio-net` | Not started |
+| 10. First second device: `virtio-net` | Implemented with shared transport, DMA RX/TX queues, and RX event smoke |
 | 11. xHCI | Not started |
 | 12. AML, ACPI device model, and power | Not started |
 
@@ -1310,9 +1310,8 @@ The next practical commits should build on the new substrate:
    descriptor ownership bitmap.
 2. Add a kernel completion or `ThreadWaitReason::BlockIo` path so synchronous
    block wrappers can sleep after the scheduler is online.
-3. Start `virtio-net` only after the multi-request virtqueue path is reliable.
-4. Start xHCI after the timer and hot-remove paths have more coverage.
-5. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
+3. Start xHCI after the timer and hot-remove paths have more coverage.
+4. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
    before treating INTx as robust on real hardware.
 
 ## Main Risks

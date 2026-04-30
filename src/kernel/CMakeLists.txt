@@ -40,6 +40,7 @@ set(KERNEL_DRIVER_SOURCES
   drivers/bus/resource.cpp
   drivers/display/text_display.cpp
   drivers/input/ps2_keyboard.cpp
+  drivers/net/virtio_net.cpp
   drivers/timer/pit.cpp
   drivers/virtio/pci_transport.cpp
   drivers/virtio/virtqueue.cpp

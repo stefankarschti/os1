@@ -92,4 +92,4 @@ bool virtio_pci_bind_queue_interrupt(VirtualMemory& kernel_vm,
                                      uint16_t source_id,
                                      InterruptHandler handler,
                                      void* handler_data);
-void virtio_pci_notify_queue(VirtioPciTransport& transport);
+void virtio_pci_notify_queue(VirtioPciTransport& transport, uint16_t queue_index);

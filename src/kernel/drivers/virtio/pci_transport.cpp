@@ -276,11 +276,18 @@ bool virtio_pci_bind_queue_interrupt(VirtualMemory& kernel_vm,
     return true;
 }
 
-void virtio_pci_notify_queue(VirtioPciTransport& transport)
+void virtio_pci_notify_queue(VirtioPciTransport& transport, uint16_t queue_index)
 {
-    if((nullptr == transport.notify_register) || (nullptr == transport.common_cfg))
+    if((nullptr == transport.common_cfg) || (nullptr == transport.device))
     {
         return;
     }
-    *transport.notify_register = transport.common_cfg->queue_select;
+
+    transport.common_cfg->queue_select = queue_index;
+    const uint64_t notify_physical = transport.device->bars[transport.notify_bar].base +
+                                     transport.notify_offset +
+                                     static_cast<uint64_t>(transport.common_cfg->queue_notify_off) *
+                                         transport.notify_multiplier;
+    auto* notify_register = kernel_physical_pointer<volatile uint16_t>(notify_physical);
+    *notify_register = queue_index;
 }

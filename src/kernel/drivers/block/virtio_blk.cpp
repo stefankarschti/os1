@@ -181,7 +181,7 @@ bool virtio_blk_submit_request(BlockDevice& device, BlockRequest& request)
         request.status = BlockRequestStatus::Invalid;
         return false;
     }
-    virtio_pci_notify_queue(state.transport);
+    virtio_pci_notify_queue(state.transport, 0);
 
     if(!virtio_blk_wait_for_completion(state))
     {

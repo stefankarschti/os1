@@ -1,9 +1,10 @@
-// Current platform device-probe loop for virtio-blk.
+// Current platform device-probe loop for built-in PCI drivers.
 #include "platform/device_probe.hpp"
 
 #include "debug/debug.hpp"
 #include "drivers/block/virtio_blk.hpp"
 #include "drivers/bus/driver_registry.hpp"
+#include "drivers/net/virtio_net.hpp"
 #include "drivers/bus/pci_bus.hpp"
 #include "mm/page_frame.hpp"
 #include "mm/virtual_memory.hpp"
@@ -20,6 +21,7 @@ bool platform_probe_devices(VirtualMemory& kernel_vm)
     memset(&g_platform.virtio_blk_public, 0, sizeof(g_platform.virtio_blk_public));
     driver_registry_reset();
     if(!driver_registry_add_pci_driver(virtio_blk_pci_driver()) ||
+       !driver_registry_add_pci_driver(virtio_net_pci_driver()) ||
        !pci_bus_probe_all(kernel_vm, page_frames))
     {
         return false;
@@ -29,5 +31,5 @@ bool platform_probe_devices(VirtualMemory& kernel_vm)
         debug("virtio-blk: no device present")();
     }
     g_platform.block_device = virtio_blk_block_device();
-    return run_virtio_blk_smoke();
+    return run_virtio_blk_smoke() && run_virtio_net_smoke();
 }

@@ -70,6 +70,13 @@ else()
   message(FATAL_ERROR "Either ISO_IMAGE or RAW_IMAGE must be set")
 endif()
 
+list(APPEND qemu_command
+  -netdev
+  "user,id=os1net"
+  -device
+  "virtio-net-pci,netdev=os1net,disable-legacy=on"
+)
+
 if(DEFINED VIRTIO_TEST_DISK)
   if(NOT EXISTS "${VIRTIO_TEST_DISK}")
     message(FATAL_ERROR "VIRTIO_TEST_DISK was set but does not exist: ${VIRTIO_TEST_DISK}")

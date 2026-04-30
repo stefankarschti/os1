@@ -421,6 +421,10 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
       "if=pflash,format=raw,file=${OS1_OVMF_VARS_FILE}"
       -cdrom
       "${OS1_ISO_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -453,6 +457,10 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
       "if=pflash,format=raw,file=${OS1_OVMF_VARS_FILE}"
       -cdrom
       "${OS1_ISO_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -485,6 +493,10 @@ if(OS1_QEMU_EXECUTABLE)
       4
       -drive
       "format=raw,file=${OS1_RAW_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -512,6 +524,10 @@ if(OS1_QEMU_EXECUTABLE)
       4
       -drive
       "format=raw,file=${OS1_RAW_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -618,6 +634,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "acpi: MCFG ready"
     "pci: enumerated devices="
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "ncpu: 4"
     "framebuffer console active"
     "initrd module discovered"
@@ -662,6 +679,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[kernel64] hello!"
     "boot source: limine"
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "framebuffer console active"
     "starting first user process"
     "shell prompt ready"
@@ -672,6 +690,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "cpu 3 03 no yes"
     "pci bdf vendor:device class irq bars"
     "pci 00:03.0 1af4:1042 class=01:00"
+    "pci 00:02.0 1af4:1041 class=02:00"
     "initrd path size"
     "initrd /bin/sh size="
     "initrd /bin/yield size="
@@ -679,12 +698,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd /bin/copycheck size="
     "device bus id state pci driver"
     "device pci 3 started 3 virtio-blk"
+    "device pci 2 started 2 virtio-net"
     "irq vector kind owner source gsi flags"
     "irq 33 legacy-isa platform:1 irq=1 id=0 gsi=1 flags=0x0"
     "resource kind owner ref detail base size extra"
     "resource bar pci:3 pci=3 bar="
     "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event net-rx seq="
     "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"
@@ -723,6 +744,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[kernel64] hello!"
     "boot source: limine"
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "[user/yield] tick 0"
@@ -770,6 +792,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[kernel64] hello!"
     "boot source: limine"
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "shell exec start /bin/yield"
@@ -822,6 +845,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "acpi: MCFG ready"
     "pci: enumerated devices="
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "ncpu: 4"
     "Interrupts initialization successful"
     "initrd module discovered"
@@ -864,6 +888,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[kernel64] hello!"
     "boot source: bios"
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "Interrupts initialization successful"
     "starting first user process"
     "shell prompt ready"
@@ -874,6 +899,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "cpu 3 03 no yes"
     "pci bdf vendor:device class irq bars"
     "pci 00:03.0 1af4:1042 class=01:00"
+    "pci 00:02.0 1af4:1041 class=02:00"
     "initrd path size"
     "initrd /bin/sh size="
     "initrd /bin/yield size="
@@ -881,12 +907,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd /bin/copycheck size="
     "device bus id state pci driver"
     "device pci 3 started 3 virtio-blk"
+    "device pci 2 started 2 virtio-net"
     "irq vector kind owner source gsi flags"
     "irq 33 legacy-isa platform:1 irq=1 id=0 gsi=1 flags=0x0"
     "resource kind owner ref detail base size extra"
     "resource bar pci:3 pci=3 bar="
     "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event net-rx seq="
     "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"
@@ -923,6 +951,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[kernel64] hello!"
     "boot source: bios"
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "[user/yield] tick 0"
@@ -968,6 +997,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[kernel64] hello!"
     "boot source: bios"
     "virtio-blk smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "shell exec start /bin/yield"
