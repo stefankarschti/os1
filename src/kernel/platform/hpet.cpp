@@ -11,7 +11,9 @@
 namespace
 {
 constexpr uint64_t kHpetCapabilitiesOffset = 0x000;
+constexpr uint64_t kHpetConfigurationOffset = 0x010;
 constexpr uint64_t kHpetMainCounterOffset = 0x0F0;
+constexpr uint64_t kHpetConfigurationEnable = 1ull << 0;
 }  // namespace
 
 bool platform_hpet_initialize()
@@ -36,6 +38,15 @@ bool platform_hpet_initialize()
         debug("hpet: invalid capability register")();
         g_platform.hpet = {};
         return true;
+    }
+
+    volatile uint64_t* const configuration_register =
+        kernel_physical_pointer<volatile uint64_t>(g_platform.hpet.physical_address +
+                                                   kHpetConfigurationOffset);
+    const uint64_t configuration = *configuration_register;
+    if(0 == (configuration & kHpetConfigurationEnable))
+    {
+        *configuration_register = configuration | kHpetConfigurationEnable;
     }
 
     g_platform.hpet.hardware_rev_id = static_cast<uint8_t>(capabilities & 0xFFu);

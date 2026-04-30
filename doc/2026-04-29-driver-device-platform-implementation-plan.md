@@ -16,9 +16,10 @@ good ACPI and PCI enumeration substrate, but it did not yet have a driver model.
 The 2026-04-30 implementation pass landed the first driver/device substrate:
 resource ownership, IRQ allocation, MSI/MSI-X with INTx fallback, DMA buffers,
 a shared virtio transport, a request-shaped block facade, and interrupt-driven
-`virtio-blk` reads and writes. The remaining platform work is HPET/LAPIC timer
-migration, real hotplug sources, `virtio-net`, xHCI, and AML-backed ACPI device
-and power management.
+`virtio-blk` reads and writes. The same pass also completed HPET/LAPIC timer
+migration for the BSP scheduler tick. The remaining platform work is real
+hotplug sources, `virtio-net`, xHCI, and AML-backed ACPI device and power
+management.
 
 ## Source Inputs Scanned
 
@@ -83,6 +84,12 @@ Implemented in this pass:
 - ACPI discovery now parses optional HPET tables, platform discovery maps the
   HPET MMIO block, and the platform layer exposes HPET capability and
   main-counter reads for later timer migration work.
+- The BSP scheduler tick now allocates a dynamic local-APIC vector, calibrates
+  the LAPIC periodic timer against the HPET main counter when available, and
+  retains the PIT path as a fallback when calibration cannot be established.
+- The event ring now records whether the scheduler timer stayed on PIT or
+  switched to LAPIC, and the shell observe path prints `timer-source-pit` or
+  `timer-source-lapic` accordingly.
 - `virtio-blk` now uses the shared transport, DMA buffers, an interrupt
   completion handler, read and write requests, and a scratch-sector write/read
   smoke check.
@@ -102,8 +109,7 @@ Still intentionally incomplete:
   low-address allocator, cacheability policy, pinned user pages, or IOMMU exists.
 - Hot-add/hot-remove is a lifecycle path only. There is no PCIe or ACPI hotplug
   event source yet.
-- LAPIC timer migration, `virtio-net`, xHCI, AML, and ACPI power management
-  remain future phases.
+- `virtio-net`, xHCI, AML, and ACPI power management remain future phases.
 
 Verification completed after the implementation:
 
@@ -1056,7 +1062,7 @@ Status after the 2026-04-30 pass:
 | 6. Shared virtio transport | Implemented |
 | 7. BlockDevice V2 and interrupt-driven `virtio-blk` | Implemented with queue depth 1 |
 | 8. Driver registry and hot-remove skeleton | Implemented as a minimal static PCI path |
-| 9. HPET and LAPIC timer migration | Started: HPET discovery, MMIO mapping, and counter reads implemented |
+| 9. HPET and LAPIC timer migration | Implemented |
 | 10. First second device: `virtio-net` | Not started |
 | 11. xHCI | Not started |
 | 12. AML, ACPI device model, and power | Not started |
@@ -1202,8 +1208,13 @@ Status after the current pass:
 - Platform discovery maps the HPET MMIO block when firmware advertises one.
 - The platform layer exposes HPET capability fields and a main-counter read
   helper.
-- LAPIC timer vector allocation, calibration, and scheduler-tick migration are
-  still pending.
+- The BSP allocates a dynamic local-APIC timer vector, calibrates the LAPIC
+  periodic timer against the HPET main counter, and uses it as the scheduler
+  tick source when calibration succeeds.
+- The PIT path remains as the scheduler-tick fallback when HPET or LAPIC timer
+  calibration is unavailable.
+- The event ring distinguishes PIT fallback from LAPIC timer mode, and both the
+  UEFI and BIOS observe smokes validate `timer-source-lapic` under QEMU.
 
 Deliverables:
 
@@ -1291,18 +1302,15 @@ The first implementation sequence has landed:
 
 The next practical commits should build on the new substrate:
 
-1. Add host tests for PCI driver matching and remove-path resource release.
-2. Add observe records for bound devices, IRQ routes, BAR claims, and DMA
+1. Add observe records for bound devices, IRQ routes, BAR claims, and DMA
    allocations.
-3. Replace the single in-flight `virtio-blk` slot with a small request table and
+2. Replace the single in-flight `virtio-blk` slot with a small request table and
    descriptor ownership bitmap.
-4. Add a kernel completion or `ThreadWaitReason::BlockIo` path so synchronous
+3. Add a kernel completion or `ThreadWaitReason::BlockIo` path so synchronous
    block wrappers can sleep after the scheduler is online.
-5. Parse HPET, add a clocksource abstraction, and migrate scheduler ticks to the
-   LAPIC timer with PIT fallback.
-6. Start `virtio-net` only after the multi-request virtqueue path is reliable.
-7. Start xHCI after the timer and hot-remove paths have more coverage.
-8. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
+4. Start `virtio-net` only after the multi-request virtqueue path is reliable.
+5. Start xHCI after the timer and hot-remove paths have more coverage.
+6. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
    before treating INTx as robust on real hardware.
 
 ## Main Risks

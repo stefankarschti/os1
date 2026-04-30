@@ -260,9 +260,33 @@ const char* event_type_name(uint32_t type)
             return "user-copy-failure";
         case OS1_KERNEL_EVENT_SMOKE_MARKER:
             return "smoke-marker";
+        case OS1_KERNEL_EVENT_TIMER_SOURCE:
+            return "timer-source";
         default:
             return "unknown";
     }
+}
+
+const char* timer_source_event_name(uint64_t mode)
+{
+    switch(mode)
+    {
+        case OS1_KERNEL_EVENT_TIMER_SOURCE_PIT:
+            return "timer-source-pit";
+        case OS1_KERNEL_EVENT_TIMER_SOURCE_LAPIC:
+            return "timer-source-lapic";
+        default:
+            return "timer-source";
+    }
+}
+
+const char* event_record_name(const Os1ObserveEventRecord& record)
+{
+    if(OS1_KERNEL_EVENT_TIMER_SOURCE == record.type)
+    {
+        return timer_source_event_name(record.arg0);
+    }
+    return event_type_name(record.type);
 }
 
 void write_yes_no(bool value)
@@ -531,7 +555,7 @@ void run_events()
     for(uint32_t i = 0; i < record_count; ++i)
     {
         write_string("event ");
-        write_string(event_type_name(records[i].type));
+        write_string(event_record_name(records[i]));
         write_string(" seq=");
         write_unsigned(records[i].sequence);
         write_string(" tick=");

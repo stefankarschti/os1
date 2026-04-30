@@ -6,6 +6,7 @@
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "console/console_input.hpp"
 #include "core/kernel_state.hpp"
+#include "core/timer_source.hpp"
 #include "debug/event_ring.hpp"
 #include "proc/thread.hpp"
 #include "sched/scheduler.hpp"
@@ -33,7 +34,8 @@ Thread* handle_irq(TrapFrame* frame)
 {
     const uint8_t vector = static_cast<uint8_t>(frame->vector);
     const int irq = legacy_irq_from_vector(vector);
-    if(IRQ_TIMER != irq)
+    const bool scheduler_tick = timer_vector_is_scheduler_tick(vector);
+    if(!scheduler_tick)
     {
         kernel_event::record(OS1_KERNEL_EVENT_IRQ,
                              0,
@@ -42,7 +44,7 @@ Thread* handle_irq(TrapFrame* frame)
                              g_timer_ticks,
                              0);
     }
-    if(IRQ_TIMER == irq)
+    if(scheduler_tick)
     {
         console_input_poll_serial();
         ++g_timer_ticks;
@@ -57,7 +59,7 @@ Thread* handle_irq(TrapFrame* frame)
         return nullptr;
     }
 
-    if(IRQ_TIMER == irq)
+    if(scheduler_tick)
     {
         return schedule_next(true);
     }

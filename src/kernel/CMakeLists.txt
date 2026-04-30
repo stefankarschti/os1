@@ -56,6 +56,7 @@ set(KERNEL_CORE_SOURCES
   core/kernel_main.cpp
   core/kernel_state.cpp
   core/panic.cpp
+  core/timer_source.cpp
   core/trap_dispatch.cpp
 )
 

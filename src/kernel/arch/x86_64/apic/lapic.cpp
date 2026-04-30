@@ -25,6 +25,45 @@ static void lapic_write(int index, int value)
     lapic[ID];  // wait for write to finish, by reading
 }
 
+bool lapic_timer_available(void)
+{
+    return nullptr != lapic;
+}
+
+void lapic_timer_prepare_calibration(uint32_t initial_count)
+{
+    if(!lapic)
+        return;
+
+    lapic_write(TDCR, X1);
+    lapic_write(TIMER, MASKED | T_LTIMER);
+    lapic_write(TICR, initial_count);
+}
+
+uint32_t lapic_timer_current_count(void)
+{
+    return lapic ? lapic[TCCR] : 0u;
+}
+
+bool lapic_timer_start_periodic(uint8_t vector, uint32_t initial_count)
+{
+    if(!lapic || !interrupt_vector_is_external(vector) || (0u == initial_count))
+        return false;
+
+    lapic_write(TDCR, X1);
+    lapic_write(TICR, initial_count);
+    lapic_write(TIMER, PERIODIC | vector);
+    return true;
+}
+
+void lapic_timer_mask(void)
+{
+    if(!lapic)
+        return;
+
+    lapic_write(TIMER, MASKED | T_LTIMER);
+}
+
 void lapic_init()
 {
     if(!lapic)

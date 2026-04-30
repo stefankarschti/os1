@@ -94,6 +94,25 @@ bool platform_register_local_apic_irq_route(DeviceId owner, uint16_t source_id, 
     return register_route(IrqRouteKind::LocalApic, owner, source_id, 0, 0, 0, vector);
 }
 
+bool platform_allocate_local_apic_irq_route(DeviceId owner, uint16_t source_id, uint8_t& vector)
+{
+    vector = 0;
+    uint8_t allocated_vector = 0;
+    if(!irq_allocate_vector(allocated_vector))
+    {
+        return false;
+    }
+
+    if(!platform_register_local_apic_irq_route(owner, source_id, allocated_vector))
+    {
+        (void)irq_free_vector(allocated_vector);
+        return false;
+    }
+
+    vector = allocated_vector;
+    return true;
+}
+
 bool platform_register_msi_irq_route(DeviceId owner, uint16_t source_id, uint8_t vector)
 {
     return register_route(IrqRouteKind::Msi, owner, source_id, 0, 0, 0, vector);

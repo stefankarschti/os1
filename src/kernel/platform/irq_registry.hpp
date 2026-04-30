@@ -17,6 +17,9 @@ bool platform_register_isa_irq_route(DeviceId owner,
 // Register one local APIC vector record owned by a platform device.
 bool platform_register_local_apic_irq_route(DeviceId owner, uint16_t source_id, uint8_t vector);
 
+// Allocate one dynamic vector and register it as a local APIC route.
+bool platform_allocate_local_apic_irq_route(DeviceId owner, uint16_t source_id, uint8_t& vector);
+
 // Register one MSI-backed vector record owned by a PCI device.
 bool platform_register_msi_irq_route(DeviceId owner, uint16_t source_id, uint8_t vector);
 

@@ -18,6 +18,7 @@
 #include "core/fault.hpp"
 #include "core/kernel_state.hpp"
 #include "core/panic.hpp"
+#include "core/timer_source.hpp"
 #include "debug/debug.hpp"
 #include "debug/event_ring.hpp"
 #include "drivers/display/text_display.hpp"
@@ -28,6 +29,7 @@
 #include "mm/boot_mapping.hpp"
 #include "mm/boot_reserve.hpp"
 #include "mm/virtual_memory.hpp"
+#include "platform/irq_registry.hpp"
 #include "platform/platform.hpp"
 #include "platform/topology.hpp"
 #include "proc/thread.hpp"
@@ -49,6 +51,56 @@ extern uint8_t __kernel_bss_end[];
 namespace
 {
 Thread g_boot_irq_thread{};
+constexpr uint32_t kSchedulerTimerFrequencyHz = 1000;
+constexpr uint64_t kFsPerSecond = 1000000000000000ull;
+constexpr uint64_t kLapicCalibrationIntervalFs = 10000000000000ull;
+constexpr uint32_t kLapicCalibrationInitialCount = 0xFFFFFFFFu;
+constexpr uint8_t kPitSchedulerVector = static_cast<uint8_t>(T_IRQ0 + IRQ_TIMER);
+constexpr DeviceId kPitTimerOwner{DeviceBus::Platform, 0};
+constexpr DeviceId kKeyboardOwner{DeviceBus::Platform, 1};
+constexpr DeviceId kLapicTimerOwner{DeviceBus::Platform, 2};
+
+uint64_t gcd_u64(uint64_t left, uint64_t right)
+{
+    while(0u != right)
+    {
+        const uint64_t remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    return left;
+}
+
+bool divide_product_rounded(uint64_t left, uint64_t right, uint64_t denominator, uint64_t& result)
+{
+    result = 0;
+    if(0u == denominator)
+    {
+        return false;
+    }
+
+    uint64_t divisor_gcd = gcd_u64(right, denominator);
+    right /= divisor_gcd;
+    denominator /= divisor_gcd;
+
+    divisor_gcd = gcd_u64(left, denominator);
+    left /= divisor_gcd;
+    denominator /= divisor_gcd;
+
+    if((0u != right) && (left > (~0ull / right)))
+    {
+        return false;
+    }
+
+    const uint64_t product = left * right;
+    if(product > (~0ull - (denominator / 2u)))
+    {
+        return false;
+    }
+
+    result = (product + (denominator / 2u)) / denominator;
+    return true;
+}
 
 bool map_kernel_section(VirtualMemory& vm, uint8_t* start, uint8_t* end, PageFlags flags)
 {
@@ -80,6 +132,129 @@ bool map_kernel_image(VirtualMemory& vm)
                               __kernel_data_start,
                               __kernel_bss_end,
                               PageFlags::Present | PageFlags::Write | PageFlags::NoExecute);
+}
+
+bool calibrate_lapic_timer_from_hpet(uint32_t target_hz, uint32_t& initial_count)
+{
+    initial_count = 0;
+
+    const HpetInfo* hpet = platform_hpet();
+    if((nullptr == hpet) || !hpet->present || (0u == hpet->counter_clock_period_fs) ||
+       (0u == target_hz) || !lapic_timer_available())
+    {
+        return false;
+    }
+
+    uint64_t start_counter = 0;
+    if(!platform_hpet_read_main_counter(start_counter))
+    {
+        return false;
+    }
+
+    uint64_t required_hpet_ticks = kLapicCalibrationIntervalFs / hpet->counter_clock_period_fs;
+    if(0u == required_hpet_ticks)
+    {
+        required_hpet_ticks = 1;
+    }
+
+    lapic_timer_prepare_calibration(kLapicCalibrationInitialCount);
+
+    uint64_t current_counter = start_counter;
+    bool reached_interval = false;
+    for(uint64_t spins = 0; spins < 100000000ull; ++spins)
+    {
+        if(!platform_hpet_read_main_counter(current_counter))
+        {
+            break;
+        }
+        if((current_counter - start_counter) >= required_hpet_ticks)
+        {
+            reached_interval = true;
+            break;
+        }
+        pause();
+    }
+
+    const uint32_t remaining_count = lapic_timer_current_count();
+    lapic_timer_mask();
+    if(!reached_interval)
+    {
+        return false;
+    }
+
+    const uint64_t elapsed_hpet_ticks = current_counter - start_counter;
+    const uint64_t elapsed_lapic_counts =
+        static_cast<uint64_t>(kLapicCalibrationInitialCount - remaining_count);
+    if((0u == elapsed_hpet_ticks) || (0u == elapsed_lapic_counts))
+    {
+        return false;
+    }
+
+    const uint64_t measured_interval_fs = elapsed_hpet_ticks * hpet->counter_clock_period_fs;
+    const uint64_t denominator = measured_interval_fs * target_hz;
+    if((0u == measured_interval_fs) || (0u == denominator))
+    {
+        return false;
+    }
+
+    uint64_t calibrated_count = 0;
+    if(!divide_product_rounded(elapsed_lapic_counts,
+                               kFsPerSecond,
+                               denominator,
+                               calibrated_count) ||
+       (0u == calibrated_count) || (calibrated_count > 0xFFFFFFFFu))
+    {
+        return false;
+    }
+
+    initial_count = static_cast<uint32_t>(calibrated_count);
+    return true;
+}
+
+bool initialize_scheduler_timer()
+{
+    timer_source_set_scheduler(SchedulerTimerSource::Pit);
+
+    uint32_t lapic_initial_count = 0;
+    if(calibrate_lapic_timer_from_hpet(kSchedulerTimerFrequencyHz, lapic_initial_count))
+    {
+        uint8_t lapic_vector = 0;
+        if(platform_allocate_local_apic_irq_route(kLapicTimerOwner, T_LTIMER, lapic_vector) &&
+           lapic_timer_start_periodic(lapic_vector, lapic_initial_count))
+        {
+            timer_source_set_scheduler(SchedulerTimerSource::Lapic);
+            kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
+                                 OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                                 OS1_KERNEL_EVENT_TIMER_SOURCE_LAPIC,
+                                 lapic_vector,
+                                 lapic_initial_count,
+                                 kSchedulerTimerFrequencyHz);
+            debug("timer: LAPIC source vector=0x")(lapic_vector, 16, 2)(" count=")(
+                lapic_initial_count)();
+            return true;
+        }
+
+        lapic_timer_mask();
+        if(0u != lapic_vector)
+        {
+            (void)platform_release_irq_route(lapic_vector);
+        }
+    }
+
+    if(ismp && !platform_route_isa_irq(kPitTimerOwner, IRQ_TIMER, kPitSchedulerVector))
+    {
+        return false;
+    }
+
+    set_timer(kSchedulerTimerFrequencyHz);
+    kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
+                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                         OS1_KERNEL_EVENT_TIMER_SOURCE_PIT,
+                         kPitSchedulerVector,
+                         kSchedulerTimerFrequencyHz,
+                         0);
+    debug("timer: PIT fallback")();
+    return true;
 }
 }  // namespace
 
@@ -317,11 +492,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     console_input_initialize();
     if(ismp)
     {
-        if(!platform_route_isa_irq(DeviceId{DeviceBus::Platform, 0},
-                                   IRQ_TIMER,
-                                   T_IRQ0 + IRQ_TIMER) ||
-           !platform_route_isa_irq(
-               DeviceId{DeviceBus::Platform, 1}, IRQ_KBD, T_IRQ0 + IRQ_KBD))
+        if(!platform_route_isa_irq(kKeyboardOwner, IRQ_KBD, T_IRQ0 + IRQ_KBD))
         {
             return;
         }
@@ -352,7 +523,10 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
     debug("start multitasking")();
     write_console_line("starting first user process");
-    set_timer(1000);
+    if(!initialize_scheduler_timer())
+    {
+        return;
+    }
     enter_first_thread(init_thread, init_thread->kernel_stack_top);
     halt_forever();
 }

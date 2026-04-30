@@ -46,6 +46,26 @@ TEST(IrqRouteRegistry, ReleasingDynamicRouteReturnsVectorToAllocator)
     EXPECT_EQ(nullptr, platform_find_irq_route(vector));
 }
 
+TEST(IrqRouteRegistry, AllocatesAndReleasesLocalApicRoutes)
+{
+    reset_state();
+
+    uint8_t vector = 0;
+    ASSERT_TRUE(
+        platform_allocate_local_apic_irq_route(DeviceId{DeviceBus::Platform, 2}, T_LTIMER, vector));
+    EXPECT_TRUE(irq_vector_is_allocated(vector));
+
+    const IrqRoute* route = platform_find_irq_route(vector);
+    ASSERT_NE(nullptr, route);
+    EXPECT_EQ(IrqRouteKind::LocalApic, route->kind);
+    EXPECT_EQ(DeviceBus::Platform, route->owner.bus);
+    EXPECT_EQ(static_cast<uint16_t>(T_LTIMER), route->source_id);
+
+    ASSERT_TRUE(platform_release_irq_route(vector));
+    EXPECT_FALSE(irq_vector_is_allocated(vector));
+    EXPECT_EQ(nullptr, platform_find_irq_route(vector));
+}
+
 TEST(IrqRouteRegistry, DuplicateVectorsAreRejected)
 {
     reset_state();

@@ -675,6 +675,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"
   )
@@ -869,6 +870,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"
   )

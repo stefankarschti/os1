@@ -38,6 +38,7 @@ add_library(os1_host_support
   support/memory_stubs.cpp
   support/physical_memory.cpp
   "${OS1_REPO_ROOT}/src/kernel/arch/x86_64/interrupt/vector_allocator.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/core/timer_source.cpp"
   "${OS1_REPO_ROOT}/src/kernel/debug/event_ring.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/device.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/driver_registry.cpp"
@@ -77,6 +78,7 @@ add_executable(os1_host_tests
   kernel/event_ring_tests.cpp
   kernel/irq_route_registry_tests.cpp
   kernel/irq_vector_allocator_tests.cpp
+  kernel/timer_source_tests.cpp
   kernel/pci_bus_tests.cpp
   kernel/pci_capability_tests.cpp
   kernel/pci_msi_tests.cpp
