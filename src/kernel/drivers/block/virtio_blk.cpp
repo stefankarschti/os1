@@ -22,6 +22,11 @@ namespace
 {
 constexpr uint16_t kPciVendorVirtio = 0x1AF4;
 constexpr uint16_t kPciDeviceVirtioBlkModern = 0x1042;
+constexpr PciMatch kVirtioBlkMatches[]{{
+    .vendor_id = kPciVendorVirtio,
+    .device_id = kPciDeviceVirtioBlkModern,
+    .match_flags = static_cast<uint8_t>(kPciMatchVendorId | kPciMatchDeviceId),
+}};
 constexpr uint32_t kVirtioBlkRequestIn = 0;
 constexpr uint32_t kVirtioBlkRequestOut = 1;
 constexpr uint16_t kVirtioBlkQueueTargetSize = 8;
@@ -423,6 +428,8 @@ const PciDriver& virtio_blk_pci_driver()
 {
     static const PciDriver driver{
         .name = "virtio-blk",
+        .matches = kVirtioBlkMatches,
+        .match_count = sizeof(kVirtioBlkMatches) / sizeof(kVirtioBlkMatches[0]),
         .probe = probe_virtio_blk_pci_driver,
         .remove = remove_virtio_blk_device,
     };

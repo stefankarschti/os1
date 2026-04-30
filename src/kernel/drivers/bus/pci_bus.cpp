@@ -3,6 +3,7 @@
 
 #include "drivers/bus/device.hpp"
 #include "drivers/bus/driver_registry.hpp"
+#include "freestanding/string.hpp"
 #include "platform/platform.hpp"
 #include "platform/types.hpp"
 
@@ -17,11 +18,18 @@ bool pci_bus_probe_all(VirtualMemory& kernel_vm, PageFrameContainer& frames)
         for(size_t driver_index = 0; driver_index < pci_driver_count(); ++driver_index)
         {
             const PciDriver* driver = pci_driver_at(driver_index);
-            if((nullptr != driver) &&
-               driver->probe(kernel_vm, frames, devices[device_index], device_index, id))
+            if((nullptr == driver) || !pci_driver_matches_device(*driver, devices[device_index]))
+            {
+                continue;
+            }
+
+            if(driver->probe(kernel_vm, frames, devices[device_index], device_index, id))
             {
                 break;
             }
+
+            (void)device_binding_set_state(id, DeviceState::Failed);
+            return false;
         }
     }
     return true;
@@ -35,7 +43,7 @@ bool pci_bus_remove_device(DeviceId id)
         {
             const PciDriver* driver = pci_driver_at(driver_index);
             if((nullptr != driver) && (nullptr != driver->remove) &&
-               (binding->driver_name == driver->name))
+               freestanding::strings_equal(binding->driver_name, driver->name))
             {
                 driver->remove(id);
                 device_binding_remove(id);
