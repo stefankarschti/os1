@@ -31,6 +31,7 @@ struct PlatformState
     PciBarClaim bar_claims[kPlatformMaxPciBarClaims];
     size_t dma_allocation_count;
     DmaAllocationRecord dma_allocations[kPlatformMaxDmaAllocations];
+    HpetInfo hpet;
     const BlockDevice* block_device;
     VirtioBlkDevice virtio_blk_public;
 };

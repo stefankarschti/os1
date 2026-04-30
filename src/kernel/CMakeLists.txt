@@ -62,6 +62,7 @@ set(KERNEL_CORE_SOURCES
 set(KERNEL_PLATFORM_SOURCES
   platform/acpi.cpp
   platform/device_probe.cpp
+  platform/hpet.cpp
   platform/init.cpp
   platform/irq_routing.cpp
   platform/irq_registry.cpp

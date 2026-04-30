@@ -44,10 +44,13 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/pci_bus.cpp"
   "${OS1_REPO_ROOT}/src/kernel/fs/cpio_newc.cpp"
   "${OS1_REPO_ROOT}/src/kernel/handoff/boot_info.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/mm/boot_mapping.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/resource.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/page_frame.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/dma.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/acpi.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/hpet.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/irq_registry.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/pci_capability.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/pci_config.cpp"
@@ -69,6 +72,7 @@ add_executable(os1_host_tests
   common/freestanding_string_tests.cpp
   fs/cpio_newc_tests.cpp
   handoff/boot_info_tests.cpp
+  kernel/acpi_hpet_tests.cpp
   kernel/utility_tests.cpp
   kernel/event_ring_tests.cpp
   kernel/irq_route_registry_tests.cpp

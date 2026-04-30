@@ -3,13 +3,18 @@
 // interrupt routing, and PCI enumeration.
 #include "platform/acpi.hpp"
 
-#include "arch/x86_64/cpu/cpu.hpp"
-#include "arch/x86_64/cpu/x86.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
+
+#if defined(OS1_HOST_TEST)
+#include <string.h>
+#else
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/cpu/x86.hpp"
 #include "util/string.h"
+#endif
 
 namespace
 {
@@ -19,6 +24,16 @@ constexpr uint8_t kAcpiMadtTypeLocalApic = 0;
 constexpr uint8_t kAcpiMadtTypeIoApic = 1;
 constexpr uint8_t kAcpiMadtTypeInterruptOverride = 2;
 constexpr uint8_t kAcpiMadtTypeLocalApicAddressOverride = 5;
+constexpr uint8_t kAcpiAddressSpaceSystemMemory = 0;
+
+struct [[gnu::packed]] AcpiGas
+{
+    uint8_t address_space_id;
+    uint8_t register_bit_width;
+    uint8_t register_bit_offset;
+    uint8_t access_size;
+    uint64_t address;
+};
 
 struct [[gnu::packed]] AcpiRsdp
 {
@@ -105,6 +120,16 @@ struct [[gnu::packed]] AcpiMcfgEntry
     uint32_t reserved;
 };
 
+struct [[gnu::packed]] AcpiHpet
+{
+    AcpiSdtHeader header;
+    uint32_t event_timer_block_id;
+    AcpiGas base_address;
+    uint8_t hpet_number;
+    uint16_t minimum_tick;
+    uint8_t page_protection;
+};
+
 struct AcpiOutput
 {
     uint64_t& lapic_base;
@@ -116,6 +141,7 @@ struct AcpiOutput
     size_t& override_count;
     PciEcamRegion* ecam_regions;
     size_t& ecam_region_count;
+    HpetInfo& hpet;
 };
 
 [[nodiscard]] inline uint64_t align_down(uint64_t value, uint64_t alignment)
@@ -146,9 +172,13 @@ struct AcpiOutput
 
 [[nodiscard]] uint8_t current_apic_id()
 {
+#if defined(OS1_HOST_TEST)
+    return 0;
+#else
     cpuinfo info{};
     cpuid(1, &info);
     return static_cast<uint8_t>((info.ebx >> 24) & 0xFFu);
+#endif
 }
 
 [[nodiscard]] bool map_acpi_range(VirtualMemory& kernel_vm,
@@ -395,13 +425,49 @@ template<typename T>
     return true;
 }
 
+[[nodiscard]] bool parse_hpet(VirtualMemory& kernel_vm,
+                              uint64_t physical_address,
+                              AcpiOutput& output)
+{
+    const auto* header = map_acpi_table(kernel_vm, physical_address, "HPET");
+    if(nullptr == header)
+    {
+        return false;
+    }
+    if(header->length < sizeof(AcpiHpet))
+    {
+        debug("acpi: HPET too short")();
+        return false;
+    }
+
+    const auto* hpet = reinterpret_cast<const AcpiHpet*>(header);
+    if((hpet->base_address.address_space_id != kAcpiAddressSpaceSystemMemory) ||
+       (0 == hpet->base_address.address))
+    {
+        debug("acpi: HPET has unsupported base address")();
+        return false;
+    }
+
+    output.hpet = {};
+    output.hpet.present = true;
+    output.hpet.hpet_number = hpet->hpet_number;
+    output.hpet.page_protection = hpet->page_protection;
+    output.hpet.minimum_tick = hpet->minimum_tick;
+    output.hpet.physical_address = hpet->base_address.address;
+    debug("acpi: HPET discovered base=0x")(output.hpet.physical_address, 16)(" number=")(
+        output.hpet.hpet_number)(" min_tick=")(output.hpet.minimum_tick)();
+    return true;
+}
+
 [[nodiscard]] bool resolve_acpi_tables(VirtualMemory& kernel_vm,
                                        const BootInfo& boot_info,
                                        uint64_t& madt_physical,
-                                       uint64_t& mcfg_physical)
+                                       uint64_t& mcfg_physical,
+                                       uint64_t& hpet_physical)
 {
     madt_physical = 0;
     mcfg_physical = 0;
+    hpet_physical = 0;
     if(0 == boot_info.rsdp_physical)
     {
         debug("acpi: boot did not supply an RSDP")();
@@ -491,6 +557,10 @@ template<typename T>
         {
             mcfg_physical = entry_physical;
         }
+        else if(signature_equals(entry_header->signature, "HPET", 4))
+        {
+            hpet_physical = entry_physical;
+        }
     }
 
     return (0 != madt_physical) && (0 != mcfg_physical);
@@ -507,7 +577,8 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
                             InterruptOverride* overrides,
                             size_t& override_count,
                             PciEcamRegion* ecam_regions,
-                            size_t& ecam_region_count)
+                            size_t& ecam_region_count,
+                            HpetInfo& hpet)
 {
     if((nullptr == cpus) || (nullptr == ioapics) || (nullptr == overrides) ||
        (nullptr == ecam_regions))
@@ -517,7 +588,8 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
 
     uint64_t madt_physical = 0;
     uint64_t mcfg_physical = 0;
-    if(!resolve_acpi_tables(kernel_vm, boot_info, madt_physical, mcfg_physical))
+    uint64_t hpet_physical = 0;
+    if(!resolve_acpi_tables(kernel_vm, boot_info, madt_physical, mcfg_physical, hpet_physical))
     {
         return false;
     }
@@ -532,7 +604,18 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
         .override_count = override_count,
         .ecam_regions = ecam_regions,
         .ecam_region_count = ecam_region_count,
+        .hpet = hpet,
     };
-    return parse_madt(kernel_vm, madt_physical, output) &&
-           parse_mcfg(kernel_vm, mcfg_physical, output);
+    output.hpet = {};
+    if(!parse_madt(kernel_vm, madt_physical, output) || !parse_mcfg(kernel_vm, mcfg_physical, output))
+    {
+        return false;
+    }
+
+    if((0 != hpet_physical) && !parse_hpet(kernel_vm, hpet_physical, output))
+    {
+        debug("acpi: ignoring unusable HPET table")();
+        output.hpet = {};
+    }
+    return true;
 }

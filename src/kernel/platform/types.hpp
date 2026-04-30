@@ -154,6 +154,23 @@ struct PciDevice
     PciBarInfo bars[6];
 };
 
+// Normalized HPET discovery record from ACPI plus MMIO capability probing.
+struct HpetInfo
+{
+    bool present;
+    uint8_t hardware_rev_id;
+    uint8_t comparator_count;
+    bool counter_size_64bit;
+    bool legacy_replacement_capable;
+    uint8_t hpet_number;
+    uint8_t page_protection;
+    uint16_t minimum_tick;
+    uint16_t pci_vendor_id;
+    uint16_t reserved0;
+    uint32_t counter_clock_period_fs;
+    uint64_t physical_address;
+};
+
 // Public summary of the currently bound virtio-blk device.
 struct VirtioBlkDevice
 {

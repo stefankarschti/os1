@@ -1,6 +1,6 @@
 // ACPI discovery front door. This parser extracts only the machine facts the
 // rest of the kernel needs: LAPIC base, CPU topology, IOAPICs, IRQ overrides,
-// and PCI ECAM windows.
+// PCI ECAM windows, and optional HPET discovery data.
 #pragma once
 
 #include <stddef.h>
@@ -22,4 +22,5 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
                             InterruptOverride* overrides,
                             size_t& override_count,
                             PciEcamRegion* ecam_regions,
-                            size_t& ecam_region_count);
+                            size_t& ecam_region_count,
+                            HpetInfo& hpet);

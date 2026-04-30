@@ -7,6 +7,7 @@
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
+#include "platform/hpet.hpp"
 #include "platform/pci.hpp"
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
@@ -29,7 +30,8 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
                                                        g_platform.overrides,
                                                        g_platform.override_count,
                                                        g_platform.ecam_regions,
-                                                       g_platform.ecam_region_count);
+                                                       g_platform.ecam_region_count,
+                                                       g_platform.hpet);
     if(!acpi_available)
     {
         (void)kernel_vm;
@@ -47,6 +49,14 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
         {
             return false;
         }
+    }
+    if(g_platform.hpet.present && !map_mmio_range(kernel_vm, g_platform.hpet.physical_address, kPageSize))
+    {
+        return false;
+    }
+    if(!platform_hpet_initialize())
+    {
+        return false;
     }
     if(!allocate_cpus_from_topology())
     {

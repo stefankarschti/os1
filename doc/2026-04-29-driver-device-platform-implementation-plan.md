@@ -80,6 +80,9 @@ Implemented in this pass:
 - `drivers/bus/` contains a minimal static PCI driver registry, binding table,
   PCI probe loop, and remove hook.
 - `drivers/virtio/` contains shared PCI transport and virtqueue helpers.
+- ACPI discovery now parses optional HPET tables, platform discovery maps the
+  HPET MMIO block, and the platform layer exposes HPET capability and
+  main-counter reads for later timer migration work.
 - `virtio-blk` now uses the shared transport, DMA buffers, an interrupt
   completion handler, read and write requests, and a scratch-sector write/read
   smoke check.
@@ -99,8 +102,8 @@ Still intentionally incomplete:
   low-address allocator, cacheability policy, pinned user pages, or IOMMU exists.
 - Hot-add/hot-remove is a lifecycle path only. There is no PCIe or ACPI hotplug
   event source yet.
-- HPET, LAPIC timer migration, `virtio-net`, xHCI, AML, and ACPI power
-  management remain future phases.
+- LAPIC timer migration, `virtio-net`, xHCI, AML, and ACPI power management
+  remain future phases.
 
 Verification completed after the implementation:
 
@@ -1053,7 +1056,7 @@ Status after the 2026-04-30 pass:
 | 6. Shared virtio transport | Implemented |
 | 7. BlockDevice V2 and interrupt-driven `virtio-blk` | Implemented with queue depth 1 |
 | 8. Driver registry and hot-remove skeleton | Implemented as a minimal static PCI path |
-| 9. HPET and LAPIC timer migration | Not started |
+| 9. HPET and LAPIC timer migration | Started: HPET discovery, MMIO mapping, and counter reads implemented |
 | 10. First second device: `virtio-net` | Not started |
 | 11. xHCI | Not started |
 | 12. AML, ACPI device model, and power | Not started |
@@ -1192,6 +1195,15 @@ Acceptance:
   vector or DMA records.
 
 ### Phase 9 - HPET And LAPIC Timer Migration
+
+Status after the current pass:
+
+- HPET table parsing is implemented in ACPI discovery.
+- Platform discovery maps the HPET MMIO block when firmware advertises one.
+- The platform layer exposes HPET capability fields and a main-counter read
+  helper.
+- LAPIC timer vector allocation, calibration, and scheduler-tick migration are
+  still pending.
 
 Deliverables:
 

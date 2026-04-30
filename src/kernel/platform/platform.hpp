@@ -26,6 +26,12 @@ bool platform_route_isa_irq(DeviceId owner, int bus_irq, uint8_t vector);
 // Return the currently selected generic block device, if any.
 const BlockDevice* platform_block_device();
 
+// Return the discovered HPET record when one was parsed and initialized.
+const HpetInfo* platform_hpet();
+
+// Read the current HPET main-counter value when HPET is available.
+bool platform_hpet_read_main_counter(uint64_t& counter_value);
+
 // Return the public virtio-blk summary when a virtio block device is present.
 const VirtioBlkDevice* platform_virtio_blk();
 
