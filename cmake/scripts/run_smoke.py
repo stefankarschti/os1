@@ -11,6 +11,7 @@ import argparse
 from dataclasses import dataclass
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -21,6 +22,53 @@ class SendEvent:
     marker: str
     text: str
     sent: bool = False
+
+
+@dataclass
+class MonitorEvent:
+    marker: str
+    text: str
+    sent: bool = False
+
+
+def parse_event_spec(parser, spec, flag_name):
+    marker, separator, text = spec.partition("::")
+    if not separator:
+        parser.error(f"invalid {flag_name} value '{spec}', expected MARKER::TEXT")
+    return marker, bytes(text, "utf-8").decode("unicode_escape")
+
+
+def send_monitor_text(socket_path, text):
+    commands = [line for line in text.splitlines() if line]
+    if not commands:
+        commands = [text]
+
+    for command in commands:
+        deadline = time.monotonic() + 5.0
+        last_error = None
+        payload = command if command.endswith("\n") else (command + "\n")
+        while time.monotonic() < deadline:
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.connect(socket_path)
+                    sock.settimeout(0.5)
+                    try:
+                        sock.recv(4096)
+                    except socket.timeout:
+                        pass
+                    sock.sendall(payload.encode("utf-8"))
+                    try:
+                        sock.recv(4096)
+                    except socket.timeout:
+                        pass
+                    break
+            except OSError as exc:
+                last_error = exc
+                time.sleep(0.05)
+        else:
+            raise RuntimeError(f"failed to send monitor text to '{socket_path}': {last_error}")
+
+        time.sleep(0.05)
 
 
 def parse_args():
@@ -35,6 +83,10 @@ def parse_args():
                         help="Forbidden marker substring (repeatable, fails immediately if seen).")
     parser.add_argument("--send-after", action="append", default=[],
                         help="Send text to QEMU stdin after seeing MARKER using MARKER::TEXT with \\n escapes.")
+    parser.add_argument("--monitor-socket", default=None,
+                        help="Optional UNIX socket path for a QEMU HMP monitor.")
+    parser.add_argument("--monitor-send-after", action="append", default=[],
+                        help="Send HMP text to the QEMU monitor after seeing MARKER using MARKER::TEXT with \\n escapes.")
     parser.add_argument("qemu_cmd", nargs=argparse.REMAINDER,
                         help="Separator '--' followed by the QEMU command to run.")
     args = parser.parse_args()
@@ -45,11 +97,13 @@ def parse_args():
         parser.error("missing QEMU command after '--'")
     send_events = []
     for spec in args.send_after:
-        marker, separator, text = spec.partition("::")
-        if not separator:
-            parser.error(f"invalid --send-after value '{spec}', expected MARKER::TEXT")
-        send_events.append(SendEvent(marker=marker, text=bytes(text, "utf-8").decode("unicode_escape")))
-    return args, cmd, send_events
+        marker, text = parse_event_spec(parser, spec, "--send-after")
+        send_events.append(SendEvent(marker=marker, text=text))
+    monitor_events = []
+    for spec in args.monitor_send_after:
+        marker, text = parse_event_spec(parser, spec, "--monitor-send-after")
+        monitor_events.append(MonitorEvent(marker=marker, text=text))
+    return args, cmd, send_events, monitor_events
 
 
 def terminate(proc):
@@ -69,7 +123,7 @@ def terminate(proc):
 
 
 def main():
-    args, cmd, send_events = parse_args()
+    args, cmd, send_events, monitor_events = parse_args()
     markers = list(args.marker)
     reject_markers = list(args.reject_marker)
     seen = set()
@@ -116,6 +170,16 @@ def main():
                                 except BrokenPipeError:
                                     pass
                                 event.sent = True
+                    if args.monitor_socket is not None:
+                        for event in monitor_events:
+                            if (not event.sent) and ((event.marker in seen) or (event.marker in line)):
+                                try:
+                                    send_monitor_text(args.monitor_socket, event.text)
+                                except RuntimeError as exc:
+                                    nonlocal_monitor_error[0] = str(exc)
+                                    done.set()
+                                    return
+                                event.sent = True
                     if len(seen) == len(markers):
                         if args.settle_after_markers <= 0:
                             done.set()
@@ -129,6 +193,7 @@ def main():
                 done.set()
 
         nonlocal_rejected = [None]
+        nonlocal_monitor_error = [None]
         settle_deadline_ref = [None]
         reader_thread = threading.Thread(target=reader, daemon=True)
         reader_thread.start()
@@ -150,6 +215,7 @@ def main():
         reader_thread.join(timeout=2)
 
     rejected = nonlocal_rejected[0]
+    monitor_error = nonlocal_monitor_error[0]
     settle_deadline = settle_deadline_ref[0]
     elapsed = args.timeout - max(0.0, deadline - time.monotonic())
     if settle_deadline is not None and len(seen) == len(markers):
@@ -158,6 +224,15 @@ def main():
 
     if rejected is not None:
         sys.stderr.write(f"Smoke run hit forbidden marker '{rejected}'.\n")
+        sys.stderr.write("--- captured serial log ---\n")
+        sys.stderr.writelines(output_lines)
+        if not output_lines or not output_lines[-1].endswith("\n"):
+            sys.stderr.write("\n")
+        sys.stderr.write(f"--- end log ({args.log}) ---\n")
+        sys.exit(1)
+
+    if monitor_error is not None:
+        sys.stderr.write(f"Smoke run monitor command failed: {monitor_error}\n")
         sys.stderr.write("--- captured serial log ---\n")
         sys.stderr.writelines(output_lines)
         if not output_lines or not output_lines[-1].endswith("\n"):

@@ -17,8 +17,11 @@ The 2026-04-30 implementation pass landed the first driver/device substrate:
 resource ownership, IRQ allocation, MSI/MSI-X with INTx fallback, DMA buffers,
 a shared virtio transport, a request-shaped block facade, and interrupt-driven
 `virtio-blk` reads and writes. The same pass also completed HPET/LAPIC timer
-migration for the BSP scheduler tick. The remaining platform work is real
-hotplug sources, `virtio-net`, xHCI, and AML-backed ACPI device and power
+migration for the BSP scheduler tick. Follow-on work now also lands the first
+xHCI implementation slice: PCI class binding, BAR claim, DMA-backed DCBAA and
+command/event rings, interrupter 0 setup, controller reset, root-port
+enumeration, HID boot endpoint bring-up, and resource teardown. The remaining
+platform work is real hotplug sources plus AML-backed ACPI device and power
 management.
 
 ## Source Inputs Scanned
@@ -97,6 +100,10 @@ Implemented in this pass:
 - `virtio-blk` now uses the shared transport, DMA buffers, an interrupt
   completion handler, read and write requests, and a scratch-sector write/read
   smoke check.
+- xHCI now binds by PCI class, claims BAR0 MMIO, allocates DMA-backed DCBAA,
+  scratchpad, command-ring, event-ring, and ERST storage, binds one interrupt,
+  resets the controller, enumerates connected root ports, addresses HID boot
+  devices, and feeds USB keyboard input into the shared console input path.
 - `storage/block_device.hpp` now exposes request-shaped submit/flush callbacks
   and synchronous read/write wrappers for early callers.
 - A hot-remove skeleton releases the virtio block interrupt, DMA buffers,
@@ -114,7 +121,8 @@ Still intentionally incomplete:
   low-address allocator, cacheability policy, pinned user pages, or IOMMU exists.
 - Hot-add/hot-remove is a lifecycle path only. There is no PCIe or ACPI hotplug
   event source yet.
-- `virtio-net`, xHCI, AML, and ACPI power management remain future phases.
+- USB mass storage, broader USB class support beyond boot HID, AML, and ACPI
+  power management remain future phases.
 
 Verification completed after the implementation:
 
@@ -1067,11 +1075,11 @@ Status after the 2026-04-30 pass:
 | 4. MSI/MSI-X and IOAPIC fallback | Implemented for one vector per PCI device |
 | 5. DMA API | Implemented for coherent direct-map buffers |
 | 6. Shared virtio transport | Implemented |
-| 7. BlockDevice V2 and interrupt-driven `virtio-blk` | Implemented with queue depth 1 |
+| 7. BlockDevice V2 and interrupt-driven `virtio-blk` | Implemented with queue depth 2 |
 | 8. Driver registry and hot-remove skeleton | Implemented as a minimal static PCI path |
 | 9. HPET and LAPIC timer migration | Implemented |
 | 10. First second device: `virtio-net` | Implemented with shared transport, DMA RX/TX queues, and RX event smoke |
-| 11. xHCI | Not started |
+| 11. xHCI | Implemented with root-port enumeration, HID boot input, and xHCI smoke coverage |
 | 12. AML, ACPI device model, and power | Not started |
 
 ### Phase 1 - Split Platform Discovery From Driver Activation
@@ -1257,6 +1265,29 @@ Acceptance:
 
 Only after resource ownership, DMA, MSI/MSI-X, and hot-remove skeletons exist.
 
+Status after the current pass:
+
+- The xHCI PCI driver now binds by class (`0x0c/0x03/0x30`) through the static
+  registry.
+- Probe claims BAR0 MMIO, validates the capability and runtime register
+  windows, requires 4 KiB page support, and allocates DMA-backed DCBAA,
+  scratchpad storage when required, a command ring, an event ring, and one ERST
+  entry.
+- Interrupter 0 is programmed through the existing MSI-X/MSI/INTx fallback
+  path, the controller is reset, the ring pointers are written, and the driver
+  transitions the controller to the running state.
+- Root ports are scanned after bring-up, connected ports are powered/reset,
+  devices are assigned slots, addressed through endpoint 0 control transfers,
+  and parsed for boot-HID interfaces.
+- Boot-HID keyboards are configured, their interrupt IN endpoints are armed,
+  and their reports feed the same canonical console input path used by the PS/2
+  keyboard driver. Boot-HID mouse endpoints are also recognized and armed.
+- Automated coverage now includes focused host tests for the xHCI controller
+  helper layer and HID boot report decoding plus a dedicated `os1_smoke_xhci`
+  QEMU smoke with an attached xHCI keyboard.
+- Remove now stops the controller and releases the interrupt, DMA buffers, BAR
+  claims, IRQ routes, HID device buffers, and binding state.
+
 Deliverables:
 
 - xHCI PCI driver binds by class.
@@ -1304,15 +1335,17 @@ The first implementation sequence has landed:
 10. Landed request-shaped block I/O, write support, and read/write smoke checks.
 11. Added the static PCI driver registry, binding table, and hot-remove
     resource-release skeleton.
+12. Added xHCI command/event ring handling, root-port enumeration, boot-HID
+  endpoint setup, USB keyboard console input, and dedicated xHCI smoke
+  coverage.
 
 ## Remaining Patch Sequence
 
 The next practical commits should build on the new substrate:
 
 1. Expand the fixed `virtio-blk` request table only after broader storage or
-  buffered I/O paths create real parallel demand.
-2. Start xHCI after the timer and hot-remove paths have more coverage.
-3. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
+   buffered I/O paths create real parallel demand.
+2. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
    before treating INTx as robust on real hardware.
 
 ## Main Risks
@@ -1350,6 +1383,6 @@ The missing driver/device/platform work can be considered implemented when:
   vector allocation, DMA ownership, or virtqueue setup.
 
 As of 2026-04-30, the first nine bullets are implemented in the narrow static
-form described above. The definition is not fully complete until timer
-migration, a second virtio driver, xHCI, and AML-backed ACPI routing/power are
-implemented and covered by tests.
+form described above, and xHCI root-port enumeration plus boot-HID input are
+now in place. The definition is not fully complete until AML-backed ACPI
+routing/power are implemented and covered by tests.

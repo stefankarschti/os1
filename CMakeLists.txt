@@ -60,6 +60,7 @@ set(OS1_BIOS_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1-bios.log")
 set(OS1_OVMF_VARS_FILE "${OS1_ARTIFACT_DIR}/ovmf-vars.fd")
 set(OS1_SMOKE_LOG "${OS1_ARTIFACT_DIR}/smoke.log")
 set(OS1_SMOKE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-bios.log")
+set(OS1_SMOKE_XHCI_LOG "${OS1_ARTIFACT_DIR}/smoke-xhci.log")
 set(OS1_SMOKE_OBSERVE_LOG "${OS1_ARTIFACT_DIR}/smoke-observe.log")
 set(OS1_SMOKE_OBSERVE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-observe-bios.log")
 set(OS1_SMOKE_SPAWN_LOG "${OS1_ARTIFACT_DIR}/smoke-spawn.log")
@@ -626,6 +627,51 @@ if(OS1_REQUIRE_UEFI_SMOKE)
 endif()
 
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
+  set(OS1_UEFI_XHCI_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "boot source: limine"
+    "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
+    "shell prompt ready"
+    "xhci: HID keyboard ready"
+  )
+  set(OS1_XHCI_QEMU_ARGS
+    -device
+    qemu-xhci,id=xhci
+    -device
+    usb-kbd,bus=xhci.0
+  )
+
+  add_test(
+    NAME os1_smoke_xhci
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DISO_IMAGE=${OS1_ISO_IMAGE}"
+      "-DOVMF_CODE=${OS1_OVMF_CODE}"
+      "-DOVMF_VARS_TEMPLATE=${OS1_OVMF_VARS_TEMPLATE}"
+      "-DLOG_FILE=${OS1_SMOKE_XHCI_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_UEFI_XHCI_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DEXTRA_QEMU_ARGS=${OS1_XHCI_QEMU_ARGS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke_xhci
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_xhci$"
+    DEPENDS os1_image "${OS1_VIRTIO_TEST_DISK}"
+    USES_TERMINAL
+    VERBATIM
+  )
+
   set(OS1_UEFI_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
@@ -1050,7 +1096,7 @@ endif()
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   add_custom_target(
     smoke_all
-    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_observe|_spawn|_exec)?(_bios)?$"
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_observe|_spawn|_exec|_xhci)?(_bios)?$"
     DEPENDS os1_image os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM

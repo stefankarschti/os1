@@ -40,6 +40,16 @@ set(qemu_command
   -no-shutdown
 )
 
+if(DEFINED MONITOR_SOCKET)
+  get_filename_component(monitor_dir "${MONITOR_SOCKET}" DIRECTORY)
+  file(MAKE_DIRECTORY "${monitor_dir}")
+  file(REMOVE "${MONITOR_SOCKET}")
+  list(APPEND qemu_command
+    -monitor
+    "unix:${MONITOR_SOCKET},server,nowait"
+  )
+endif()
+
 if(DEFINED ISO_IMAGE)
   if(NOT DEFINED OVMF_CODE)
     message(FATAL_ERROR "OVMF_CODE must be set for ISO-based smoke tests")
@@ -89,6 +99,10 @@ if(DEFINED VIRTIO_TEST_DISK)
   )
 endif()
 
+if(DEFINED EXTRA_QEMU_ARGS)
+  list(APPEND qemu_command ${EXTRA_QEMU_ARGS})
+endif()
+
 # Build the runner argv. The runner streams QEMU stdout/stderr, matches markers
 # on the fly, terminates QEMU as soon as every marker has appeared, and fails
 # the test with a log dump if the wall-clock timeout is reached first.
@@ -113,6 +127,14 @@ endif()
 if(DEFINED SERIAL_INPUT_EVENTS)
   foreach(event IN LISTS SERIAL_INPUT_EVENTS)
     list(APPEND runner_command --send-after "${event}")
+  endforeach()
+endif()
+if(DEFINED MONITOR_SOCKET)
+  list(APPEND runner_command --monitor-socket "${MONITOR_SOCKET}")
+endif()
+if(DEFINED MONITOR_SEND_EVENTS)
+  foreach(event IN LISTS MONITOR_SEND_EVENTS)
+    list(APPEND runner_command --monitor-send-after "${event}")
   endforeach()
 endif()
 list(APPEND runner_command --)
