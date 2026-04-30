@@ -23,4 +23,7 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
                             size_t& override_count,
                             PciEcamRegion* ecam_regions,
                             size_t& ecam_region_count,
-                            HpetInfo& hpet);
+                            HpetInfo& hpet,
+                            AcpiFixedInfo& acpi_fixed,
+                            AcpiDefinitionBlock* definition_blocks,
+                            size_t& definition_block_count);

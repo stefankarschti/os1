@@ -70,11 +70,13 @@ set(KERNEL_CORE_SOURCES
 
 set(KERNEL_PLATFORM_SOURCES
   platform/acpi.cpp
+  platform/acpi_aml.cpp
   platform/device_probe.cpp
   platform/hpet.cpp
   platform/init.cpp
   platform/irq_routing.cpp
   platform/irq_registry.cpp
+  platform/power.cpp
   platform/pci.cpp
   platform/pci_capability.cpp
   platform/pci_config.cpp

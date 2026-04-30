@@ -45,6 +45,21 @@ namespace
     return count;
 }
 
+[[nodiscard]] uint32_t count_active_acpi_devices()
+{
+    uint32_t count = 0;
+    const AcpiDeviceInfo* devices = platform_acpi_devices();
+    const size_t device_count = platform_acpi_device_count();
+    for(size_t i = 0; i < device_count; ++i)
+    {
+        if(devices[i].active && (0 != (devices[i].status & 0x1u)))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
 [[nodiscard]] uint32_t count_active_irq_routes()
 {
     uint32_t count = 0;
@@ -393,7 +408,7 @@ long sys_observe_devices(const ObserveContext& context,
                                length,
                                OS1_OBSERVE_DEVICES,
                                sizeof(Os1ObserveDeviceRecord),
-                               count_active_device_bindings(),
+                               count_active_device_bindings() + count_active_acpi_devices(),
                                offset,
                                result))
     {
@@ -416,6 +431,30 @@ long sys_observe_devices(const ObserveContext& context,
         copy_fixed_string(record.driver_name,
                           sizeof(record.driver_name),
                           (nullptr != bindings[i].driver_name) ? bindings[i].driver_name : "");
+        if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
+        {
+            return -1;
+        }
+    }
+
+    const AcpiDeviceInfo* acpi_devices = platform_acpi_devices();
+    const size_t acpi_device_count = platform_acpi_device_count();
+    for(size_t i = 0; i < acpi_device_count; ++i)
+    {
+        if(!acpi_devices[i].active || (0 == (acpi_devices[i].status & 0x1u)))
+        {
+            continue;
+        }
+
+        Os1ObserveDeviceRecord record{};
+        record.bus = static_cast<uint8_t>(DeviceBus::Acpi);
+        record.state = static_cast<uint8_t>(DeviceState::Discovered);
+        record.id = static_cast<uint16_t>(i);
+        record.pci_index = static_cast<uint16_t>(OS1_OBSERVE_INDEX_NONE);
+        copy_fixed_string(record.driver_name,
+                          sizeof(record.driver_name),
+                          (0 != acpi_devices[i].hardware_id[0]) ? acpi_devices[i].hardware_id
+                                                                : acpi_devices[i].name);
         if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
         {
             return -1;

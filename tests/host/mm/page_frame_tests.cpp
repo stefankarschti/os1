@@ -55,15 +55,20 @@ TEST(PageFrameContainer, InitializesAndReservesBootRanges)
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     PageFrameContainer frames = initialized_frames(arena);
 
+    const uint64_t reserved_pages = (kPageFrameBitmapSizeBytes / kPageSize) +
+                                    (kEarlyReservedPhysicalEnd / kPageSize) +
+                                    ((kKernelReservedPhysicalEnd - kKernelReservedPhysicalStart) / kPageSize);
+    const uint64_t expected_free_pages = (kArenaBytes / kPageSize) - reserved_pages;
+
     EXPECT_EQ(kArenaBytes, frames.memory_size());
     EXPECT_EQ(kArenaBytes, frames.memory_end());
     EXPECT_EQ(kArenaBytes / kPageSize, frames.page_count());
-    EXPECT_EQ(3904ull, frames.free_page_count());
+    EXPECT_EQ(expected_free_pages, frames.free_page_count());
 
     uint64_t page = 0;
     ASSERT_TRUE(frames.allocate(page));
     EXPECT_EQ(kEarlyReservedPhysicalEnd, page);
-    EXPECT_EQ(3903ull, frames.free_page_count());
+    EXPECT_EQ(expected_free_pages - 1u, frames.free_page_count());
 }
 
 TEST(PageFrameContainer, AllocatesFreesAndReservesRanges)

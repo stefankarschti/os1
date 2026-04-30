@@ -1,0 +1,604 @@
+{
+  "tests": 86,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "Elf64HeaderFromImage",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "RejectsNullAndTooSmallImages",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/elf64_tests.cpp",
+          "line": 26
+        },
+        {
+          "name": "RejectsBadMagicProgramOffsetAndEntrySize",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/elf64_tests.cpp",
+          "line": 33
+        },
+        {
+          "name": "AcceptsMinimalValidHeader",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/elf64_tests.cpp",
+          "line": 50
+        }
+      ]
+    },
+    {
+      "name": "Elf64ProgramHeaderFromImage",
+      "tests": 2,
+      "testsuite": [
+        {
+          "name": "ReturnsExpectedProgramHeaderPointers",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/elf64_tests.cpp",
+          "line": 59
+        },
+        {
+          "name": "RejectsOutOfBoundsAndOverflow",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/elf64_tests.cpp",
+          "line": 75
+        }
+      ]
+    },
+    {
+      "name": "Elf64SegmentBounds",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "ValidatesLoadableFileBounds",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/elf64_tests.cpp",
+          "line": 86
+        }
+      ]
+    },
+    {
+      "name": "FreestandingBytes",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "CopiesAndZeroesExactRanges",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/freestanding_string_tests.cpp",
+          "line": 7
+        }
+      ]
+    },
+    {
+      "name": "FreestandingString",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "MeasuresNullEmptyAndNormalStrings",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/freestanding_string_tests.cpp",
+          "line": 19
+        },
+        {
+          "name": "CopyStringTerminatesAndTruncates",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/freestanding_string_tests.cpp",
+          "line": 26
+        },
+        {
+          "name": "AppendStringTerminatesAndTruncates",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/freestanding_string_tests.cpp",
+          "line": 37
+        },
+        {
+          "name": "ComparesStringsAndSuffixes",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/common\/freestanding_string_tests.cpp",
+          "line": 46
+        }
+      ]
+    },
+    {
+      "name": "CpioNewcParser",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "VisitsRegularFilesOnly",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/fs\/cpio_newc_tests.cpp",
+          "line": 82
+        },
+        {
+          "name": "NormalizesPathComparisonAndCopy",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/fs\/cpio_newc_tests.cpp",
+          "line": 95
+        },
+        {
+          "name": "RejectsMalformedArchives",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/fs\/cpio_newc_tests.cpp",
+          "line": 110
+        },
+        {
+          "name": "VisitorCanStopTraversal",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/fs\/cpio_newc_tests.cpp",
+          "line": 134
+        }
+      ]
+    },
+    {
+      "name": "BootInfoOwnership",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "RejectsMalformedInputs",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/handoff\/boot_info_tests.cpp",
+          "line": 33
+        },
+        {
+          "name": "DeepCopiesPointedToState",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/handoff\/boot_info_tests.cpp",
+          "line": 66
+        },
+        {
+          "name": "PreservesNullOptionalStrings",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/handoff\/boot_info_tests.cpp",
+          "line": 102
+        }
+      ]
+    },
+    {
+      "name": "AcpiDiscovery",
+      "tests": 2,
+      "testsuite": [
+        {
+          "name": "HpetTableIsOptional",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/acpi_hpet_tests.cpp",
+          "line": 335
+        },
+        {
+          "name": "ParsesHpetTableAndReadsMainCounter",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/acpi_hpet_tests.cpp",
+          "line": 393
+        }
+      ]
+    },
+    {
+      "name": "AcpiAml",
+      "tests": 2,
+      "testsuite": [
+        {
+          "name": "LoadsDevicesResourcesRoutesAndPowerMethods",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/acpi_aml_tests.cpp",
+          "line": 497
+        },
+        {
+          "name": "SuspendsAndResumesBoundDevicesInDeterministicOrder",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/acpi_aml_tests.cpp",
+          "line": 555
+        }
+      ]
+    },
+    {
+      "name": "AlignHelpers",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "AlignDownAndUpToPowerOfTwo",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/utility_tests.cpp",
+          "line": 8
+        }
+      ]
+    },
+    {
+      "name": "FixedString",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "CopiesTruncatesAndPads",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/utility_tests.cpp",
+          "line": 16
+        }
+      ]
+    },
+    {
+      "name": "EventRing",
+      "tests": 6,
+      "testsuite": [
+        {
+          "name": "StartsEmpty",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/event_ring_tests.cpp",
+          "line": 7
+        },
+        {
+          "name": "AppendsRecordsWithContextAndSequence",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/event_ring_tests.cpp",
+          "line": 17
+        },
+        {
+          "name": "SnapshotIsOldestToNewest",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/event_ring_tests.cpp",
+          "line": 48
+        },
+        {
+          "name": "WrapOverwritesOldestRecords",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/event_ring_tests.cpp",
+          "line": 66
+        },
+        {
+          "name": "SmallSnapshotReturnsNewestRecords",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/event_ring_tests.cpp",
+          "line": 84
+        },
+        {
+          "name": "ResetClearsRecordsAndSequence",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/event_ring_tests.cpp",
+          "line": 99
+        }
+      ]
+    },
+    {
+      "name": "IrqRouteRegistry",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "RegistersLegacyRoutesByVector",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_route_registry_tests.cpp",
+          "line": 19
+        },
+        {
+          "name": "ReleasingDynamicRouteReturnsVectorToAllocator",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_route_registry_tests.cpp",
+          "line": 35
+        },
+        {
+          "name": "AllocatesAndReleasesLocalApicRoutes",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_route_registry_tests.cpp",
+          "line": 49
+        },
+        {
+          "name": "DuplicateVectorsAreRejected",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_route_registry_tests.cpp",
+          "line": 69
+        }
+      ]
+    },
+    {
+      "name": "IrqVectorAllocator",
+      "tests": 5,
+      "testsuite": [
+        {
+          "name": "ReportsDynamicRangeAndSyscallHole",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_vector_allocator_tests.cpp",
+          "line": 15
+        },
+        {
+          "name": "AllocatesLowestFreeVectorFirst",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_vector_allocator_tests.cpp",
+          "line": 24
+        },
+        {
+          "name": "SkipsSyscallVectorWhenAllocating",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_vector_allocator_tests.cpp",
+          "line": 39
+        },
+        {
+          "name": "ReserveAndFreeControlReuse",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_vector_allocator_tests.cpp",
+          "line": 60
+        },
+        {
+          "name": "ExhaustionReturnsFalse",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/irq_vector_allocator_tests.cpp",
+          "line": 84
+        }
+      ]
+    },
+    {
+      "name": "TimerSource",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "PitModeMatchesLegacyTimerOnly",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/timer_source_tests.cpp",
+          "line": 19
+        },
+        {
+          "name": "LapicModeMatchesLocalApicTimerRoute",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/timer_source_tests.cpp",
+          "line": 27
+        },
+        {
+          "name": "LapicModeRejectsNonTimerLocalApicRoute",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/timer_source_tests.cpp",
+          "line": 40
+        }
+      ]
+    },
+    {
+      "name": "PciDriverRegistry",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "MatchesClassSubclassAndProgIf",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_bus_tests.cpp",
+          "line": 108
+        }
+      ]
+    },
+    {
+      "name": "PciBus",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "OnlyProbesMatchingDriver",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_bus_tests.cpp",
+          "line": 133
+        },
+        {
+          "name": "MatchingProbeFailureFailsBusProbe",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_bus_tests.cpp",
+          "line": 182
+        },
+        {
+          "name": "RemoveMatchesDriverNameByContentAndReleasesResources",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_bus_tests.cpp",
+          "line": 212
+        }
+      ]
+    },
+    {
+      "name": "PciCapability",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "ParsesMsixCapabilityFields",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_capability_tests.cpp",
+          "line": 18
+        },
+        {
+          "name": "ParsesMsiCapabilityFields",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_capability_tests.cpp",
+          "line": 42
+        },
+        {
+          "name": "MissingCapabilityReturnsFalse",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_capability_tests.cpp",
+          "line": 60
+        }
+      ]
+    },
+    {
+      "name": "PciMsi",
+      "tests": 2,
+      "testsuite": [
+        {
+          "name": "BuildsX86MessageAddressAndData",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_msi_tests.cpp",
+          "line": 5
+        },
+        {
+          "name": "WritesMsixTableEntry",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_msi_tests.cpp",
+          "line": 15
+        }
+      ]
+    },
+    {
+      "name": "PciResource",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "ClaimIsIdempotentForSameOwner",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_resource_tests.cpp",
+          "line": 20
+        },
+        {
+          "name": "ClaimRejectsDifferentOwner",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_resource_tests.cpp",
+          "line": 31
+        },
+        {
+          "name": "ReleaseMakesClaimInactive",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/pci_resource_tests.cpp",
+          "line": 40
+        }
+      ]
+    },
+    {
+      "name": "HidKeyboard",
+      "tests": 5,
+      "testsuite": [
+        {
+          "name": "ConvertsSingleKeyPressToAscii",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/hid_keyboard_tests.cpp",
+          "line": 7
+        },
+        {
+          "name": "SuppressesRepeatedHeldKeys",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/hid_keyboard_tests.cpp",
+          "line": 21
+        },
+        {
+          "name": "TracksShiftedCharacters",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/hid_keyboard_tests.cpp",
+          "line": 39
+        },
+        {
+          "name": "ConvertsPunctuationAndControlKeys",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/hid_keyboard_tests.cpp",
+          "line": 54
+        },
+        {
+          "name": "RejectsTruncatedReports",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/hid_keyboard_tests.cpp",
+          "line": 73
+        }
+      ]
+    },
+    {
+      "name": "XhciController",
+      "tests": 8,
+      "testsuite": [
+        {
+          "name": "ParsesCapabilityAndRegisterWindows",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 100
+        },
+        {
+          "name": "InitializesCommandRingWithLinkTrb",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 121
+        },
+        {
+          "name": "EnqueuesCommandTrbsAndWrapsProducerCycle",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 135
+        },
+        {
+          "name": "InitializesEventRingSegmentTable",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 168
+        },
+        {
+          "name": "DequeuesEventsAndTracksCycleWrap",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 177
+        },
+        {
+          "name": "ControllerResetStopsAndClearsReset",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 221
+        },
+        {
+          "name": "ProgramsOperationalAndInterrupterRegisters",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 243
+        },
+        {
+          "name": "ReadsPortStatusAndPowersPort",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/kernel\/xhci_controller_tests.cpp",
+          "line": 275
+        }
+      ]
+    },
+    {
+      "name": "PageFrameContainer",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "RejectsInvalidInitialization",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/page_frame_tests.cpp",
+          "line": 37
+        },
+        {
+          "name": "InitializesAndReservesBootRanges",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/page_frame_tests.cpp",
+          "line": 53
+        },
+        {
+          "name": "AllocatesFreesAndReservesRanges",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/page_frame_tests.cpp",
+          "line": 74
+        }
+      ]
+    },
+    {
+      "name": "DmaBuffer",
+      "tests": 1,
+      "testsuite": [
+        {
+          "name": "AllocateAndReleasePublishesOwnership",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/dma_tests.cpp",
+          "line": 34
+        }
+      ]
+    },
+    {
+      "name": "UserAddressPolicy",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "CanonicalAddressValidation",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/user_address_tests.cpp",
+          "line": 7
+        },
+        {
+          "name": "UserRangeValidation",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/user_address_tests.cpp",
+          "line": 15
+        },
+        {
+          "name": "PagePermissionValidation",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/user_address_tests.cpp",
+          "line": 27
+        }
+      ]
+    },
+    {
+      "name": "VirtualMemory",
+      "tests": 4,
+      "testsuite": [
+        {
+          "name": "RejectsInvalidMapRequests",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/virtual_memory_tests.cpp",
+          "line": 27
+        },
+        {
+          "name": "MapsProtectsAndTranslatesPages",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/virtual_memory_tests.cpp",
+          "line": 38
+        },
+        {
+          "name": "AllocatesAndDestroysUserSlot",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/virtual_memory_tests.cpp",
+          "line": 65
+        },
+        {
+          "name": "ClonesKernelAndDirectMapSlots",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/mm\/virtual_memory_tests.cpp",
+          "line": 89
+        }
+      ]
+    },
+    {
+      "name": "UserElfPolicy",
+      "tests": 5,
+      "testsuite": [
+        {
+          "name": "ValidatesExecutableHeader",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/proc\/user_elf_tests.cpp",
+          "line": 51
+        },
+        {
+          "name": "PlansLoadSegmentPermissions",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/proc\/user_elf_tests.cpp",
+          "line": 64
+        },
+        {
+          "name": "RejectsInvalidSegmentRanges",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/proc\/user_elf_tests.cpp",
+          "line": 80
+        },
+        {
+          "name": "ValidatesEntryPointInsideLoadableUserSegment",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/proc\/user_elf_tests.cpp",
+          "line": 103
+        },
+        {
+          "name": "ComputesStackLayout",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/proc\/user_elf_tests.cpp",
+          "line": 114
+        }
+      ]
+    },
+    {
+      "name": "ObserveAbi",
+      "tests": 3,
+      "testsuite": [
+        {
+          "name": "ConstantsAreStable",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/syscall\/observe_abi_tests.cpp",
+          "line": 7
+        },
+        {
+          "name": "HeaderLayoutIsPacked",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/syscall\/observe_abi_tests.cpp",
+          "line": 36
+        },
+        {
+          "name": "RecordLayoutsArePacked",
+          "file": "\/Users\/stefan\/os1_repo\/tests\/host\/syscall\/observe_abi_tests.cpp",
+          "line": 45
+        }
+      ]
+    }
+  ]
+}

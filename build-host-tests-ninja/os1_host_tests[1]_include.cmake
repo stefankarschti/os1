@@ -1,0 +1,5 @@
+if(EXISTS "/Users/stefan/os1_repo/build-host-tests-ninja/os1_host_tests[1]_tests.cmake")
+  include("/Users/stefan/os1_repo/build-host-tests-ninja/os1_host_tests[1]_tests.cmake")
+else()
+  add_test(os1_host_tests_NOT_BUILT os1_host_tests_NOT_BUILT)
+endif()

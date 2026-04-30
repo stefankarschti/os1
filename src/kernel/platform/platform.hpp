@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 
+#include "platform/acpi_aml.hpp"
 #include "platform/types.hpp"
 
 class VirtualMemory;
@@ -22,6 +23,9 @@ bool platform_probe_devices(VirtualMemory& kernel_vm);
 // Route an ISA IRQ through the discovered IOAPIC override table onto one IDT
 // vector chosen by the caller.
 bool platform_route_isa_irq(DeviceId owner, int bus_irq, uint8_t vector);
+
+// Route one exact GSI onto one IDT vector chosen by the caller.
+bool platform_route_gsi_irq(DeviceId owner, uint32_t gsi, uint16_t flags, uint8_t vector);
 
 // Return the currently selected generic block device, if any.
 const BlockDevice* platform_block_device();
@@ -46,3 +50,15 @@ size_t platform_irq_route_count();
 
 // Return the fixed IRQ route table owned by platform state.
 const IrqRoute* platform_irq_routes();
+
+// Return the number of ACPI namespace devices parsed from DSDT/SSDT AML.
+size_t platform_acpi_device_count();
+
+// Return the fixed ACPI device table owned by platform state.
+const AcpiDeviceInfo* platform_acpi_devices();
+
+// Suspend active bound devices in reverse bind order and place ACPI companions in D3.
+bool platform_suspend_devices();
+
+// Resume active bound devices in bind order and place ACPI companions in D0.
+bool platform_resume_devices();

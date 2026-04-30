@@ -7,6 +7,7 @@
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
+#include "platform/acpi_aml.hpp"
 #include "platform/hpet.hpp"
 #include "platform/pci.hpp"
 #include "platform/platform.hpp"
@@ -31,11 +32,25 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
                                                        g_platform.override_count,
                                                        g_platform.ecam_regions,
                                                        g_platform.ecam_region_count,
-                                                       g_platform.hpet);
+                                                       g_platform.hpet,
+                                                       g_platform.acpi_fixed,
+                                                       g_platform.acpi_definition_blocks,
+                                                       g_platform.acpi_definition_block_count);
     if(!acpi_available)
     {
         (void)kernel_vm;
         debug("platform: ACPI required; legacy MP discovery removed")();
+        return false;
+    }
+
+    if(!acpi_namespace_load(kernel_vm,
+                            g_platform.acpi_definition_blocks,
+                            g_platform.acpi_definition_block_count) ||
+       !acpi_build_device_info(g_platform.acpi_devices,
+                               g_platform.acpi_device_count,
+                               g_platform.acpi_pci_routes,
+                               g_platform.acpi_pci_route_count))
+    {
         return false;
     }
 

@@ -14,6 +14,7 @@ constexpr size_t kPlatformMaxIrqRoutes = 64;
 constexpr size_t kPlatformMaxDeviceBindings = 64;
 constexpr size_t kPlatformMaxPciBarClaims = 128;
 constexpr size_t kPlatformMaxDmaAllocations = 128;
+constexpr size_t kPlatformMaxAcpiDefinitionBlocks = 16;
 
 enum class DeviceBus : uint8_t
 {
@@ -168,6 +169,26 @@ struct HpetInfo
     uint16_t pci_vendor_id;
     uint16_t reserved0;
     uint32_t counter_clock_period_fs;
+    uint64_t physical_address;
+};
+
+struct AcpiFixedInfo
+{
+    bool present;
+    uint8_t preferred_pm_profile;
+    uint16_t sci_interrupt;
+    uint16_t boot_architecture_flags;
+    uint16_t reserved0;
+    uint32_t flags;
+    uint64_t firmware_ctrl;
+    uint64_t dsdt_physical;
+};
+
+struct AcpiDefinitionBlock
+{
+    bool active;
+    char signature[4];
+    uint32_t length;
     uint64_t physical_address;
 };
 

@@ -54,6 +54,66 @@ Milestone status:
 | `RSP0` | The kernel stack pointer stored in the Task State Segment. The CPU loads it automatically when an interrupt or syscall enters the kernel from ring 3. |
 | `TrapFrame` | The saved register/state layout shared by exceptions, IRQs, syscalls, and scheduler return paths. |
 
+## Reference Platform Tree
+
+```text
+  platform
+  ├── firmware
+  │   ├── boot-info
+  │   ├── acpi
+  │   │   ├── rsdp
+  │   │   ├── xsdt
+  │   │   ├── fadt
+  │   │   ├── madt
+  │   │   ├── mcfg
+  │   │   └── hpet
+  │   └── memory-map
+  ├── cpus
+  │   ├── package0
+  │   │   ├── core0
+  │   │   │   ├── thread0
+  │   │   │   └── thread1
+  │   │   └── core1
+  │   └── package1
+  ├── interrupt-topology
+  │   ├── lapic
+  │   ├── ioapic
+  │   ├── msi-domains
+  │   └── routing
+  ├── timers
+  │   ├── tsc
+  │   ├── lapic-timer
+  │   └── hpet
+  ├── pci
+  │   ├── domain0
+  │   │   ├── bus00
+  │   │   │   ├── 00:00.0 host-bridge
+  │   │   │   ├── 00:02.0 gpu
+  │   │   │   ├── 00:14.0 xhci
+  │   │   │   │   ├── root-hub 
+  │   │   │   │   │   ├── port1
+  │   │   │   │   │   ├── port2
+  │   │   │   │   │   ├── port3
+  │   │   │   │   │   │   ├── usb-device@5
+  │   │   │   │   │   │   │   ├── config0
+  │   │   │   │   │   │   │   │   ├── interface0
+  │   │   │   │   │   │   │   │   │   ├── hid-keyboard
+  │   │   │   │   │   │   │   │   │   └── ...
+  │   │   │   │   │   │   │   │   └── ...
+  │   │   │   │   │   │   │   └── ...  
+  │   │   │   │   │   │   └── ...
+  │   │   │   │   │   └── ...
+  │   │   │   │   └── ...
+  │   │   │   ├── 00:1f.2 storage
+  │   │   │   └── ...
+  └── logical-devices
+      ├── storage
+      ├── net
+      ├── input
+      ├── display
+      └── accelerators
+```
+
 ## System Shape
 
 The system is deliberately split into two layers:
@@ -1018,13 +1078,14 @@ Major constraints that remain:
 - userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
 - block I/O is request-shaped and interrupt-completed, but still single
   in-flight and synchronous at the wrapper layer
-- PCI INTx fallback is best-effort until AML `_PRT` routing exists
+- PCI INTx fallback now prefers AML `_PRT` routing, but the implemented AML
+  subset is intentionally narrow rather than a general-purpose ACPICA-class
+  interpreter
 - DMA is coherent direct-map only; there is no low-address allocator, pinned
   user-buffer mapping, cacheability policy, or IOMMU
 - hot-remove exists as a driver/resource lifecycle path, but there are no PCIe
   or ACPI hotplug event sources yet
-- HPET/LAPIC timer migration, `virtio-net`, xHCI, NVMe, AML, and real
-  filesystem-backed storage are still follow-on work
+- NVMe and real filesystem-backed storage are still follow-on work
 
 The next major work is therefore not another boot or shell bring-up refactor. It is deeper device-platform work, storage, networking, and richer filesystem-backed userland on top of the current platform and operator shell base:
 
@@ -1033,7 +1094,8 @@ The next major work is therefore not another boot or shell bring-up refactor. It
 - filesystem-backed loading instead of initrd-only demos
 - `virtio-net` and later NIC work
 - timer migration through HPET and the LAPIC timer
-- xHCI once DMA, MSI/MSI-X, and hot-remove coverage are stronger
-- AML-backed ACPI device routing and power management
+- NVMe and later storage work
+- broader ACPI coverage beyond the current minimal AML subset when new hardware
+  requires it
 
 At this point the architecture is intentionally in a good place for that work: the boot path is modernized, the kernel entry contract is shared, ACPI and PCIe discovery are in place, drivers bind through owned resources, and both modern and legacy boot paths remain continuously testable on the same `q35` virtual platform.

@@ -35,6 +35,8 @@ struct PciDriver
                   size_t device_index,
                   DeviceId id) = nullptr;
     void (*remove)(DeviceId id) = nullptr;
+    bool (*suspend)(DeviceId id) = nullptr;
+    bool (*resume)(DeviceId id) = nullptr;
 };
 
 void driver_registry_reset();

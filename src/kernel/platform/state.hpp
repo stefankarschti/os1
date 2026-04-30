@@ -2,6 +2,7 @@
 // IRQ routing, and driver probing share one normalized view of the machine.
 #pragma once
 
+#include "platform/acpi_aml.hpp"
 #include "platform/types.hpp"
 #include "sync/smp.hpp"
 
@@ -32,6 +33,13 @@ struct PlatformState
     size_t dma_allocation_count;
     DmaAllocationRecord dma_allocations[kPlatformMaxDmaAllocations];
     HpetInfo hpet;
+    AcpiFixedInfo acpi_fixed;
+    size_t acpi_definition_block_count;
+    AcpiDefinitionBlock acpi_definition_blocks[kPlatformMaxAcpiDefinitionBlocks];
+    size_t acpi_device_count;
+    AcpiDeviceInfo acpi_devices[kAcpiMaxDevices];
+    size_t acpi_pci_route_count;
+    AcpiPciRoute acpi_pci_routes[kAcpiMaxPciRoutes];
     const BlockDevice* block_device;
     VirtioBlkDevice virtio_blk_public;
 };

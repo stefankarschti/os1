@@ -115,14 +115,15 @@ Still intentionally incomplete:
   completion wakeups, but the public synchronous wrappers still issue one
   sector at a time and there is no block scheduler, request merging, or
   filesystem-facing cache yet.
-- PCI INTx fallback is best-effort and still depends on firmware-populated
-  `interrupt_line`; AML `_PRT` routing is not implemented.
+- PCI INTx fallback now prefers AML `_PRT` routing and ACPI link-device `_CRS`
+  data, and falls back to firmware-populated `interrupt_line` only when AML
+  does not describe the route.
 - DMA sync is a barrier/no-op model for coherent x86_64 direct-map buffers. No
   low-address allocator, cacheability policy, pinned user pages, or IOMMU exists.
 - Hot-add/hot-remove is a lifecycle path only. There is no PCIe or ACPI hotplug
   event source yet.
-- USB mass storage, broader USB class support beyond boot HID, AML, and ACPI
-  power management remain future phases.
+- USB mass storage and broader USB class support beyond boot HID remain future
+  phases.
 
 Verification completed after the implementation:
 
@@ -1080,7 +1081,7 @@ Status after the 2026-04-30 pass:
 | 9. HPET and LAPIC timer migration | Implemented |
 | 10. First second device: `virtio-net` | Implemented with shared transport, DMA RX/TX queues, and RX event smoke |
 | 11. xHCI | Implemented with root-port enumeration, HID boot input, and xHCI smoke coverage |
-| 12. AML, ACPI device model, and power | Not started |
+| 12. AML, ACPI device model, and power | Implemented with minimal AML, ACPI device inventory, `_PRT` INTx routing, and D0/D3 hooks |
 
 ### Phase 1 - Split Platform Discovery From Driver Activation
 
@@ -1303,6 +1304,24 @@ Acceptance:
 
 ### Phase 12 - AML, ACPI Device Model, And Power
 
+Status after the current pass:
+
+- ACPI discovery now parses FADT, records the DSDT pointer, validates DSDT and
+  SSDT definition blocks, and loads them through a deliberately minimal AML
+  namespace/evaluator rather than a full ACPICA port.
+- The implemented AML subset covers the phase requirements: `_PRT`, `_CRS`,
+  `_STA`, `_ADR`, `_BBN`, `_HID`, `_UID`, `_PS0`, and `_PS3`, plus the package,
+  buffer, integer, namepath, `Return`, and `Store` forms needed by the current
+  QEMU/q35 tables and the host fixtures.
+- Platform discovery now publishes an ACPI device inventory and ACPI-derived
+  PCI INTx route table, and `observe devices` includes ACPI-described devices.
+- PCI INTx fallback now routes through AML `_PRT` first, using link-device
+  `_CRS` data or direct GSI targets, and falls back to PCI `interrupt_line`
+  only when firmware did not describe a route.
+- The platform layer now exposes deterministic suspend/resume sequencing for
+  bound PCI drivers and uses ACPI companion `_PS3`/`_PS0` methods for D3/D0
+  transitions when AML describes a matching `_ADR` device.
+
 Deliverables:
 
 - FADT and DSDT/SSDT discovery.
@@ -1345,8 +1364,9 @@ The next practical commits should build on the new substrate:
 
 1. Expand the fixed `virtio-blk` request table only after broader storage or
    buffered I/O paths create real parallel demand.
-2. Add FADT/DSDT/SSDT discovery, choose the AML strategy, and implement `_PRT`
-   before treating INTx as robust on real hardware.
+2. Move from the current minimal AML subset toward broader ACPI coverage only
+  when real hardware or new platform devices require additional opcodes or
+  resource descriptors.
 
 ## Main Risks
 
@@ -1361,8 +1381,9 @@ The next practical commits should build on the new substrate:
   not run driver completions on APs until allocator and driver locks are audited.
 - MMIO currently uses the direct map. Keep all new BAR mapping calls behind a
   resource API so PAT/cacheability can be added once needed.
-- PCI INTx fallback without AML `_PRT` is best-effort only. Do not promise broad
-  real-hardware PCI INTx until the AML phase.
+- The AML subset is intentionally narrow. Treat new opcode families,
+  field/operation-region execution, and ACPI hotplug/event handling as explicit
+  follow-on work rather than assuming today’s evaluator is general purpose.
 
 ## Definition Of Done For The Driver Platform
 
@@ -1382,7 +1403,6 @@ The missing driver/device/platform work can be considered implemented when:
 - xHCI and `virtio-net` can be added without duplicating PCI capability walking,
   vector allocation, DMA ownership, or virtqueue setup.
 
-As of 2026-04-30, the first nine bullets are implemented in the narrow static
-form described above, and xHCI root-port enumeration plus boot-HID input are
-now in place. The definition is not fully complete until AML-backed ACPI
-routing/power are implemented and covered by tests.
+As of 2026-04-30, the full list above is implemented in the narrow static form
+described here, including AML-backed ACPI routing/power with focused host tests
+and real-firmware smoke coverage.

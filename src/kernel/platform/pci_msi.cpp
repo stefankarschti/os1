@@ -1,6 +1,7 @@
 // PCI MSI/MSI-X programming and INTx fallback.
 #include "platform/pci_msi.hpp"
 
+#include "platform/acpi_aml.hpp"
 #include "platform/pci_capability.hpp"
 #include "platform/pci_config.hpp"
 
@@ -230,7 +231,23 @@ bool pci_enable_intx_interrupt(DeviceId owner,
                                void* handler_data,
                                PciInterruptHandle& handle)
 {
-    if((0 == device.interrupt_pin) || (0xFFu == device.interrupt_line) || (device.interrupt_line > 15u))
+    if(0 == device.interrupt_pin)
+    {
+        return false;
+    }
+
+    uint32_t route_irq = 0;
+    uint16_t route_flags = 0;
+    bool source_is_gsi = false;
+    const bool have_acpi_route = acpi_resolve_pci_route_details(
+        device.bus,
+        device.slot,
+        device.function,
+        static_cast<uint8_t>(device.interrupt_pin - 1u),
+        route_irq,
+        route_flags,
+        source_is_gsi);
+    if(!have_acpi_route && ((0xFFu == device.interrupt_line) || (device.interrupt_line > 15u)))
     {
         return false;
     }
@@ -241,7 +258,11 @@ bool pci_enable_intx_interrupt(DeviceId owner,
         return false;
     }
     pci_disable_intx(device, false);
-    if(!platform_route_isa_irq(owner, device.interrupt_line, vector))
+    const bool routed = have_acpi_route
+                            ? (source_is_gsi ? platform_route_gsi_irq(owner, route_irq, route_flags, vector)
+                                             : platform_route_isa_irq(owner, static_cast<int>(route_irq), vector))
+                            : platform_route_isa_irq(owner, device.interrupt_line, vector);
+    if(!routed)
     {
         clear_vector_handler(vector);
         (void)irq_free_vector(vector);
