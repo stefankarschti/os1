@@ -514,6 +514,7 @@ void run_initrd()
         write_unsigned(records[i].size);
         write_char('\n');
     }
+    write_string("initrd complete\n");
 }
 
 void run_events()

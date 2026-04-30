@@ -561,7 +561,7 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "pid tid pstate tstate mode cr3 name::cpu\\n"
   "cpu slot apic bsp booted pid tid::pci\\n"
   "pci 00:03.0 1af4:1042::initrd\\n"
-  "initrd /bin/fault size=::events\\n"
+  "initrd complete::events\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
