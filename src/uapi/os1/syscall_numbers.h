@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 /**
- * @brief Stable user/kernel syscall numbers for the int 0x80 ABI.
+ * @brief Stable user/kernel syscall numbers.
  *
  * These identifiers are intentionally C-compatible and global. Keep kernel
  * dispatch and user wrappers synchronized through this single header.
