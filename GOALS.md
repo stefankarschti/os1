@@ -512,11 +512,9 @@ Some earlier open questions have since been resolved in source or in the milesto
 The following are not fully decided yet and should be revisited explicitly:
 
 - first filesystem choice
-- first NIC/device targets in QEMU / virtio-first environments beyond the initial `virtio-blk` + `virtio-net` set proposed in [M4](doc/2026-04-22-milestone-4-modern-platform-support.md)
 - staging plan from AP startup (currently: APs run `cpu_idle_loop()`) to full user-process SMP scheduling across CPUs
 - later GPU / accelerator target model after discovery-only phase: compute queues, minimal kernel offload primitives, or richer user-facing submission model
 - whether the terminal compositor stays intentionally minimal or grows into a broader desktop shell
-- whether to keep `int 0x80` as the permanent syscall entry or migrate to `SYSCALL`/`SYSRET` once the current userland matures
 
 ## Additional recommended goals
 
