@@ -2,7 +2,7 @@
 
 `os1` is a self-documented teaching and engineering operating system project: a small, technically serious `x86_64` OS built for clarity, runnable vertical slices, and modern OS concepts rather than feature sprawl. The project stays terminal-first, QEMU-first, and documentation-heavy on purpose, with the current implementation status and a full system diagram in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md), the longer-term direction in [GOALS.md](GOALS.md), the curated external standards and specification index in [doc/REFERENCES.md](doc/REFERENCES.md), a code-grounded project review in [doc/latest-review.md](doc/latest-review.md), the completed shell/operator milestone captured in [doc/2026-04-23-milestone-5-interactive-shell-and-observability.md](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), and the 2026 source-tree refactor summary in [doc/2026-04-26-source-tree-refactor.md](doc/2026-04-26-source-tree-refactor.md).
 
-Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared higher-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path, loading the same kernel physically before entering it at its higher-half virtual address. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, starts a small `/bin/init` that `exec`s `/bin/sh`, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through the x86_64 `SYSCALL`/`SYSRET` path, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is now implemented: both boot paths populate `BootInfo.rsdp_physical`, the kernel discovers topology through ACPI `MADT`, enumerates PCIe through `MCFG`, probes a modern `virtio-blk` block device, validates raw-sector reads from a generated test disk, and lands at a serial-drivable interactive shell with structured observability, a fixed-capacity kernel event ring, and initrd-backed command execution.
+Today `os1` uses a shared-kernel, dual-entry boot architecture. The default path is a Limine-based UEFI ISO that enters a thin higher-half shim, normalizes bootloader state into `BootInfo`, then transfers control to the shared higher-half kernel core. The legacy BIOS raw image is still built and tested as a compatibility path, loading the same kernel physically before entering it at its higher-half virtual address. The kernel itself is freestanding `C++20`, runs protected user programs loaded from an initrd `cpio` archive, starts a small `/bin/init` that `exec`s `/bin/sh`, exposes `write`/`read`/`observe`/`spawn`/`waitpid`/`exec` through the x86_64 `SYSCALL`/`SYSRET` path, and can present the terminal either through VGA text mode or a minimal framebuffer text renderer. Milestone 5 is implemented and the 2026-04-30 driver/device/platform pass landed on top of it: ACPI parsing now includes FADT/HPET plus a deliberately minimal AML interpreter for `_PRT`/`_CRS`/`_STA`/`_PS0`/`_PS3`; PCI devices bind through a static driver registry with BAR/IRQ/DMA resource ownership; PCI interrupts route through MSI-X first, MSI second, and IOAPIC INTx as a fallback; `virtio-blk` is request-shaped, interrupt-driven, and supports both reads and writes; `virtio-net` runs through the same shared virtio transport with an ARP probe smoke; xHCI binds by PCI class, enumerates root ports, and feeds USB HID boot-keyboard reports into the same console-input path as PS/2; and the BSP scheduler tick uses an HPET-calibrated LAPIC periodic timer with the PIT retained as a fallback.
 
 In the source tree, the two boot frontends are explicit peers under `src/boot/`: the legacy raw-image BIOS path lives in `src/boot/bios/`, and the modern UEFI shim lives in `src/boot/limine/`. The kernel tree is now split by ownership rather than by bring-up history: `src/kernel/core/` owns orchestration and trap flow, `handoff/` owns the boot contract, `mm/` owns physical/virtual memory, `proc/` and `sched/` split process/thread lifecycle from scheduling policy, `console/` owns terminal streams, `drivers/` owns hardware drivers, `platform/` owns machine discovery, and `storage/`, `vfs/`, and `security/` mark the intended growth seams. The detailed source-structure contract now lives in [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md).
 
@@ -70,13 +70,13 @@ This repo ships CMake presets for the supported workflows. In VS Code with the C
 - use the `run_serial` target for a serial-first UEFI shell session in the terminal
 - use the `run_bios` preset or target for the legacy BIOS path
 - use the `run_bios_serial` target for a serial-first BIOS shell session in the terminal
-- use the `smoke`, `smoke_observe`, `smoke_spawn`, `smoke_exec`, `smoke_bios`, `smoke_observe_bios`, `smoke_spawn_bios`, `smoke_exec_bios`, or `smoke_all` targets for tests
+- use the `smoke`, `smoke_observe`, `smoke_spawn`, `smoke_exec`, `smoke_xhci`, `smoke_bios`, `smoke_observe_bios`, `smoke_spawn_bios`, `smoke_exec_bios`, or `smoke_all` targets for tests
 
 If the extension still has stale cache or generator state from an older setup, run `CMake: Delete Cache and Reconfigure` once.
 
 ## Host Unit Tests
 
-The host unit tests are a separate CMake project under `tests/host/` and use the platform compiler, not the `x86_64-elf` cross toolchain. They exercise parser and policy code that should not require QEMU: ELF helpers, freestanding strings, BootInfo ownership, CPIO newc parsing, user pointer policy, user ELF policy, page-frame allocation, page-table operations, observe ABI layout, and the kernel event ring.
+The host unit tests are a separate CMake project under `tests/host/` and use the platform compiler, not the `x86_64-elf` cross toolchain. They exercise parser, ABI, and policy code that should not require QEMU: ELF helpers, freestanding strings, BootInfo ownership, CPIO newc parsing, user pointer policy, user ELF policy, page-frame allocation, DMA buffer ownership, page-table operations, observe ABI layout, the kernel event ring, the IRQ vector allocator, the IRQ route registry, the timer-source selector, PCI bus matching, PCI capability walking, PCI MSI/MSI-X programming, PCI BAR resource ownership, ACPI HPET parsing, the AML interpreter, the xHCI controller helper layer, and HID boot keyboard report decoding.
 
 Configure, build, and run them with:
 
@@ -146,6 +146,12 @@ Modern UEFI exec smoke:
 
 ```sh
 cmake --build build --target smoke_exec
+```
+
+Modern UEFI xHCI + USB-keyboard smoke (UEFI only; BIOS does not boot Limine UEFI):
+
+```sh
+cmake --build build --target smoke_xhci
 ```
 
 Legacy BIOS shell baseline smoke:
@@ -234,6 +240,7 @@ The build writes outputs under `build/artifacts/`:
 - `smoke-observe.log` / `smoke-observe-bios.log` — captured observability smoke serial logs
 - `smoke-spawn.log` / `smoke-spawn-bios.log` — captured child-launch smoke serial logs
 - `smoke-exec.log` / `smoke-exec-bios.log` — captured exec smoke serial logs
+- `smoke-xhci.log` — captured xHCI + USB-keyboard smoke serial log (UEFI only)
 
 For BIOS compatibility, `os1.raw` reserves fixed slots for `kernel16.bin`, `kernel.elf`, and `initrd.cpio`. Those slot sizes are defined by `OS1_LOADER16_IMAGE_SECTOR_COUNT`, `OS1_KERNEL_IMAGE_SECTOR_COUNT`, and `OS1_INITRD_IMAGE_SECTOR_COUNT` in [CMakeLists.txt](CMakeLists.txt). The kernel BIOS slot now matches the reserved low-physical kernel window, and the build fails before writing `os1.raw` if `kernel.elf` no longer fits its disk slot, its low-memory staging buffer, or its reserved execution window. `initrd.cpio` is still checked against its configured slot. To expand BIOS storage space, raise the corresponding sector-count or reserved-window value and rebuild; the generated BIOS layout follows those values automatically while the raw image stays padded to 1 MiB.
 
@@ -250,12 +257,14 @@ The helper wrapper scripts remain available as thin CMake frontends:
 - [Goals](GOALS.md) — project direction and design principles
 - [References](doc/REFERENCES.md) — central index of external standards, vendor manuals, protocol RFCs, and public specifications used by the project
 - [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture; includes a system diagram and end-to-end workflow
-- [Kernel Source Tree Reorganization Plan 2026-04-27](doc/2026-04-27-kernel-source-tree-reorganization-plan.md) — plan and implementation checklist for the current kernel source layout
 - [Latest Review](doc/latest-review.md) — current code-grounded project review (recommended entry point for readers)
-- [Review 2026-04-19](doc/2026-04-19-review.md) — historical review
-- [Review 2026-04-21](doc/2026-04-21-review.md) — historical review
+- [Driver, Device, And Platform Implementation Plan 2026-04-29](doc/2026-04-29-driver-device-platform-implementation-plan.md) — live plan-and-status document for the driver/device/platform substrate; tracks the 2026-04-30 implementation pass that landed the static PCI driver registry, IRQ vector allocator, MSI-X/MSI/INTx fallback, DMA buffers, shared virtio transport, BlockDevice v2, HPET/LAPIC timer migration, `virtio-net`, xHCI + HID boot keyboard, and the minimal AML interpreter
+- [SMP Synchronization Contract 2026-04-29](doc/2026-04-29-smp-synchronization-contract.md) — current synchronization vocabulary, locking order, and BSP-only annotation rules used while APs remain parked
+- [Kernel Source Tree Reorganization Plan 2026-04-27](doc/2026-04-27-kernel-source-tree-reorganization-plan.md) — plan and implementation checklist for the current kernel source layout
 - [Milestone 1 Design: Boot Contract And Kernel Stabilization](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) — implemented
 - [Milestone 2 Design: Process Model And Isolation](doc/2026-04-22-milestone-2-process-model-and-isolation.md) — implemented
 - [Milestone 3 Design: Modern Default Boot Path](doc/2026-04-22-milestone-3-modern-default-boot-path.md) — implemented
 - [Milestone 4 Design: Modern Platform Support](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented
 - [Milestone 5 Design: Interactive Shell And Observability](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md) — implemented
+- [Review 2026-04-19](doc/2026-04-19-review.md) — historical review
+- [Review 2026-04-21](doc/2026-04-21-review.md) — historical review
