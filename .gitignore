@@ -1,4 +1,4 @@
 /build
-/build-host-tests
+/build-host-tests*
 /.act-cache
 /.claude
