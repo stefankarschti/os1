@@ -10,12 +10,17 @@
 import argparse
 from dataclasses import dataclass
 import os
+import re
 import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+MAX_MATCH_BUFFER_CHARS = 1024 * 1024
+SHELL_PROMPT = "os1> "
 
 @dataclass
 class SendEvent:
@@ -29,6 +34,17 @@ class MonitorEvent:
     marker: str
     text: str
     sent: bool = False
+
+
+def normalize_for_marker_matching(text, sent_serial_texts):
+    # The guest shell prompt and echoed input share the same serial stream as
+    # kernel/user output, so they can appear in the middle of marker text.
+    normalized = ANSI_ESCAPE_RE.sub("", text).replace("\r", "")
+    normalized = normalized.replace(SHELL_PROMPT, "")
+    for sent_text in sent_serial_texts:
+        if sent_text:
+            normalized = normalized.replace(sent_text, "")
+    return normalized
 
 
 def parse_event_spec(parser, spec, flag_name):
@@ -129,6 +145,7 @@ def main():
     seen = set()
     rejected = None
     output_lines = []
+    match_buffer = ""
     done = threading.Event()
     deadline = time.monotonic() + args.timeout
     settle_deadline = None
@@ -147,23 +164,38 @@ def main():
         )
 
         def reader():
+            nonlocal match_buffer
             try:
                 assert proc.stdout is not None
                 for line in proc.stdout:
                     output_lines.append(line)
                     log_file.write(line)
                     log_file.flush()
+                    match_buffer = (match_buffer + line)[-MAX_MATCH_BUFFER_CHARS:]
+                    sent_serial_texts = [event.text for event in send_events if event.sent]
+                    normalized_line = normalize_for_marker_matching(line, sent_serial_texts)
+                    normalized_match_buffer = normalize_for_marker_matching(
+                        match_buffer,
+                        sent_serial_texts,
+                    )
                     for marker in reject_markers:
-                        if marker in line:
+                        if marker in line or marker in normalized_line:
                             nonlocal_rejected[0] = marker
                             done.set()
                             return
                     for marker in markers:
-                        if marker not in seen and marker in line:
+                        if marker not in seen and (
+                            marker in line or marker in match_buffer or marker in normalized_match_buffer
+                        ):
                             seen.add(marker)
                     if proc.stdin is not None:
                         for event in send_events:
-                            if (not event.sent) and ((event.marker in seen) or (event.marker in line)):
+                            if (not event.sent) and (
+                                (event.marker in seen)
+                                or (event.marker in line)
+                                or (event.marker in match_buffer)
+                                or (event.marker in normalized_match_buffer)
+                            ):
                                 try:
                                     proc.stdin.write(event.text)
                                     proc.stdin.flush()
@@ -172,7 +204,12 @@ def main():
                                 event.sent = True
                     if args.monitor_socket is not None:
                         for event in monitor_events:
-                            if (not event.sent) and ((event.marker in seen) or (event.marker in line)):
+                            if (not event.sent) and (
+                                (event.marker in seen)
+                                or (event.marker in line)
+                                or (event.marker in match_buffer)
+                                or (event.marker in normalized_match_buffer)
+                            ):
                                 try:
                                     send_monitor_text(args.monitor_socket, event.text)
                                 except RuntimeError as exc:
