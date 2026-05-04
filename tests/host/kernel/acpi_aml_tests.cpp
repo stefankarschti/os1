@@ -1,6 +1,7 @@
 #include "drivers/bus/device.hpp"
 #include "drivers/bus/driver_registry.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi_aml.hpp"
 #include "platform/platform.hpp"
@@ -560,6 +561,7 @@ TEST(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
     build_aml_tables(arena, blocks, block_count);
 
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory vm(frames);
 
     ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count));
@@ -570,7 +572,7 @@ TEST(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
     size_t route_count = 0;
     ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count));
 
-    std::memset(&g_platform, 0, sizeof(g_platform));
+    platform_reset_state();
     driver_registry_reset();
     g_power_order = {};
     g_power_order_count = 0;
@@ -621,4 +623,6 @@ TEST(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
 
     ASSERT_EQ(4u, g_power_order_count);
     EXPECT_EQ(std::string_view("BAab"), std::string_view(g_power_order.data(), g_power_order_count));
+
+    platform_reset_state();
 }

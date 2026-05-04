@@ -11,15 +11,12 @@
 #include "mm/virtual_memory.hpp"
 #include "platform/state.hpp"
 #include "storage/block_device.hpp"
-#include "util/memory.h"
 
 extern PageFrameContainer page_frames;
 
 bool platform_probe_devices(VirtualMemory& kernel_vm)
 {
-    g_platform.block_device = nullptr;
-    g_platform.device_binding_count = 0;
-    memset(&g_platform.virtio_blk_public, 0, sizeof(g_platform.virtio_blk_public));
+    platform_reset_driver_state();
     driver_registry_reset();
     if(!driver_registry_add_pci_driver(virtio_blk_pci_driver()) ||
        !driver_registry_add_pci_driver(virtio_net_pci_driver()) ||

@@ -4,6 +4,7 @@
 #include "drivers/bus/pci_bus.hpp"
 #include "drivers/bus/resource.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "mm/dma.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/irq_registry.hpp"
@@ -57,7 +58,7 @@ PageFrameContainer make_frames()
 
 void reset_state()
 {
-    std::memset(&g_platform, 0, sizeof(g_platform));
+    platform_reset_state();
     irq_vector_allocator_reset();
     driver_registry_reset();
     g_probe_harness = {};
@@ -135,6 +136,7 @@ TEST(PciBus, OnlyProbesMatchingDriver)
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     (void)arena;
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory kernel_vm(frames);
     reset_state();
 
@@ -177,6 +179,8 @@ TEST(PciBus, OnlyProbesMatchingDriver)
     ASSERT_NE(nullptr, binding);
     EXPECT_EQ(DeviceState::Bound, binding->state);
     EXPECT_STREQ("second-driver", binding->driver_name);
+
+    platform_reset_state();
 }
 
 TEST(PciBus, MatchingProbeFailureFailsBusProbe)
@@ -184,6 +188,7 @@ TEST(PciBus, MatchingProbeFailureFailsBusProbe)
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     (void)arena;
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory kernel_vm(frames);
     reset_state();
 
@@ -207,13 +212,16 @@ TEST(PciBus, MatchingProbeFailureFailsBusProbe)
     EXPECT_FALSE(pci_bus_probe_all(kernel_vm, frames));
     EXPECT_EQ(1u, g_probe_harness.failing_probe_calls);
     EXPECT_EQ(nullptr, device_binding_find(DeviceId{DeviceBus::Pci, 0}));
+
+    platform_reset_state();
 }
 
 TEST(PciBus, RemoveMatchesDriverNameByContentAndReleasesResources)
 {
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
-    reset_state();
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    reset_state();
 
     const DeviceId owner{DeviceBus::Pci, 0};
     g_platform.device_count = 1;
@@ -245,13 +253,38 @@ TEST(PciBus, RemoveMatchesDriverNameByContentAndReleasesResources)
     EXPECT_TRUE(g_remove_harness.remove_called);
     EXPECT_TRUE(g_remove_harness.binding_visible_during_remove);
     EXPECT_EQ(nullptr, device_binding_find(owner));
-    EXPECT_EQ(DeviceState::Removed, g_platform.device_bindings[0].state);
+    EXPECT_EQ(0u, device_binding_count());
 
     const PciBarClaim* claims = pci_bar_claims();
-    ASSERT_NE(nullptr, claims);
-    EXPECT_FALSE(claims[0].active);
+    EXPECT_EQ(nullptr, claims);
+    EXPECT_EQ(0u, pci_bar_claim_count());
     EXPECT_EQ(nullptr, platform_find_irq_route(vector));
     EXPECT_FALSE(irq_vector_is_allocated(vector));
     EXPECT_FALSE(g_remove_harness.dma_buffer.active);
-    EXPECT_FALSE(g_platform.dma_allocations[0].active);
+    EXPECT_EQ(0u, dma_allocation_count());
+
+    platform_reset_state();
+}
+
+TEST(PciBus, DeviceBindingsGrowPastLegacyLimit)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    reset_state();
+
+    constexpr size_t kBindingTarget = kPlatformMaxDeviceBindings + 8u;
+    for(size_t i = 0; i < kBindingTarget; ++i)
+    {
+        ASSERT_TRUE(device_binding_publish(DeviceId{DeviceBus::Pci, static_cast<uint16_t>(i)},
+                                           static_cast<uint16_t>(i),
+                                           "growth-driver",
+                                           nullptr));
+    }
+
+    EXPECT_EQ(kBindingTarget, device_binding_count());
+    ASSERT_NE(nullptr,
+              device_binding_find(DeviceId{DeviceBus::Pci, static_cast<uint16_t>(kBindingTarget - 1u)}));
+
+    platform_reset_state();
 }

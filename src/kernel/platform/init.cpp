@@ -19,7 +19,7 @@
 bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
 {
     KASSERT_ON_BSP();
-    memset(&g_platform, 0, sizeof(g_platform));
+    platform_reset_state();
 
     const bool acpi_available = discover_acpi_platform(kernel_vm,
                                                        boot_info,
