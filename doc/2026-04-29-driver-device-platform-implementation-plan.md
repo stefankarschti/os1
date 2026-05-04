@@ -4,6 +4,12 @@ This document is a source-grounded implementation plan for the missing driver,
 device-model, and platform substrate in `os1`. It was originally written as the
 2026-04-29 plan and now also records the 2026-04-30 implementation pass.
 
+Status note: this is historical planning and implementation context. The live
+platform/driver state is documented in [ARCHITECTURE.md](ARCHITECTURE.md) and
+the source tree. Sections below intentionally retain some original planning
+language from before later `kmem` consumers, dynamic registries, xHCI growth,
+and observe/resource updates landed.
+
 It is based on the current source tree plus the latest review documents:
 
 - [2026-04-29 review revision 2](2026-04-29-review-2.md)

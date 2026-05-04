@@ -76,7 +76,7 @@ If the extension still has stale cache or generator state from an older setup, r
 
 ## Host Unit Tests
 
-The host unit tests are a separate CMake project under `tests/host/` and use the platform compiler, not the `x86_64-elf` cross toolchain. They exercise parser, ABI, and policy code that should not require QEMU: ELF helpers, freestanding strings, BootInfo ownership, CPIO newc parsing, user pointer policy, user ELF policy, page-frame allocation, DMA buffer ownership, page-table operations, observe ABI layout, the kernel event ring, the IRQ vector allocator, the IRQ route registry, the timer-source selector, PCI bus matching, PCI capability walking, PCI MSI/MSI-X programming, PCI BAR resource ownership, ACPI HPET parsing, the AML interpreter, the xHCI controller helper layer, and HID boot keyboard report decoding.
+The host unit tests are a separate CMake project under `tests/host/` and use the platform compiler, not the `x86_64-elf` cross toolchain. They exercise parser, ABI, and policy code that should not require QEMU: ELF helpers, freestanding strings, BootInfo ownership, CPIO newc parsing, user pointer policy, user ELF policy, page-frame allocation, the kernel small-object allocator (`kmalloc`/`kcalloc`/named caches with debug-build redzones, leak dump, and death tests for invalid free, double free, and redzone corruption), DMA buffer ownership, page-table operations, observe ABI layout, the kernel event ring, the IRQ vector allocator, the IRQ route registry, the timer-source selector, PCI bus matching, PCI capability walking, PCI MSI/MSI-X programming, PCI BAR resource ownership, ACPI HPET parsing, the AML interpreter, the xHCI controller helper layer, and HID boot keyboard report decoding.
 
 Configure, build, and run them with:
 

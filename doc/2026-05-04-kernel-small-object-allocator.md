@@ -4,10 +4,15 @@ Generated-by: Codex / GPT-5, based on source and document review on 2026-05-04.
 
 ## Status
 
-Design specification for implementation. The current source tree has no
-`kmalloc`, `kfree`, slab allocator, buddy allocator, kernel heap, or userspace
-heap. All dynamic kernel memory currently comes from physical pages through
-`PageFrameContainer` or from fixed-size global/static tables.
+Historical design specification. This document describes the pre-implementation
+state as of 2026-05-04. The current source tree now has the direct-map-backed
+allocator in `src/kernel/mm/kmem.cpp`, observe support, shell smoke coverage,
+host tests, and real kernel consumers including process/thread registries, ARP
+cache entries, device bindings, PCI BAR claims, DMA allocation records, and IRQ
+route records.
+
+For the current architecture, trust [ARCHITECTURE.md](ARCHITECTURE.md) and the
+latest dated review, not the pre-implementation status statements below.
 
 The source tree is the authority for this design. Review and goal documents are
 used as context only.
@@ -101,9 +106,10 @@ owner, physical address, virtual address, page count, direction, and active
 state in `g_platform.dma_allocations`. It is not a general kernel allocator and
 must remain separate from `kmalloc`.
 
-Current dynamic memory pressure is hidden by fixed tables and page allocations:
+At the time this design was written, dynamic memory pressure was hidden by fixed
+tables and page allocations:
 
-- `Process[32]` and `Thread[32]` are allocated as page-backed fixed tables.
+- `Process[32]` and `Thread[32]` were allocated as page-backed fixed tables.
 - Kernel stacks are four page contiguous runs.
 - Driver state is mostly static: `g_virtio_blk`, `g_virtio_net`,
   `g_xhci_controllers`, platform resource arrays, and fixed request slots.
