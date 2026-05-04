@@ -42,6 +42,57 @@ bool find_cache_stats(size_t object_size, KmemCacheStats& stats)
     }
     return false;
 }
+
+#if defined(OS1_KMEM_DEBUG)
+constexpr uint8_t kExpectedAllocPoison = 0xA5u;
+
+void invalid_free_death_case()
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    uint64_t stack_value = 0;
+    kfree(&stack_value);
+}
+
+void double_free_death_case()
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    void* ptr = kmalloc(32);
+    if(nullptr == ptr)
+    {
+        __builtin_trap();
+    }
+    kfree(ptr);
+    kfree(ptr);
+}
+
+void redzone_corruption_death_case()
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    auto* ptr = static_cast<uint8_t*>(kmalloc(17));
+    if(nullptr == ptr)
+    {
+        __builtin_trap();
+    }
+
+    size_t usable_size = 0;
+    if(!kmem_allocation_usable_size(ptr, usable_size))
+    {
+        __builtin_trap();
+    }
+
+    ptr[usable_size] = 0x11u;
+    kfree(ptr);
+}
+#endif
 }  // namespace
 
 TEST(Kmem, RejectsZeroAndOverflowedRequests)
@@ -124,6 +175,26 @@ TEST(Kmem, KcallocZeroesMemory)
 
     kfree(words);
 }
+
+#if defined(OS1_KMEM_DEBUG)
+TEST(Kmem, DebugModePoisonsAllocationsAndSupportsLeakDump)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    auto* bytes = static_cast<uint8_t*>(kmalloc(32));
+    ASSERT_NE(nullptr, bytes);
+    for(size_t index = 0; index < 32; ++index)
+    {
+        EXPECT_EQ(kExpectedAllocPoison, bytes[index]);
+    }
+
+    kmem_dump_leaks();
+    kfree(bytes);
+    kmem_dump_leaks();
+}
+#endif
 
 TEST(Kmem, LargeAllocationsUsePageRuns)
 {
@@ -273,6 +344,23 @@ TEST(Kmem, NamedCacheRejectsInvalidParameters)
     EXPECT_EQ(nullptr, kmem_cache_create("too-large-align", 64, 128));
     EXPECT_EQ(nullptr, kmem_cache_create("too-large-slot", kPageSize, 16));
 }
+
+#if defined(OS1_KMEM_DEBUG)
+TEST(Kmem, InvalidFreeDies)
+{
+    EXPECT_DEATH_IF_SUPPORTED(invalid_free_death_case(), ".*");
+}
+
+TEST(Kmem, DoubleFreeDies)
+{
+    EXPECT_DEATH_IF_SUPPORTED(double_free_death_case(), ".*");
+}
+
+TEST(Kmem, RedzoneCorruptionDies)
+{
+    EXPECT_DEATH_IF_SUPPORTED(redzone_corruption_death_case(), ".*");
+}
+#endif
 
 TEST(Kmem, NoGrowStopsAtCurrentSlabCapacity)
 {

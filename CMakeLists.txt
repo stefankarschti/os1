@@ -18,6 +18,8 @@ endif()
 
 project(os1 LANGUAGES C CXX)
 
+option(OS1_KMEM_DEBUG "Enable kernel small-object allocator debug instrumentation" ON)
+
 if(NOT CMAKE_C_COMPILER MATCHES "(^|/)x86_64-elf-gcc$")
   message(FATAL_ERROR "os1 requires the x86_64-elf cross toolchain. Configure with -DCMAKE_TOOLCHAIN_FILE=${OS1_TOOLCHAIN_FILE} or use the provided CMake preset.")
 endif()

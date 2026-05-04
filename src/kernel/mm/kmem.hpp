@@ -80,3 +80,4 @@ void kfree(void* ptr);
 [[nodiscard]] bool kmem_get_cache_stats(size_t index, KmemCacheStats& stats);
 void kmem_get_global_stats(KmemGlobalStats& stats);
 void kmem_dump_stats();
+void kmem_dump_leaks();

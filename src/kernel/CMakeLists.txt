@@ -177,6 +177,9 @@ target_compile_options(
     $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O1 -Wall -Wextra -fno-asynchronous-unwind-tables -fno-unwind-tables>
     $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O0 -Wall -Wextra -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-exceptions -fno-rtti>
 )
+if(OS1_KMEM_DEBUG)
+  target_compile_definitions(kernel_core_objects PRIVATE OS1_KMEM_DEBUG=1)
+endif()
 
 add_library(kernel_limine_frontend OBJECT ${KERNEL_LIMINE_SOURCES})
 target_include_directories(kernel_limine_frontend PRIVATE

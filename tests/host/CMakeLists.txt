@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(os1_host_tests LANGUAGES CXX)
 
+option(OS1_KMEM_DEBUG "Enable kernel small-object allocator debug instrumentation" ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -65,6 +67,9 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/proc/user_elf.cpp"
 )
 target_compile_definitions(os1_host_support PUBLIC OS1_HOST_TEST=1)
+if(OS1_KMEM_DEBUG)
+  target_compile_definitions(os1_host_support PUBLIC OS1_KMEM_DEBUG=1)
+endif()
 target_include_directories(os1_host_support PUBLIC
   "${CMAKE_CURRENT_LIST_DIR}"
   "${OS1_REPO_ROOT}/src/common"
