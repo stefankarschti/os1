@@ -31,6 +31,8 @@ inline constexpr KmallocFlags& operator|=(KmallocFlags& left, KmallocFlags right
     return left;
 }
 
+struct KmemCache;
+
 struct KmemCacheStats
 {
     const char* name = nullptr;
@@ -68,6 +70,10 @@ struct KmemGlobalStats
 void kmem_init(PageFrameContainer& frames);
 [[nodiscard]] void* kmalloc(size_t size, KmallocFlags flags = KmallocFlags::None);
 [[nodiscard]] void* kcalloc(size_t count, size_t size, KmallocFlags flags = KmallocFlags::None);
+[[nodiscard]] KmemCache* kmem_cache_create(const char* name, size_t object_size, size_t alignment);
+[[nodiscard]] void* kmem_cache_alloc(KmemCache* cache, KmallocFlags flags = KmallocFlags::None);
+void kmem_cache_free(KmemCache* cache, void* ptr);
+[[nodiscard]] bool kmem_cache_destroy(KmemCache* cache);
 void kfree(void* ptr);
 [[nodiscard]] bool kmem_allocation_usable_size(const void* ptr, size_t& size);
 [[nodiscard]] size_t kmem_cache_stats_count();

@@ -204,6 +204,76 @@ TEST(Kmem, StatsTrackCacheFailuresAndReturns)
     kmem_dump_stats();
 }
 
+TEST(Kmem, NamedCacheAllocatesAlignedObjectsAndDestroys)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    const size_t initial_cache_count = kmem_cache_stats_count();
+    const uint64_t initial_free_pages = frames.free_page_count();
+
+    KmemCache* cache = kmem_cache_create("test-object-80", 80, 64);
+    ASSERT_NE(nullptr, cache);
+    EXPECT_EQ(initial_cache_count + 1u, kmem_cache_stats_count());
+
+    void* object = kmem_cache_alloc(cache);
+    ASSERT_NE(nullptr, object);
+    EXPECT_EQ(0u, reinterpret_cast<uintptr_t>(object) % 64u);
+    EXPECT_EQ(initial_free_pages - 1u, frames.free_page_count());
+
+    size_t usable_size = 0;
+    ASSERT_TRUE(kmem_allocation_usable_size(object, usable_size));
+    EXPECT_EQ(128u, usable_size);
+
+    KmemCacheStats stats{};
+    ASSERT_TRUE(find_cache_stats(80, stats));
+    EXPECT_STREQ("test-object-80", stats.name);
+    EXPECT_EQ(64u, stats.alignment);
+    EXPECT_EQ(1u, stats.live_object_count);
+    EXPECT_EQ(1u, stats.alloc_count);
+
+    kmem_cache_free(cache, object);
+    ASSERT_TRUE(find_cache_stats(80, stats));
+    EXPECT_EQ(0u, stats.live_object_count);
+    EXPECT_EQ(1u, stats.free_count);
+
+    EXPECT_TRUE(kmem_cache_destroy(cache));
+    EXPECT_EQ(initial_cache_count, kmem_cache_stats_count());
+    EXPECT_EQ(initial_free_pages, frames.free_page_count());
+}
+
+TEST(Kmem, NamedCacheDestroyFailsWhileObjectsRemainLive)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    KmemCache* cache = kmem_cache_create("test-object-96", 96, 32);
+    ASSERT_NE(nullptr, cache);
+
+    void* object = kmem_cache_alloc(cache);
+    ASSERT_NE(nullptr, object);
+
+    EXPECT_FALSE(kmem_cache_destroy(cache));
+    kfree(object);
+    EXPECT_TRUE(kmem_cache_destroy(cache));
+}
+
+TEST(Kmem, NamedCacheRejectsInvalidParameters)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    EXPECT_EQ(nullptr, kmem_cache_create(nullptr, 64, 16));
+    EXPECT_EQ(nullptr, kmem_cache_create("", 64, 16));
+    EXPECT_EQ(nullptr, kmem_cache_create("too-small", sizeof(void*) - 1u, 16));
+    EXPECT_EQ(nullptr, kmem_cache_create("bad-align", 64, 24));
+    EXPECT_EQ(nullptr, kmem_cache_create("too-large-align", 64, 128));
+    EXPECT_EQ(nullptr, kmem_cache_create("too-large-slot", kPageSize, 16));
+}
+
 TEST(Kmem, NoGrowStopsAtCurrentSlabCapacity)
 {
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);

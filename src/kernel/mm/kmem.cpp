@@ -11,21 +11,6 @@
 #include "core/panic.hpp"
 #endif
 
-namespace
-{
-constexpr uint32_t kSlabMagic = 0x4B4D454Du;
-constexpr uint32_t kLargeAllocationMagic = 0x4B4D454Cu;
-constexpr size_t kKeepEmptySlabsPerCache = 1;
-constexpr size_t kMinKmallocAlignment = 16;
-constexpr size_t kMaxSlabObjectSize = 1024;
-
-enum class AllocationKind : uint8_t
-{
-    None = 0,
-    Slab,
-    Large,
-};
-
 enum class SlabListKind : uint8_t
 {
     None = 0,
@@ -33,8 +18,6 @@ enum class SlabListKind : uint8_t
     Partial,
     Full,
 };
-
-struct KmemCache;
 
 struct SlabPageHeader
 {
@@ -52,6 +35,68 @@ struct SlabPageHeader
     SlabPageHeader* next = nullptr;
 };
 
+struct KmemCache
+{
+        constexpr KmemCache()
+                : name(nullptr),
+                    object_size(0),
+                    slot_size(0),
+                    alignment(0),
+                    lock("kmem-cache"),
+                    builtin(false),
+                    active(false)
+        {
+        }
+
+        constexpr KmemCache(const char* cache_name, uint16_t size, uint16_t cache_alignment)
+                : name(cache_name),
+                    object_size(size),
+                    slot_size(size),
+                    alignment(cache_alignment),
+                    lock(cache_name),
+                    builtin(true),
+                    active(true)
+        {
+        }
+
+        const char* name;
+        uint16_t object_size;
+        uint16_t slot_size;
+        uint16_t alignment;
+        Spinlock lock;
+        bool builtin;
+        bool active;
+        SlabPageHeader* empty = nullptr;
+        SlabPageHeader* partial = nullptr;
+        SlabPageHeader* full = nullptr;
+        uint32_t slab_count = 0;
+        uint32_t live_objects = 0;
+        uint32_t peak_live_objects = 0;
+        uint64_t alloc_count = 0;
+        uint64_t free_count = 0;
+        uint64_t failed_alloc_count = 0;
+        uint64_t slab_growth_count = 0;
+        uint64_t slab_return_count = 0;
+        KmemCache* registry_next = nullptr;
+};
+
+namespace
+{
+constexpr uint32_t kSlabMagic = 0x4B4D454Du;
+constexpr uint32_t kLargeAllocationMagic = 0x4B4D454Cu;
+constexpr size_t kKeepEmptySlabsPerCache = 1;
+constexpr size_t kMinKmallocAlignment = 16;
+constexpr size_t kMaxSlabObjectSize = 1024;
+constexpr size_t kMaxNamedCacheAlignment = 64;
+constexpr size_t kMaxNamedCaches = 32;
+
+enum class AllocationKind : uint8_t
+{
+    None = 0,
+    Slab,
+    Large,
+};
+
 static_assert(sizeof(SlabPageHeader) < kPageSize);
 
 struct LargeAllocationHeader
@@ -66,30 +111,6 @@ struct LargeAllocationHeader
 };
 
 static_assert(sizeof(LargeAllocationHeader) < kPageSize);
-
-struct KmemCache
-{
-    constexpr KmemCache(const char* cache_name, uint16_t size, uint16_t cache_alignment)
-        : name(cache_name), object_size(size), alignment(cache_alignment), lock(cache_name)
-    {
-    }
-
-    const char* name;
-    uint16_t object_size;
-    uint16_t alignment;
-    Spinlock lock;
-    SlabPageHeader* empty = nullptr;
-    SlabPageHeader* partial = nullptr;
-    SlabPageHeader* full = nullptr;
-    uint32_t slab_count = 0;
-    uint32_t live_objects = 0;
-    uint32_t peak_live_objects = 0;
-    uint64_t alloc_count = 0;
-    uint64_t free_count = 0;
-    uint64_t failed_alloc_count = 0;
-    uint64_t slab_growth_count = 0;
-    uint64_t slab_return_count = 0;
-};
 
 class CacheLockGuard
 {
@@ -203,6 +224,9 @@ constexpr uint16_t cache_alignment_for_size(uint16_t object_size)
 OS1_BSP_ONLY PageFrameContainer* g_kmem_frames = nullptr;
 OS1_BSP_ONLY bool g_kmem_ready = false;
 OS1_BSP_ONLY KmemGlobalStats g_kmem_global_stats{};
+OS1_BSP_ONLY Spinlock g_named_cache_registry_lock{"kmem-cache-registry"};
+OS1_BSP_ONLY KmemCache* g_named_cache_head = nullptr;
+OS1_BSP_ONLY size_t g_named_cache_count = 0;
 OS1_BSP_ONLY KmemCache g_builtin_caches[] = {
     KmemCache{"kmalloc-16", 16, cache_alignment_for_size(16)},
     KmemCache{"kmalloc-32", 32, cache_alignment_for_size(32)},
@@ -212,10 +236,168 @@ OS1_BSP_ONLY KmemCache g_builtin_caches[] = {
     KmemCache{"kmalloc-512", 512, cache_alignment_for_size(512)},
     KmemCache{"kmalloc-1024", 1024, cache_alignment_for_size(1024)},
 };
+OS1_BSP_ONLY KmemCache g_named_cache_slots[kMaxNamedCaches] = {};
 
 [[nodiscard]] constexpr size_t builtin_cache_count()
 {
     return sizeof(g_builtin_caches) / sizeof(g_builtin_caches[0]);
+}
+
+[[nodiscard]] constexpr size_t pointer_alignment()
+{
+    return alignof(void*);
+}
+
+[[nodiscard]] bool is_power_of_two(size_t value)
+{
+    return (0u != value) && (0u == (value & (value - 1u)));
+}
+
+[[nodiscard]] bool compute_slot_size(size_t object_size, size_t alignment, uint16_t& slot_size)
+{
+    const uint64_t padded = align_up(static_cast<uint64_t>(object_size), static_cast<uint64_t>(alignment));
+    if((0u == padded) || (padded > static_cast<uint64_t>(UINT16_MAX)))
+    {
+        return false;
+    }
+
+    slot_size = static_cast<uint16_t>(padded);
+    return slot_size >= sizeof(void*);
+}
+
+[[nodiscard]] bool named_cache_parameters_valid(const char* name,
+                                                size_t object_size,
+                                                size_t alignment,
+                                                uint16_t& cache_object_size,
+                                                uint16_t& cache_slot_size,
+                                                uint16_t& cache_alignment)
+{
+    if((nullptr == name) || ('\0' == *name) || (0u == object_size) || (object_size > static_cast<size_t>(UINT16_MAX)))
+    {
+        return false;
+    }
+
+    if(0u == alignment)
+    {
+        alignment = pointer_alignment();
+    }
+
+    if((alignment < pointer_alignment()) || (alignment > kMaxNamedCacheAlignment) || !is_power_of_two(alignment))
+    {
+        return false;
+    }
+
+    if(object_size < sizeof(void*))
+    {
+        return false;
+    }
+
+    cache_object_size = static_cast<uint16_t>(object_size);
+    cache_alignment = static_cast<uint16_t>(alignment);
+    if(!compute_slot_size(object_size, alignment, cache_slot_size))
+    {
+        return false;
+    }
+
+    const uint64_t first_object_offset = align_up(sizeof(SlabPageHeader), static_cast<uint64_t>(cache_alignment));
+    const uint64_t object_count = (kPageSize > first_object_offset) ? ((kPageSize - first_object_offset) / cache_slot_size) : 0u;
+    return (first_object_offset < kPageSize) && (object_count > 0u);
+}
+
+void configure_named_cache(KmemCache& cache,
+                          const char* name,
+                          uint16_t object_size,
+                          uint16_t slot_size,
+                          uint16_t alignment)
+{
+    cache.name = name;
+    cache.object_size = object_size;
+    cache.slot_size = slot_size;
+    cache.alignment = alignment;
+    cache.builtin = false;
+    cache.active = true;
+    cache.registry_next = nullptr;
+}
+
+void reset_named_cache_slot(KmemCache& cache)
+{
+    cache.name = nullptr;
+    cache.object_size = 0;
+    cache.slot_size = 0;
+    cache.alignment = 0;
+    cache.builtin = false;
+    cache.active = false;
+    cache.registry_next = nullptr;
+    cache.empty = nullptr;
+    cache.partial = nullptr;
+    cache.full = nullptr;
+    cache.slab_count = 0;
+    cache.live_objects = 0;
+    cache.peak_live_objects = 0;
+    cache.alloc_count = 0;
+    cache.free_count = 0;
+    cache.failed_alloc_count = 0;
+    cache.slab_growth_count = 0;
+    cache.slab_return_count = 0;
+}
+
+[[nodiscard]] KmemCache* named_cache_from_index_locked(size_t index)
+{
+    KmemCache* cache = g_named_cache_head;
+    while((nullptr != cache) && (index > 0u))
+    {
+        cache = cache->registry_next;
+        --index;
+    }
+    return cache;
+}
+
+void detach_named_cache_locked(KmemCache* cache)
+{
+    if(nullptr == cache)
+    {
+        return;
+    }
+
+    KmemCache* previous = nullptr;
+    KmemCache* current = g_named_cache_head;
+    while(nullptr != current)
+    {
+        if(current == cache)
+        {
+            if(nullptr != previous)
+            {
+                previous->registry_next = current->registry_next;
+            }
+            else
+            {
+                g_named_cache_head = current->registry_next;
+            }
+            current->registry_next = nullptr;
+            if(0u != g_named_cache_count)
+            {
+                --g_named_cache_count;
+            }
+            return;
+        }
+
+        previous = current;
+        current = current->registry_next;
+    }
+}
+
+[[nodiscard]] bool named_cache_is_registered_locked(const KmemCache* cache)
+{
+    const KmemCache* current = g_named_cache_head;
+    while(nullptr != current)
+    {
+        if(current == cache)
+        {
+            return true;
+        }
+        current = current->registry_next;
+    }
+    return false;
 }
 
 void record_cache_failure(KmemCache& cache)
@@ -373,14 +555,14 @@ void move_slab(KmemCache& cache, SlabPageHeader* slab, SlabListKind kind)
     memset(slab, 0, kPageSize);
 
     const uint64_t first_object_offset = align_up(sizeof(SlabPageHeader), cache.alignment);
-    const uint64_t object_count = (kPageSize - first_object_offset) / cache.object_size;
+    const uint64_t object_count = (kPageSize - first_object_offset) / cache.slot_size;
     if((first_object_offset >= kPageSize) || (0u == object_count))
     {
         return nullptr;
     }
 
     slab->magic = kSlabMagic;
-    slab->object_size = cache.object_size;
+    slab->object_size = cache.slot_size;
     slab->object_count = static_cast<uint16_t>(object_count);
     slab->free_count = static_cast<uint16_t>(object_count);
     slab->first_object_offset = static_cast<uint16_t>(first_object_offset);
@@ -391,7 +573,7 @@ void move_slab(KmemCache& cache, SlabPageHeader* slab, SlabListKind kind)
     void* free_list = nullptr;
     for(uint16_t index = slab->object_count; index > 0; --index)
     {
-        void* object = object_base + static_cast<size_t>(index - 1u) * cache.object_size;
+        void* object = object_base + static_cast<size_t>(index - 1u) * cache.slot_size;
         *reinterpret_cast<void**>(object) = free_list;
         free_list = object;
     }
@@ -699,36 +881,42 @@ void reset_cache(KmemCache& cache)
     cache.slab_growth_count = 0;
     cache.slab_return_count = 0;
 }
-}  // namespace
 
-void kmem_init(PageFrameContainer& frames)
+void snapshot_cache_locked(const KmemCache& cache, KmemCacheStats& snapshot)
 {
-    g_kmem_frames = &frames;
-    g_kmem_global_stats = {};
-    for(size_t index = 0; index < builtin_cache_count(); ++index)
-    {
-        reset_cache(g_builtin_caches[index]);
-    }
-    g_kmem_ready = true;
+    snapshot = {};
+    snapshot.name = cache.name;
+    snapshot.object_size = cache.object_size;
+    snapshot.alignment = cache.alignment;
+    snapshot.slab_count = cache.slab_count;
+    snapshot.live_object_count = cache.live_objects;
+    snapshot.peak_live_object_count = cache.peak_live_objects;
+    snapshot.alloc_count = cache.alloc_count;
+    snapshot.free_count = cache.free_count;
+    snapshot.failed_alloc_count = cache.failed_alloc_count;
+    snapshot.slab_growth_count = cache.slab_growth_count;
+    snapshot.slab_return_count = cache.slab_return_count;
+    snapshot.total_object_count = 0;
+    snapshot.free_object_count = 0;
+    snapshot.empty_slab_count = 0;
+    snapshot.partial_slab_count = 0;
+    snapshot.full_slab_count = 0;
+    snapshot_list(cache.empty,
+                  snapshot.empty_slab_count,
+                  snapshot.total_object_count,
+                  snapshot.free_object_count);
+    snapshot_list(cache.partial,
+                  snapshot.partial_slab_count,
+                  snapshot.total_object_count,
+                  snapshot.free_object_count);
+    snapshot_list(cache.full,
+                  snapshot.full_slab_count,
+                  snapshot.total_object_count,
+                  snapshot.free_object_count);
 }
 
-void* kmalloc(size_t size, KmallocFlags flags)
+[[nodiscard]] void* allocate_from_cache(KmemCache& cache, KmallocFlags flags)
 {
-    if(!g_kmem_ready || (nullptr == g_kmem_frames))
-    {
-        return kmem_fail("allocator not initialized", size, flags);
-    }
-    if(0u == size)
-    {
-        return kmem_fail("zero-sized request", size, flags);
-    }
-
-    KmemCache* cache = select_cache(size);
-    if(nullptr == cache)
-    {
-        return allocate_large(size, flags);
-    }
-
     const bool allow_growth = !has_flag(flags, KmallocFlags::NoGrow) &&
                               !has_flag(flags, KmallocFlags::Atomic);
     bool attempted_growth = false;
@@ -737,11 +925,11 @@ void* kmalloc(size_t size, KmallocFlags flags)
     {
         void* object = nullptr;
         {
-            CacheLockGuard guard(cache->lock);
-            SlabPageHeader* slab = select_slab(*cache);
+            CacheLockGuard guard(cache.lock);
+            SlabPageHeader* slab = select_slab(cache);
             if(nullptr != slab)
             {
-                object = allocate_from_slab_locked(*cache, slab);
+                object = allocate_from_slab_locked(cache, slab);
             }
         }
 
@@ -749,37 +937,27 @@ void* kmalloc(size_t size, KmallocFlags flags)
         {
             if(has_flag(flags, KmallocFlags::Zero))
             {
-                memset(object, 0, cache->object_size);
+                memset(object, 0, cache.slot_size);
             }
             return object;
         }
 
         if(!allow_growth || attempted_growth)
         {
-            record_cache_failure(*cache);
-            return kmem_fail("cache exhausted", size, flags);
+            record_cache_failure(cache);
+            return kmem_fail("cache exhausted", cache.object_size, flags);
         }
 
-        if(!grow_cache(*cache))
+        if(!grow_cache(cache))
         {
-            record_cache_failure(*cache);
-            return kmem_fail("out of physical pages", size, flags);
+            record_cache_failure(cache);
+            return kmem_fail("out of physical pages", cache.object_size, flags);
         }
         attempted_growth = true;
     }
 }
 
-void* kcalloc(size_t count, size_t size, KmallocFlags flags)
-{
-    size_t total_size = 0;
-    if(multiply_overflow_size(count, size, total_size))
-    {
-        return kmem_fail("kcalloc overflow", 0, flags);
-    }
-    return kmalloc(total_size, flags | KmallocFlags::Zero);
-}
-
-void kfree(void* ptr)
+void free_object(void* ptr, KmemCache* expected_cache)
 {
     if(nullptr == ptr)
     {
@@ -795,6 +973,16 @@ void kfree(void* ptr)
     const auto kind = allocation_kind_from_magic(*reinterpret_cast<const uint32_t*>(page_base));
     if(AllocationKind::Large == kind)
     {
+        if(nullptr != expected_cache)
+        {
+            ++g_kmem_global_stats.invalid_free_count;
+            kmem_corruption("cache free used for large allocation",
+                            ptr,
+                            page_base,
+                            reinterpret_cast<const LargeAllocationHeader*>(page_base)->physical_base,
+                            expected_cache->name);
+        }
+
         auto* large = reinterpret_cast<LargeAllocationHeader*>(page_base);
         if(!pointer_is_large_allocation(*large, ptr))
         {
@@ -818,11 +1006,21 @@ void kfree(void* ptr)
     }
 
     KmemCache& cache = *slab->cache;
+    if((nullptr != expected_cache) && (&cache != expected_cache))
+    {
+        ++g_kmem_global_stats.invalid_free_count;
+        kmem_corruption("cache free mismatch",
+                        ptr,
+                        reinterpret_cast<uint64_t>(slab),
+                        slab->physical_page,
+                        expected_cache->name);
+    }
+
     bool release_slab = false;
     uint64_t release_physical_page = 0;
     {
         CacheLockGuard guard(cache.lock);
-        if((slab->cache != &cache) || (slab->object_size != cache.object_size))
+        if((slab->cache != &cache) || (slab->object_size != cache.slot_size))
         {
             ++g_kmem_global_stats.invalid_free_count;
             kmem_corruption("cache mismatch",
@@ -866,6 +1064,198 @@ void kfree(void* ptr)
     }
 }
 
+void release_cache_slabs(KmemCache& cache)
+{
+    auto release_list = [&](SlabPageHeader* head) {
+        while(nullptr != head)
+        {
+            SlabPageHeader* next = head->next;
+            const uint64_t physical_page = head->physical_page;
+            if((head->cache != &cache) || (head->object_size != cache.slot_size))
+            {
+                kmem_corruption("destroy cache mismatch",
+                                head,
+                                reinterpret_cast<uint64_t>(head),
+                                physical_page,
+                                cache.name);
+            }
+            if(head->free_count != head->object_count)
+            {
+                kmem_corruption("destroy with live objects",
+                                head,
+                                reinterpret_cast<uint64_t>(head),
+                                physical_page,
+                                cache.name);
+            }
+            if(0u == g_kmem_global_stats.slab_page_count)
+            {
+                kmem_corruption("global slab page underflow",
+                                head,
+                                reinterpret_cast<uint64_t>(head),
+                                physical_page,
+                                cache.name);
+            }
+            --g_kmem_global_stats.slab_page_count;
+            memset(head, 0, sizeof(*head));
+            (void)g_kmem_frames->free(physical_page);
+            head = next;
+        }
+    };
+
+    release_list(cache.empty);
+    release_list(cache.partial);
+    release_list(cache.full);
+    reset_cache(cache);
+}
+}  // namespace
+
+void kmem_init(PageFrameContainer& frames)
+{
+    g_kmem_frames = &frames;
+    g_kmem_global_stats = {};
+    for(size_t index = 0; index < builtin_cache_count(); ++index)
+    {
+        reset_cache(g_builtin_caches[index]);
+    }
+    {
+        CacheLockGuard registry_guard(g_named_cache_registry_lock);
+        g_named_cache_head = nullptr;
+        g_named_cache_count = 0;
+        for(size_t index = 0; index < kMaxNamedCaches; ++index)
+        {
+            reset_named_cache_slot(g_named_cache_slots[index]);
+        }
+    }
+    g_kmem_ready = true;
+}
+
+void* kmalloc(size_t size, KmallocFlags flags)
+{
+    if(!g_kmem_ready || (nullptr == g_kmem_frames))
+    {
+        return kmem_fail("allocator not initialized", size, flags);
+    }
+    if(0u == size)
+    {
+        return kmem_fail("zero-sized request", size, flags);
+    }
+
+    KmemCache* cache = select_cache(size);
+    if(nullptr == cache)
+    {
+        return allocate_large(size, flags);
+    }
+
+    return allocate_from_cache(*cache, flags);
+}
+
+void* kcalloc(size_t count, size_t size, KmallocFlags flags)
+{
+    size_t total_size = 0;
+    if(multiply_overflow_size(count, size, total_size))
+    {
+        return kmem_fail("kcalloc overflow", 0, flags);
+    }
+    return kmalloc(total_size, flags | KmallocFlags::Zero);
+}
+
+KmemCache* kmem_cache_create(const char* name, size_t object_size, size_t alignment)
+{
+    if(!g_kmem_ready || (nullptr == g_kmem_frames))
+    {
+        return nullptr;
+    }
+
+    uint16_t cache_object_size = 0;
+    uint16_t cache_slot_size = 0;
+    uint16_t cache_alignment = 0;
+    if(!named_cache_parameters_valid(name,
+                                     object_size,
+                                     alignment,
+                                     cache_object_size,
+                                     cache_slot_size,
+                                     cache_alignment))
+    {
+        return nullptr;
+    }
+
+    CacheLockGuard registry_guard(g_named_cache_registry_lock);
+    for(size_t index = 0; index < kMaxNamedCaches; ++index)
+    {
+        KmemCache& cache = g_named_cache_slots[index];
+        if(cache.active)
+        {
+            continue;
+        }
+
+        reset_named_cache_slot(cache);
+        configure_named_cache(cache, name, cache_object_size, cache_slot_size, cache_alignment);
+        cache.registry_next = g_named_cache_head;
+        g_named_cache_head = &cache;
+        ++g_named_cache_count;
+        return &cache;
+    }
+
+    return nullptr;
+}
+
+void* kmem_cache_alloc(KmemCache* cache, KmallocFlags flags)
+{
+    if((nullptr == cache) || !cache->active)
+    {
+        return nullptr;
+    }
+    return allocate_from_cache(*cache, flags);
+}
+
+void kmem_cache_free(KmemCache* cache, void* ptr)
+{
+    if(nullptr == ptr)
+    {
+        return;
+    }
+    if((nullptr == cache) || !cache->active)
+    {
+        ++g_kmem_global_stats.invalid_free_count;
+        kmem_corruption("free with invalid cache handle", ptr);
+    }
+    free_object(ptr, cache);
+}
+
+bool kmem_cache_destroy(KmemCache* cache)
+{
+    if((nullptr == cache) || cache->builtin || !cache->active)
+    {
+        return false;
+    }
+
+    {
+        CacheLockGuard registry_guard(g_named_cache_registry_lock);
+        if(!named_cache_is_registered_locked(cache))
+        {
+            return false;
+        }
+
+        CacheLockGuard cache_guard(cache->lock);
+        if(0u != cache->live_objects)
+        {
+            return false;
+        }
+
+        detach_named_cache_locked(cache);
+        cache->active = false;
+    }
+
+    release_cache_slabs(*cache);
+    reset_named_cache_slot(*cache);
+    return true;
+}
+
+void kfree(void* ptr)
+{
+    free_object(ptr, nullptr);
+}
+
 bool kmem_allocation_usable_size(const void* ptr, size_t& size)
 {
     size = 0;
@@ -874,49 +1264,37 @@ bool kmem_allocation_usable_size(const void* ptr, size_t& size)
 
 size_t kmem_cache_stats_count()
 {
-    return builtin_cache_count();
+    CacheLockGuard registry_guard(g_named_cache_registry_lock);
+    return builtin_cache_count() + g_named_cache_count;
 }
 
 bool kmem_get_cache_stats(size_t index, KmemCacheStats& stats)
 {
-    if(index >= builtin_cache_count())
+    if(index < builtin_cache_count())
+    {
+        KmemCache& cache = g_builtin_caches[index];
+        KmemCacheStats snapshot{};
+
+        {
+            CacheLockGuard guard(cache.lock);
+            snapshot_cache_locked(cache, snapshot);
+        }
+
+        stats = snapshot;
+        return true;
+    }
+
+    CacheLockGuard registry_guard(g_named_cache_registry_lock);
+    KmemCache* cache = named_cache_from_index_locked(index - builtin_cache_count());
+    if(nullptr == cache)
     {
         return false;
     }
 
-    KmemCache& cache = g_builtin_caches[index];
     KmemCacheStats snapshot{};
-    snapshot.name = cache.name;
-    snapshot.object_size = cache.object_size;
-    snapshot.alignment = cache.alignment;
-
     {
-        CacheLockGuard guard(cache.lock);
-        snapshot.slab_count = cache.slab_count;
-        snapshot.live_object_count = cache.live_objects;
-        snapshot.peak_live_object_count = cache.peak_live_objects;
-        snapshot.alloc_count = cache.alloc_count;
-        snapshot.free_count = cache.free_count;
-        snapshot.failed_alloc_count = cache.failed_alloc_count;
-        snapshot.slab_growth_count = cache.slab_growth_count;
-        snapshot.slab_return_count = cache.slab_return_count;
-        snapshot.total_object_count = 0;
-        snapshot.free_object_count = 0;
-        snapshot.empty_slab_count = 0;
-        snapshot.partial_slab_count = 0;
-        snapshot.full_slab_count = 0;
-        snapshot_list(cache.empty,
-                      snapshot.empty_slab_count,
-                      snapshot.total_object_count,
-                      snapshot.free_object_count);
-        snapshot_list(cache.partial,
-                      snapshot.partial_slab_count,
-                      snapshot.total_object_count,
-                      snapshot.free_object_count);
-        snapshot_list(cache.full,
-                      snapshot.full_slab_count,
-                      snapshot.total_object_count,
-                      snapshot.free_object_count);
+        CacheLockGuard guard(cache->lock);
+        snapshot_cache_locked(*cache, snapshot);
     }
 
     stats = snapshot;
