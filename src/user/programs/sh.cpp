@@ -347,6 +347,8 @@ const char* event_type_name(uint32_t type)
             return "timer-source";
         case OS1_KERNEL_EVENT_NET_RX:
             return "net-rx";
+        case OS1_KERNEL_EVENT_KMEM_CORRUPTION:
+            return "kmem-corruption";
         default:
             return "unknown";
     }

@@ -1,6 +1,7 @@
 // Direct-map-backed slab allocator for kernel small objects.
 #include "mm/kmem.hpp"
 
+#include "debug/event_ring.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "sync/smp.hpp"
@@ -520,6 +521,12 @@ void record_cache_failure(KmemCache& cache)
                                  uint32_t observed_magic = 0)
 {
     ++g_kmem_global_stats.corruption_count;
+    kernel_event::record(OS1_KERNEL_EVENT_KMEM_CORRUPTION,
+                         OS1_KERNEL_EVENT_FLAG_FAILURE,
+                         reinterpret_cast<uint64_t>(ptr),
+                         header_address,
+                         physical_base,
+                         (static_cast<uint64_t>(expected_magic) << 32) | observed_magic);
     debug("kmem: corruption: ")(reason)(" ptr=0x")(reinterpret_cast<uint64_t>(ptr), 16, 16)();
     if(0u != header_address)
     {
