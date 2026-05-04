@@ -36,6 +36,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/googletest")
 
 add_library(os1_host_support
+  support/cpu_stubs.cpp
   support/debug_stub.cpp
   support/memory_stubs.cpp
   support/physical_memory.cpp
@@ -65,7 +66,11 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/platform/pci_config.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/pci_msi.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/state.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/proc/process.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/proc/reaper.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/proc/thread.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/user_elf.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/sched/thread_queue.cpp"
 )
 target_compile_definitions(os1_host_support PUBLIC OS1_HOST_TEST=1)
 if(OS1_KMEM_DEBUG)
@@ -103,6 +108,7 @@ add_executable(os1_host_tests
   mm/dma_tests.cpp
   mm/user_address_tests.cpp
   mm/virtual_memory_tests.cpp
+  proc/task_registry_tests.cpp
   proc/user_elf_tests.cpp
   syscall/observe_abi_tests.cpp
 )

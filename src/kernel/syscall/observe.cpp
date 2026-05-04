@@ -21,9 +21,9 @@ namespace
 [[nodiscard]] size_t count_active_processes()
 {
     size_t count = 0;
-    for(size_t i = 0; i < kMaxProcesses; ++i)
+    for(Process* process = first_process(); nullptr != process; process = next_process(process))
     {
-        if(ProcessState::Free != processTable[i].state)
+        if(ProcessState::Free != process->state)
         {
             ++count;
         }
@@ -238,9 +238,9 @@ long sys_observe_processes(const ObserveContext& context,
                            size_t length)
 {
     uint32_t record_count = 0;
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
     {
-        if((ThreadState::Free != threadTable[i].state) && (nullptr != threadTable[i].process))
+        if((ThreadState::Free != entry->state) && (nullptr != entry->process))
         {
             ++record_count;
         }
@@ -261,23 +261,22 @@ long sys_observe_processes(const ObserveContext& context,
         return -1;
     }
 
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
     {
-        const Thread& entry = threadTable[i];
-        if((ThreadState::Free == entry.state) || (nullptr == entry.process))
+        if((ThreadState::Free == entry->state) || (nullptr == entry->process))
         {
             continue;
         }
 
         Os1ObserveProcessRecord record{};
-        record.pid = entry.process->pid;
-        record.tid = entry.tid;
-        record.cr3 = entry.address_space_cr3;
-        record.process_state = static_cast<uint32_t>(entry.process->state);
-        record.thread_state = static_cast<uint32_t>(entry.state);
+        record.pid = entry->process->pid;
+        record.tid = entry->tid;
+        record.cr3 = entry->address_space_cr3;
+        record.process_state = static_cast<uint32_t>(entry->process->state);
+        record.thread_state = static_cast<uint32_t>(entry->state);
         record.flags =
-            entry.user_mode ? static_cast<uint32_t>(OS1_OBSERVE_PROCESS_FLAG_USER_MODE) : 0u;
-        copy_fixed_string(record.name, sizeof(record.name), entry.process->name);
+            entry->user_mode ? static_cast<uint32_t>(OS1_OBSERVE_PROCESS_FLAG_USER_MODE) : 0u;
+        copy_fixed_string(record.name, sizeof(record.name), entry->process->name);
         if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
         {
             return -1;

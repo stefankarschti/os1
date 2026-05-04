@@ -1,5 +1,5 @@
-// Simple fixed-table runnable selection. This file owns scheduler policy that
-// scans threadTable; object lifetime remains in proc/thread.cpp and proc/reaper.cpp.
+// Simple runnable selection in thread-registry order. This file owns scheduler
+// policy; object lifetime remains in proc/thread.cpp and proc/reaper.cpp.
 #include "proc/thread.hpp"
 
 Thread* next_runnable_thread(Thread* after)
@@ -10,16 +10,24 @@ Thread* next_runnable_thread(Thread* after)
                ((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state));
     };
 
-    size_t start_index = 0;
-    if((nullptr != after) && (after >= threadTable) && (after < (threadTable + kMaxThreads)))
+    Thread* start = first_thread();
+    if(nullptr != after)
     {
-        start_index = (size_t)(after - threadTable + 1) % kMaxThreads;
+        for(Thread* candidate = first_thread(); nullptr != candidate; candidate = next_thread(candidate))
+        {
+            if(candidate != after)
+            {
+                continue;
+            }
+
+            start = (nullptr != candidate->registry_next) ? candidate->registry_next : first_thread();
+            break;
+        }
     }
 
     Thread* idle_candidate = nullptr;
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* candidate = start; nullptr != candidate; candidate = next_thread(candidate))
     {
-        Thread* candidate = threadTable + ((start_index + i) % kMaxThreads);
         if(!is_runnable(candidate))
         {
             continue;
@@ -35,16 +43,35 @@ Thread* next_runnable_thread(Thread* after)
         return candidate;
     }
 
+    if(start != first_thread())
+    {
+        for(Thread* candidate = first_thread(); candidate != start; candidate = next_thread(candidate))
+        {
+            if(!is_runnable(candidate))
+            {
+                continue;
+            }
+            if(candidate == idle_thread())
+            {
+                if(nullptr == idle_candidate)
+                {
+                    idle_candidate = candidate;
+                }
+                continue;
+            }
+            return candidate;
+        }
+    }
+
     return idle_candidate;
 }
 
 size_t runnable_thread_count(void)
 {
     size_t count = 0;
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        if((ThreadState::Ready == threadTable[i].state) ||
-           (ThreadState::Running == threadTable[i].state))
+        if((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state))
         {
             ++count;
         }
@@ -54,12 +81,12 @@ size_t runnable_thread_count(void)
 
 Thread* first_runnable_user_thread(void)
 {
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        if(threadTable[i].user_mode && ((ThreadState::Ready == threadTable[i].state) ||
-                                        (ThreadState::Running == threadTable[i].state)))
+        if(thread->user_mode &&
+           ((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state)))
         {
-            return threadTable + i;
+            return thread;
         }
     }
     return nullptr;

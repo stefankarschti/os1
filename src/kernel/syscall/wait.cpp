@@ -11,9 +11,8 @@ Process* find_child_process(Process* parent, uint64_t pid, bool zombie_only)
         return nullptr;
     }
 
-    for(size_t i = 0; i < kMaxProcesses; ++i)
+    for(Process* candidate = first_process(); nullptr != candidate; candidate = next_process(candidate))
     {
-        Process* candidate = processTable + i;
         if((candidate->parent != parent) || (ProcessState::Free == candidate->state))
         {
             continue;
@@ -37,9 +36,9 @@ bool process_has_any_threads(const Process* process)
         return false;
     }
 
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        if((threadTable[i].process == process) && (ThreadState::Free != threadTable[i].state))
+        if((thread->process == process) && (ThreadState::Free != thread->state))
         {
             return true;
         }
@@ -93,9 +92,8 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
 
 void wake_child_waiters(PageFrameContainer& frames)
 {
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        Thread* thread = threadTable + i;
         if((ThreadState::Blocked != thread->state) ||
            (ThreadWaitReason::ChildExit != thread->wait.reason))
         {

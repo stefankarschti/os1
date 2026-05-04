@@ -1,65 +1,121 @@
-// Thread-table implementation. This file owns thread IDs, kernel stacks, saved
-// TrapFrame initialization, wait-state transitions, and CPU-local current-thread
-// publication.
+// Kmem-backed thread-registry implementation. This file owns thread IDs,
+// kernel stacks, saved TrapFrame initialization, wait-state transitions, and
+// CPU-local current-thread publication.
 #include "proc/thread.hpp"
 
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "sync/smp.hpp"
 #include "util/memory.h"
 
 namespace
 {
-constexpr size_t kThreadTablePageCount = (kMaxThreads * sizeof(Thread) + kPageSize - 1) / kPageSize;
+constexpr char kThreadCacheName[] = "thread";
 
 extern "C" void kernel_thread_start();
 
-// BSP-only for now: TID allocation, idle-thread publication, and thread table
+// BSP-only for now: TID allocation, idle-thread publication, and thread registry
 // mutation have no SMP lock until APs leave the parked idle loop.
 OS1_BSP_ONLY uint64_t g_next_tid = 1;
 OS1_BSP_ONLY Thread* g_idle_thread = nullptr;
+OS1_BSP_ONLY KmemCache* g_thread_cache = nullptr;
+OS1_BSP_ONLY Thread* g_thread_head = nullptr;
+OS1_BSP_ONLY Thread* g_thread_tail = nullptr;
 
-Thread* next_free_thread()
+Thread* allocate_thread_record()
 {
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    if(nullptr == g_thread_cache)
     {
-        if(ThreadState::Free == threadTable[i].state)
-        {
-            return threadTable + i;
-        }
+        return nullptr;
     }
-    return nullptr;
+    return static_cast<Thread*>(kmem_cache_alloc(g_thread_cache, KmallocFlags::Zero));
+}
+
+void link_thread(Thread* thread)
+{
+    if(nullptr == thread)
+    {
+        return;
+    }
+
+    thread->registry_next = nullptr;
+    if(nullptr != g_thread_tail)
+    {
+        g_thread_tail->registry_next = thread;
+    }
+    else
+    {
+        g_thread_head = thread;
+    }
+    g_thread_tail = thread;
+}
+
+void unlink_thread(Thread* thread)
+{
+    if((nullptr == thread) || (nullptr == g_thread_head))
+    {
+        return;
+    }
+
+    Thread* previous = nullptr;
+    for(Thread* candidate = g_thread_head; nullptr != candidate; candidate = candidate->registry_next)
+    {
+        if(candidate != thread)
+        {
+            previous = candidate;
+            continue;
+        }
+
+        Thread* next = candidate->registry_next;
+        if(nullptr != previous)
+        {
+            previous->registry_next = next;
+        }
+        else
+        {
+            g_thread_head = next;
+        }
+        if(g_thread_tail == candidate)
+        {
+            g_thread_tail = previous;
+        }
+        candidate->registry_next = nullptr;
+        return;
+    }
+}
+
+void release_thread_record(Thread* thread)
+{
+    if((nullptr == thread) || (nullptr == g_thread_cache))
+    {
+        return;
+    }
+
+    memset(thread, 0, sizeof(Thread));
+    thread->state = ThreadState::Free;
+    kmem_cache_free(g_thread_cache, thread);
 }
 
 bool initialize_thread_table(PageFrameContainer& frames)
 {
     KASSERT_ON_BSP();
+    (void)frames;
     g_next_tid = 1;
     g_idle_thread = nullptr;
+    g_thread_head = nullptr;
+    g_thread_tail = nullptr;
 
-    if(nullptr == threadTable)
+    g_thread_cache = kmem_cache_create(kThreadCacheName, sizeof(Thread), alignof(Thread));
+    if(nullptr == g_thread_cache)
     {
-        uint64_t thread_table_address = 0;
-        if(!frames.allocate(thread_table_address, kThreadTablePageCount))
-        {
-            debug("thread table allocation failed")();
-            return false;
-        }
-        threadTable = kernel_physical_pointer<Thread>(thread_table_address);
-        debug("thread table allocated at 0x")(thread_table_address, 16)();
-    }
-
-    memset(threadTable, 0, kThreadTablePageCount * kPageSize);
-    for(size_t i = 0; i < kMaxThreads; ++i)
-    {
-        threadTable[i].state = ThreadState::Free;
+        debug("thread cache creation failed")();
+        return false;
     }
     return true;
 }
 }  // namespace
-
-OS1_BSP_ONLY Thread* threadTable = nullptr;
 
 bool init_tasks(PageFrameContainer& frames)
 {
@@ -72,31 +128,36 @@ bool init_tasks(PageFrameContainer& frames)
     return true;
 }
 
+Thread* first_thread(void)
+{
+    return g_thread_head;
+}
+
+Thread* next_thread(const Thread* thread)
+{
+    return (nullptr != thread) ? thread->registry_next : nullptr;
+}
+
 void relink_runnable_threads()
 {
     KASSERT_ON_BSP();
-    if(nullptr == threadTable)
-    {
-        return;
-    }
 
     Thread* first = nullptr;
     Thread* last = nullptr;
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        threadTable[i].next = nullptr;
-        if((ThreadState::Ready == threadTable[i].state) ||
-           (ThreadState::Running == threadTable[i].state))
+        thread->next = nullptr;
+        if((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state))
         {
             if(nullptr == first)
             {
-                first = threadTable + i;
+                first = thread;
             }
             if(last)
             {
-                last->next = threadTable + i;
+                last->next = thread;
             }
-            last = threadTable + i;
+            last = thread;
         }
     }
     if(last)
@@ -107,18 +168,29 @@ void relink_runnable_threads()
 
 void clear_thread(Thread* thread)
 {
-    if(thread)
+    if(nullptr == thread)
     {
-        memset(thread, 0, sizeof(Thread));
-        thread->state = ThreadState::Free;
+        return;
     }
+
+    if(thread == g_idle_thread)
+    {
+        g_idle_thread = nullptr;
+    }
+    unlink_thread(thread);
+    release_thread_record(thread);
 }
 
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames)
 {
     KASSERT_ON_BSP();
-    Thread* thread = next_free_thread();
-    if((nullptr == thread) || (nullptr == process) || (nullptr == entry))
+    if((nullptr == process) || (nullptr == entry))
+    {
+        return nullptr;
+    }
+
+    Thread* thread = allocate_thread_record();
+    if(nullptr == thread)
     {
         return nullptr;
     }
@@ -126,6 +198,7 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
     uint64_t stack_base = 0;
     if(!frames.allocate(stack_base, kKernelThreadStackPages))
     {
+        release_thread_record(thread);
         return nullptr;
     }
     uint8_t* stack_memory = kernel_physical_pointer<uint8_t>(stack_base);
@@ -160,6 +233,7 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
         g_idle_thread = thread;
     }
 
+    link_thread(thread);
     relink_runnable_threads();
     return thread;
 }
@@ -171,7 +245,12 @@ Thread* create_user_thread(Process* process,
                            bool start_ready)
 {
     KASSERT_ON_BSP();
-    Thread* thread = next_free_thread();
+    if(nullptr == process)
+    {
+        return nullptr;
+    }
+
+    Thread* thread = allocate_thread_record();
     if(nullptr == thread)
     {
         return nullptr;
@@ -180,6 +259,7 @@ Thread* create_user_thread(Process* process,
     uint64_t stack_base = 0;
     if(!frames.allocate(stack_base, kKernelThreadStackPages))
     {
+        release_thread_record(thread);
         return nullptr;
     }
     uint8_t* stack_memory = kernel_physical_pointer<uint8_t>(stack_base);
@@ -201,6 +281,7 @@ Thread* create_user_thread(Process* process,
     thread->frame.rsp = user_rsp;
     thread->frame.ss = kUserDataSegment;
 
+    link_thread(thread);
     if(start_ready)
     {
         relink_runnable_threads();
@@ -331,16 +412,11 @@ void wake_blocked_thread(Thread* thread)
 
 Thread* first_blocked_thread(ThreadWaitReason reason)
 {
-    if(nullptr == threadTable)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        return nullptr;
-    }
-
-    for(size_t i = 0; i < kMaxThreads; ++i)
-    {
-        if((ThreadState::Blocked == threadTable[i].state) && (reason == threadTable[i].wait.reason))
+        if((ThreadState::Blocked == thread->state) && (reason == thread->wait.reason))
         {
-            return threadTable + i;
+            return thread;
         }
     }
     return nullptr;
@@ -348,14 +424,13 @@ Thread* first_blocked_thread(ThreadWaitReason reason)
 
 void wake_block_io_waiters(uint64_t completion_flag)
 {
-    if((0 == completion_flag) || (nullptr == threadTable))
+    if(0 == completion_flag)
     {
         return;
     }
 
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        Thread* thread = threadTable + i;
         if((ThreadState::Blocked != thread->state) ||
            (ThreadWaitReason::BlockIo != thread->wait.reason) ||
            (completion_flag != thread->wait.block_io.completion_flag))
