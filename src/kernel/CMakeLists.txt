@@ -34,6 +34,7 @@ set(KERNEL_CONSOLE_SOURCES
 )
 
 set(KERNEL_DRIVER_SOURCES
+  drivers/net/arp_cache.cpp
   drivers/block/virtio_blk.cpp
   drivers/bus/device.cpp
   drivers/bus/driver_registry.cpp

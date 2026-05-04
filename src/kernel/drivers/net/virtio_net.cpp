@@ -7,6 +7,7 @@
 #include "debug/event_ring.hpp"
 #include "drivers/bus/device.hpp"
 #include "drivers/bus/driver_registry.hpp"
+#include "drivers/net/arp_cache.hpp"
 #include "drivers/bus/resource.hpp"
 #include "drivers/virtio/pci_transport.hpp"
 #include "drivers/virtio/virtqueue.hpp"
@@ -41,6 +42,7 @@ constexpr uint16_t kArpHardwareEthernet = 0x0001;
 constexpr uint16_t kArpProtocolIpv4 = 0x0800;
 constexpr uint16_t kArpOpcodeRequest = 0x0001;
 constexpr uint16_t kArpOpcodeReply = 0x0002;
+constexpr char kVirtioNetArpEntryCacheName[] = "arp_entry";
 constexpr uint8_t kProbeSenderIp[]{10u, 0u, 2u, 15u};
 constexpr uint8_t kProbeTargetIp[]{10u, 0u, 2u, 2u};
 
@@ -76,6 +78,17 @@ struct PacketBuffer
     uint32_t frame_length = 0;
 };
 
+struct ArpIpv4Packet
+{
+    uint16_t opcode = 0;
+    uint8_t destination_mac[6]{};
+    uint8_t source_mac[6]{};
+    uint8_t sender_mac[6]{};
+    uint8_t sender_ip[4]{};
+    uint8_t target_mac[6]{};
+    uint8_t target_ip[4]{};
+};
+
 struct VirtioNetState
 {
     bool present = false;
@@ -96,6 +109,7 @@ struct VirtioNetState
 };
 
 constinit VirtioNetState g_virtio_net{};
+constinit ArpCache g_virtio_net_arp_cache{};
 
 [[nodiscard]] uint16_t load_be16(const uint8_t* data)
 {
@@ -256,7 +270,7 @@ uint16_t packet_ethertype(const PacketBuffer& buffer)
     return (buffer.frame_length >= 14u) ? load_be16(buffer.frame + 12u) : 0u;
 }
 
-bool is_probe_arp_reply(const PacketBuffer& buffer, const uint8_t mac[6])
+bool parse_arp_ipv4_packet(const PacketBuffer& buffer, ArpIpv4Packet& packet)
 {
     if(buffer.frame_length < kVirtioNetArpPacketBytes)
     {
@@ -264,13 +278,29 @@ bool is_probe_arp_reply(const PacketBuffer& buffer, const uint8_t mac[6])
     }
 
     const uint8_t* frame = buffer.frame;
-    return macs_equal(frame, mac) && (load_be16(frame + 12u) == kEtherTypeArp) &&
-           (load_be16(frame + 14u) == kArpHardwareEthernet) &&
-           (load_be16(frame + 16u) == kArpProtocolIpv4) && (6u == frame[18]) &&
-           (4u == frame[19]) && (load_be16(frame + 20u) == kArpOpcodeReply) &&
-           macs_equal(frame + 32u, mac) &&
-           (0 == memcmp(frame + 28u, kProbeTargetIp, sizeof(kProbeTargetIp))) &&
-           (0 == memcmp(frame + 38u, kProbeSenderIp, sizeof(kProbeSenderIp)));
+    if((load_be16(frame + 12u) != kEtherTypeArp) ||
+       (load_be16(frame + 14u) != kArpHardwareEthernet) ||
+       (load_be16(frame + 16u) != kArpProtocolIpv4) || (6u != frame[18]) || (4u != frame[19]))
+    {
+        return false;
+    }
+
+    packet.opcode = load_be16(frame + 20u);
+    copy_mac(packet.destination_mac, frame);
+    copy_mac(packet.source_mac, frame + 6u);
+    copy_mac(packet.sender_mac, frame + 22u);
+    memcpy(packet.sender_ip, frame + 28u, sizeof(packet.sender_ip));
+    copy_mac(packet.target_mac, frame + 32u);
+    memcpy(packet.target_ip, frame + 38u, sizeof(packet.target_ip));
+    return true;
+}
+
+bool is_probe_arp_reply(const ArpIpv4Packet& packet, const uint8_t mac[6])
+{
+    return macs_equal(packet.destination_mac, mac) && (packet.opcode == kArpOpcodeReply) &&
+           macs_equal(packet.target_mac, mac) &&
+           (0 == memcmp(packet.sender_ip, kProbeTargetIp, sizeof(kProbeTargetIp))) &&
+           (0 == memcmp(packet.target_ip, kProbeSenderIp, sizeof(kProbeSenderIp)));
 }
 
 bool wait_for_flag(volatile bool& flag)
@@ -313,9 +343,22 @@ void virtio_net_irq(void* data)
                              state.last_rx_ethertype,
                              state.pci_index,
                              state.transport.interrupt.vector);
-        if(is_probe_arp_reply(state.rx_buffer, state.mac))
+
+        ArpIpv4Packet arp_packet{};
+        if(parse_arp_ipv4_packet(state.rx_buffer, arp_packet))
         {
-            state.smoke_rx_seen = true;
+            if(!g_virtio_net_arp_cache.upsert(arp_packet.sender_ip, arp_packet.sender_mac))
+            {
+                debug("virtio-net: arp cache insert failed")();
+            }
+            if(is_probe_arp_reply(arp_packet, state.mac))
+            {
+                state.smoke_rx_seen = true;
+            }
+        }
+        else if(state.last_rx_ethertype == kEtherTypeArp)
+        {
+            debug("virtio-net: malformed arp frame")();
         }
         (void)submit_rx_buffer(state);
     }
@@ -431,6 +474,11 @@ bool probe_virtio_net_device(VirtualMemory& kernel_vm,
 
     auto* config = reinterpret_cast<volatile VirtioNetConfig*>(state.transport.device_cfg);
     load_mac_from_config(config->mac, state.mac);
+    if(!g_virtio_net_arp_cache.initialize(kVirtioNetArpEntryCacheName))
+    {
+        debug("virtio-net: arp cache init failed")();
+        return false;
+    }
     virtio_pci_write_device_status(
         state.transport,
         static_cast<uint8_t>(state.transport.common_cfg->device_status | kVirtioStatusDriverOk));
@@ -479,6 +527,10 @@ void remove_virtio_net_device(DeviceId id)
     release_pci_bars_for_owner(id);
     platform_release_irq_routes_for_owner(id);
     device_binding_remove(id);
+    if(!g_virtio_net_arp_cache.destroy())
+    {
+        debug("virtio-net: arp cache destroy failed")();
+    }
     g_virtio_net = {};
 }
 
@@ -506,6 +558,7 @@ bool run_virtio_net_smoke()
         return false;
     }
 
+    g_virtio_net_arp_cache.clear();
     g_virtio_net.smoke_rx_seen = false;
     if(!submit_arp_probe(g_virtio_net))
     {
@@ -524,7 +577,16 @@ bool run_virtio_net_smoke()
         return false;
     }
 
+    uint8_t resolved_mac[6]{};
+     if(!g_virtio_net_arp_cache.lookup(kProbeTargetIp, resolved_mac) ||
+         (0u == g_virtio_net_arp_cache.entry_count()))
+    {
+        debug("virtio-net: arp cache smoke verification failed")();
+        return false;
+    }
+
     debug("virtio-net smoke ok bytes=")(g_virtio_net.last_rx_bytes)(" ethertype=0x")(
-        g_virtio_net.last_rx_ethertype, 16, 4)();
+        g_virtio_net.last_rx_ethertype, 16, 4)(" arp-cache=")(
+        g_virtio_net_arp_cache.entry_count())();
     return true;
 }
