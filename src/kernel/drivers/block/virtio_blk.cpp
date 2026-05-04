@@ -545,20 +545,6 @@ bool verify_virtio_blk_multi_sector_write(BlockDevice& device)
     return true;
 }
 
-void virtio_blk_threaded_smoke_thread()
-{
-    BlockDevice* device = const_cast<BlockDevice*>(virtio_blk_block_device());
-    const bool ok = (nullptr != device) && verify_virtio_blk_prefix(*device, 0, kVirtioSector0Prefix) &&
-                    verify_virtio_blk_write(*device) &&
-                    verify_virtio_blk_multi_sector_read(*device) &&
-                    verify_virtio_blk_multi_sector_write(*device);
-    debug(ok ? "virtio-blk threaded smoke ok" : "virtio-blk threaded smoke failed")();
-    mark_current_thread_dying(ok ? 0 : 1);
-    for(;;)
-    {
-        asm volatile("hlt" : : : "memory");
-    }
-}
 }  // namespace
 
 bool probe_virtio_blk_device(VirtualMemory& kernel_vm,
@@ -751,16 +737,18 @@ bool run_virtio_blk_smoke()
     return true;
 }
 
-Thread* start_virtio_blk_threaded_smoke(Process* kernel_process, PageFrameContainer& frames)
+bool run_virtio_blk_threaded_smoke()
 {
     if(!g_virtio_blk.present)
     {
-        return nullptr;
-    }
-    if(nullptr == kernel_process)
-    {
-        return nullptr;
+        return true;
     }
 
-    return create_kernel_thread(kernel_process, virtio_blk_threaded_smoke_thread, frames);
+    BlockDevice* device = const_cast<BlockDevice*>(virtio_blk_block_device());
+    const bool ok = (nullptr != device) && verify_virtio_blk_prefix(*device, 0, kVirtioSector0Prefix) &&
+                    verify_virtio_blk_write(*device) &&
+                    verify_virtio_blk_multi_sector_read(*device) &&
+                    verify_virtio_blk_multi_sector_write(*device);
+    debug(ok ? "virtio-blk threaded smoke ok" : "virtio-blk threaded smoke failed")();
+    return ok;
 }

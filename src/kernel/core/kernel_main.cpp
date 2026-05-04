@@ -257,6 +257,33 @@ bool initialize_scheduler_timer()
     debug("timer: PIT fallback")();
     return true;
 }
+
+[[noreturn]] void finish_boot_sequence_thread(int exit_status)
+{
+    mark_current_thread_dying(exit_status);
+    for(;;)
+    {
+        asm volatile("hlt" : : : "memory");
+    }
+}
+
+[[noreturn]] void kernel_boot_sequence_thread()
+{
+    if(!run_virtio_blk_threaded_smoke())
+    {
+        finish_boot_sequence_thread(1);
+    }
+
+    Thread* init_thread = load_user_program(page_frames, g_kernel_root_cr3, "/bin/init");
+    if(nullptr == init_thread)
+    {
+        write_console_line("failed to load /bin/init");
+        finish_boot_sequence_thread(1);
+    }
+
+    write_console_line("starting first user process");
+    finish_boot_sequence_thread(0);
+}
 }  // namespace
 
 extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
@@ -513,26 +540,19 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
-    Thread* init_thread = load_user_program(page_frames, g_kernel_root_cr3, "/bin/init");
-    if(nullptr == init_thread)
-    {
-        write_console_line("failed to load /bin/init");
-        return;
-    }
-    Thread* block_smoke_thread = start_virtio_blk_threaded_smoke(kernel_process, page_frames);
-    if((nullptr != platform_virtio_blk()) && (nullptr == block_smoke_thread))
+    Thread* boot_sequence_thread =
+        create_kernel_thread(kernel_process, kernel_boot_sequence_thread, page_frames);
+    if(nullptr == boot_sequence_thread)
     {
         return;
     }
 
     kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
     debug("start multitasking")();
-    write_console_line("starting first user process");
     if(!initialize_scheduler_timer())
     {
         return;
     }
-    Thread* first_thread = (nullptr != block_smoke_thread) ? block_smoke_thread : init_thread;
-    enter_first_thread(first_thread, first_thread->kernel_stack_top);
+    enter_first_thread(boot_sequence_thread, boot_sequence_thread->kernel_stack_top);
     halt_forever();
 }

@@ -10,8 +10,6 @@
 #include "platform/platform.hpp"
 
 struct BlockDevice;
-struct Process;
-struct Thread;
 
 class VirtualMemory;
 
@@ -30,8 +28,8 @@ void remove_virtio_blk_device(DeviceId id);
 const PciDriver& virtio_blk_pci_driver();
 // Run the current read-only sector smoke check against the bound device.
 bool run_virtio_blk_smoke();
-// Create a post-scheduler kernel-threaded smoke so sync wrappers exercise the
-// threaded completion path after multitasking begins.
-Thread* start_virtio_blk_threaded_smoke(Process* kernel_process, PageFrameContainer& frames);
+// Run the post-scheduler smoke from a kernel thread so sync wrappers exercise
+// the threaded completion path after multitasking begins.
+bool run_virtio_blk_threaded_smoke();
 // Return the generic block facade for filesystem/storage code.
 const BlockDevice* virtio_blk_block_device();
