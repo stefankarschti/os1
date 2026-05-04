@@ -163,7 +163,8 @@ void prepare_user_thread_entry(Thread* thread, uint64_t entry, uint64_t user_rsp
 Thread* load_user_program(PageFrameContainer& frames,
                           uint64_t kernel_root_cr3,
                           const char* path,
-                          Process* parent)
+                          Process* parent,
+                          bool start_ready)
 {
     uint64_t user_cr3 = 0;
     uint64_t entry = 0;
@@ -181,7 +182,7 @@ Thread* load_user_program(PageFrameContainer& frames,
     }
     process->parent = parent;
 
-    Thread* thread = create_user_thread(process, entry, user_rsp, frames);
+    Thread* thread = create_user_thread(process, entry, user_rsp, frames, start_ready);
     if(nullptr == thread)
     {
         reap_process(process, frames);

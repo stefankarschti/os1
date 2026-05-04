@@ -20,8 +20,10 @@ bool load_user_program_image(PageFrameContainer& frames,
                              uint64_t& user_rsp);
 // Rewrite an existing thread's trap frame so it enters a loaded user image.
 void prepare_user_thread_entry(Thread* thread, uint64_t entry, uint64_t user_rsp);
-// Load a user program from the initrd and create the first runnable thread.
+// Load a user program from the initrd and create the first thread, optionally
+// keeping it off the runnable set until surrounding boot state is published.
 Thread* load_user_program(PageFrameContainer& frames,
                           uint64_t kernel_root_cr3,
                           const char* path,
-                          Process* parent = nullptr);
+                          Process* parent = nullptr,
+                          bool start_ready = true);

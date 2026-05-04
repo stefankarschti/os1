@@ -167,7 +167,8 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
 Thread* create_user_thread(Process* process,
                            uint64_t user_rip,
                            uint64_t user_rsp,
-                           PageFrameContainer& frames)
+                           PageFrameContainer& frames,
+                           bool start_ready)
 {
     KASSERT_ON_BSP();
     Thread* thread = next_free_thread();
@@ -187,7 +188,7 @@ Thread* create_user_thread(Process* process,
 
     thread->tid = g_next_tid++;
     thread->process = process;
-    thread->state = ThreadState::Ready;
+    thread->state = start_ready ? ThreadState::Ready : ThreadState::Blocked;
     thread->user_mode = true;
     thread->address_space_cr3 = process->address_space.cr3;
     thread->kernel_stack_base = stack_base;
@@ -200,7 +201,10 @@ Thread* create_user_thread(Process* process,
     thread->frame.rsp = user_rsp;
     thread->frame.ss = kUserDataSegment;
 
-    relink_runnable_threads();
+    if(start_ready)
+    {
+        relink_runnable_threads();
+    }
     return thread;
 }
 

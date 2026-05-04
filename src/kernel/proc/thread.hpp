@@ -97,7 +97,8 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
 Thread* create_user_thread(Process* process,
                            uint64_t user_rip,
                            uint64_t user_rsp,
-                           PageFrameContainer& frames);
+                           PageFrameContainer& frames,
+                           bool start_ready = true);
 // Return the thread bound to the current CPU.
 Thread* current_thread(void);
 // Return the scheduler's idle thread.

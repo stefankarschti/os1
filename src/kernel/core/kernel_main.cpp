@@ -29,6 +29,7 @@
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
 #include "mm/boot_reserve.hpp"
+#include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/irq_registry.hpp"
 #include "platform/platform.hpp"
@@ -274,7 +275,8 @@ bool initialize_scheduler_timer()
         finish_boot_sequence_thread(1);
     }
 
-    Thread* init_thread = load_user_program(page_frames, g_kernel_root_cr3, "/bin/init");
+    Thread* init_thread =
+        load_user_program(page_frames, g_kernel_root_cr3, "/bin/init", nullptr, false);
     if(nullptr == init_thread)
     {
         write_console_line("failed to load /bin/init");
@@ -282,6 +284,7 @@ bool initialize_scheduler_timer()
     }
 
     write_console_line("starting first user process");
+    mark_thread_ready(init_thread);
     finish_boot_sequence_thread(0);
 }
 }  // namespace
@@ -390,6 +393,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     g_kernel_root_cr3 = kvm.root();
     g_kernel_direct_map_ready = true;
     page_frames.enable_direct_map_access();
+    kmem_init(page_frames);
     g_cpu_boot = kernel_physical_pointer<cpu>((uint64_t)g_cpu_boot);
     // `cpu_cur()` reads the self-pointer through GS, so rebind it before the
     // first direct-map `cpu_init()` reloads descriptor state.

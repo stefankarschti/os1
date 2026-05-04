@@ -54,7 +54,11 @@ public:
         {
             while(__atomic_load_n(&locked_, __ATOMIC_RELAXED) != 0u)
             {
+#if defined(OS1_HOST_TEST)
+                __atomic_signal_fence(__ATOMIC_ACQ_REL);
+#else
                 asm volatile("pause" ::: "memory");
+#endif
             }
         }
     }
@@ -113,19 +117,27 @@ private:
 
     [[nodiscard]] static uint64_t read_rflags()
     {
+#if defined(OS1_HOST_TEST)
+        return kInterruptFlag;
+#else
         uint64_t value = 0;
         asm volatile("pushfq; popq %0" : "=r"(value) : : "memory");
         return value;
+#endif
     }
 
     static void disable_interrupts()
     {
+#if !defined(OS1_HOST_TEST)
         asm volatile("cli" ::: "memory");
+#endif
     }
 
     static void enable_interrupts()
     {
+#if !defined(OS1_HOST_TEST)
         asm volatile("sti" ::: "memory");
+#endif
     }
 
     uint64_t saved_rflags_;

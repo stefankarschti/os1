@@ -3,8 +3,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <vector>
-
 namespace os1::host_test
 {
 void clear_physical_memory_ranges();
@@ -26,6 +24,7 @@ public:
 
 private:
     uint64_t physical_base_;
-    std::vector<uint8_t> data_;
+    size_t size_bytes_ = 0;
+    uint8_t* data_ = nullptr;
 };
 }  // namespace os1::host_test

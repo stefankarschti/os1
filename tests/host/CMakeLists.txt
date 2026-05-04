@@ -49,6 +49,7 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/handoff/boot_info.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/boot_mapping.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/resource.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/mm/kmem.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/page_frame.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/dma.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
@@ -90,6 +91,7 @@ add_executable(os1_host_tests
   kernel/pci_resource_tests.cpp
   kernel/hid_keyboard_tests.cpp
   kernel/xhci_controller_tests.cpp
+  mm/kmem_tests.cpp
   mm/page_frame_tests.cpp
   mm/dma_tests.cpp
   mm/user_address_tests.cpp

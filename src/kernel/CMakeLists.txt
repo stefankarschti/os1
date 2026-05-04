@@ -20,6 +20,7 @@ set(KERNEL_MM_SOURCES
   mm/boot_mapping.cpp
   mm/boot_reserve.cpp
   mm/dma.cpp
+  mm/kmem.cpp
   mm/page_frame.cpp
   mm/user_copy.cpp
   mm/virtual_memory.cpp
@@ -173,8 +174,8 @@ target_compile_options(
     # The kernel does not enable or context-switch SIMD/FPU state yet. Force
     # integer-register-only codegen so newer cross-compilers cannot introduce
     # XMM/AVX instructions that trap as #UD on the CI runner's virtual CPU.
-    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O1 -Wall -Wextra -fno-asynchronous-unwind-tables>
-    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O0 -Wall -Wextra -fno-asynchronous-unwind-tables>
+    $<$<COMPILE_LANGUAGE:C>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O1 -Wall -Wextra -fno-asynchronous-unwind-tables -fno-unwind-tables>
+    $<$<COMPILE_LANGUAGE:CXX>:-ffreestanding -mno-red-zone -march=x86-64 -mtune=generic -mgeneral-regs-only -mcmodel=kernel -fno-pic -fno-pie -O0 -Wall -Wextra -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-exceptions -fno-rtti>
 )
 
 add_library(kernel_limine_frontend OBJECT ${KERNEL_LIMINE_SOURCES})
