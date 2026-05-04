@@ -1,4 +1,4 @@
-// Process ownership model. This header describes process table entries,
+// Process ownership model. This header describes process records,
 // address-space ownership, and the lifecycle operations that are independent of
 // scheduler run-queue policy.
 #pragma once
@@ -9,9 +9,6 @@
 #include "sync/smp.hpp"
 
 class PageFrameContainer;
-
-// The kernel keeps a fixed process table until dynamic kernel allocation grows.
-constexpr size_t kMaxProcesses = 32;
 
 // Process lifecycle state as observed by wait/reap and observe syscalls.
 enum class ProcessState : uint32_t
@@ -29,7 +26,7 @@ struct AddressSpace
     uint64_t cr3 = 0;
 };
 
-// Fixed-size process table entry. Future credentials, sessions, descriptor
+// Kmem-backed process registry entry. Future credentials, sessions, descriptor
 // tables, and resource handles should attach here rather than to scheduler code.
 struct Process
 {
@@ -39,9 +36,10 @@ struct Process
     int exit_status = 0;
     Process* parent = nullptr;
     char name[32]{};
+    Process* registry_next = nullptr;
 };
 
-// allocate and reset the fixed process table from physical pages.
+// Initialize the kmem-backed process registry.
 bool initialize_process_table(PageFrameContainer& frames);
 
 // Create the immortal kernel process that owns kernel threads.
@@ -56,5 +54,6 @@ bool process_has_threads(Process* process);
 // Reclaim a process address space and table entry when all threads are gone.
 bool reap_process(Process* process, PageFrameContainer& frames);
 
-// BSP-only for now: global fixed process table storage.
-OS1_BSP_ONLY extern Process* processTable;
+// Iterate the live process registry in creation order.
+Process* first_process();
+Process* next_process(const Process* process);

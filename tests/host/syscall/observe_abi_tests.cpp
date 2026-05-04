@@ -16,8 +16,10 @@ TEST(ObserveAbi, ConstantsAreStable)
     EXPECT_EQ(7, OS1_OBSERVE_DEVICES);
     EXPECT_EQ(8, OS1_OBSERVE_RESOURCES);
     EXPECT_EQ(9, OS1_OBSERVE_IRQS);
+    EXPECT_EQ(10, OS1_OBSERVE_KMEM);
     EXPECT_EQ(256, OS1_OBSERVE_EVENT_RING_CAPACITY);
     EXPECT_EQ(32, OS1_OBSERVE_DRIVER_NAME_BYTES);
+    EXPECT_EQ(32, OS1_OBSERVE_KMEM_NAME_BYTES);
     EXPECT_EQ(1, OS1_OBSERVE_RESOURCE_PCI_BAR);
     EXPECT_EQ(2, OS1_OBSERVE_RESOURCE_DMA);
     EXPECT_EQ(1, OS1_KERNEL_EVENT_TRAP);
@@ -29,6 +31,7 @@ TEST(ObserveAbi, ConstantsAreStable)
     EXPECT_EQ(7, OS1_KERNEL_EVENT_SMOKE_MARKER);
     EXPECT_EQ(8, OS1_KERNEL_EVENT_TIMER_SOURCE);
     EXPECT_EQ(9, OS1_KERNEL_EVENT_NET_RX);
+    EXPECT_EQ(10, OS1_KERNEL_EVENT_KMEM_CORRUPTION);
     EXPECT_EQ(1, OS1_KERNEL_EVENT_TIMER_SOURCE_PIT);
     EXPECT_EQ(2, OS1_KERNEL_EVENT_TIMER_SOURCE_LAPIC);
 }
@@ -81,4 +84,11 @@ TEST(ObserveAbi, RecordLayoutsArePacked)
     EXPECT_EQ(64u, offsetof(Os1ObserveEventRecord, type));
     EXPECT_EQ(68u, offsetof(Os1ObserveEventRecord, flags));
     EXPECT_EQ(72u, offsetof(Os1ObserveEventRecord, cpu));
+
+    EXPECT_EQ(88u, sizeof(Os1ObserveKmemRecord));
+    EXPECT_EQ(0u, offsetof(Os1ObserveKmemRecord, cache_index));
+    EXPECT_EQ(4u, offsetof(Os1ObserveKmemRecord, object_size));
+    EXPECT_EQ(16u, offsetof(Os1ObserveKmemRecord, slab_count));
+    EXPECT_EQ(32u, offsetof(Os1ObserveKmemRecord, alloc_count));
+    EXPECT_EQ(56u, offsetof(Os1ObserveKmemRecord, name));
 }

@@ -18,6 +18,8 @@ endif()
 
 project(os1 LANGUAGES C CXX)
 
+option(OS1_KMEM_DEBUG "Enable kernel small-object allocator debug instrumentation" ON)
+
 if(NOT CMAKE_C_COMPILER MATCHES "(^|/)x86_64-elf-gcc$")
   message(FATAL_ERROR "os1 requires the x86_64-elf cross toolchain. Configure with -DCMAKE_TOOLCHAIN_FILE=${OS1_TOOLCHAIN_FILE} or use the provided CMake preset.")
 endif()
@@ -568,7 +570,7 @@ set(OS1_SMOKE_REJECT_MARKERS
 # smoke runner observes it when the following command output flushes.
 set(OS1_SHELL_INPUT_EVENTS
   "shell prompt ready::help\\n"
-  "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit::echo hi\\n"
+  "help echo pid sys ps cpu pci initrd devices irqs resources kmem events exec exit::echo hi\\n"
   "echo: hi::pid\\n"
 )
 
@@ -581,7 +583,8 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "initrd complete::devices\\n"
   "device bus id state pci driver::irqs\\n"
   "irq vector kind owner source gsi flags::resources\\n"
-  "resource kind owner ref detail base size extra::events\\n"
+  "resources complete::kmem\\n"
+  "kmem complete::events\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -687,7 +690,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit"
+    "help echo pid sys ps cpu pci initrd devices irqs resources kmem events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -752,6 +755,10 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "resource kind owner ref detail base size extra"
     "resource bar pci:3 pci=3 bar="
     "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
+    "resources complete"
+    "kmem global caches="
+    "kmem cache kmalloc-16 obj=16"
+    "kmem complete"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event timer-source-lapic seq="
@@ -902,7 +909,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit"
+    "help echo pid sys ps cpu pci initrd devices irqs resources kmem events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -965,6 +972,10 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "resource kind owner ref detail base size extra"
     "resource bar pci:3 pci=3 bar="
     "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
+    "resources complete"
+    "kmem global caches="
+    "kmem cache kmalloc-16 obj=16"
+    "kmem complete"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event timer-source-lapic seq="

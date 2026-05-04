@@ -7,6 +7,7 @@
 #include "drivers/bus/device.hpp"
 #include "drivers/bus/resource.hpp"
 #include "fs/initrd.hpp"
+#include "mm/kmem.hpp"
 #include "mm/dma.hpp"
 #include "mm/user_copy.hpp"
 #include "platform/platform.hpp"
@@ -20,9 +21,9 @@ namespace
 [[nodiscard]] size_t count_active_processes()
 {
     size_t count = 0;
-    for(size_t i = 0; i < kMaxProcesses; ++i)
+    for(Process* process = first_process(); nullptr != process; process = next_process(process))
     {
-        if(ProcessState::Free != processTable[i].state)
+        if(ProcessState::Free != process->state)
         {
             ++count;
         }
@@ -237,9 +238,9 @@ long sys_observe_processes(const ObserveContext& context,
                            size_t length)
 {
     uint32_t record_count = 0;
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
     {
-        if((ThreadState::Free != threadTable[i].state) && (nullptr != threadTable[i].process))
+        if((ThreadState::Free != entry->state) && (nullptr != entry->process))
         {
             ++record_count;
         }
@@ -260,23 +261,22 @@ long sys_observe_processes(const ObserveContext& context,
         return -1;
     }
 
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
     {
-        const Thread& entry = threadTable[i];
-        if((ThreadState::Free == entry.state) || (nullptr == entry.process))
+        if((ThreadState::Free == entry->state) || (nullptr == entry->process))
         {
             continue;
         }
 
         Os1ObserveProcessRecord record{};
-        record.pid = entry.process->pid;
-        record.tid = entry.tid;
-        record.cr3 = entry.address_space_cr3;
-        record.process_state = static_cast<uint32_t>(entry.process->state);
-        record.thread_state = static_cast<uint32_t>(entry.state);
+        record.pid = entry->process->pid;
+        record.tid = entry->tid;
+        record.cr3 = entry->address_space_cr3;
+        record.process_state = static_cast<uint32_t>(entry->process->state);
+        record.thread_state = static_cast<uint32_t>(entry->state);
         record.flags =
-            entry.user_mode ? static_cast<uint32_t>(OS1_OBSERVE_PROCESS_FLAG_USER_MODE) : 0u;
-        copy_fixed_string(record.name, sizeof(record.name), entry.process->name);
+            entry->user_mode ? static_cast<uint32_t>(OS1_OBSERVE_PROCESS_FLAG_USER_MODE) : 0u;
+        copy_fixed_string(record.name, sizeof(record.name), entry->process->name);
         if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
         {
             return -1;
@@ -720,6 +720,59 @@ long sys_observe_events(const ObserveContext& context,
 
     return result;
 }
+
+long sys_observe_kmem(const ObserveContext& context,
+                      Thread* thread,
+                      uint64_t user_buffer,
+                      size_t length)
+{
+    const uint32_t record_count = static_cast<uint32_t>(kmem_cache_stats_count());
+
+    size_t offset = 0;
+    long result = -1;
+    if(!begin_observe_transfer(context,
+                               thread,
+                               user_buffer,
+                               length,
+                               OS1_OBSERVE_KMEM,
+                               sizeof(Os1ObserveKmemRecord),
+                               record_count,
+                               offset,
+                               result))
+    {
+        return -1;
+    }
+
+    for(uint32_t index = 0; index < record_count; ++index)
+    {
+        KmemCacheStats snapshot{};
+        if(!kmem_get_cache_stats(index, snapshot))
+        {
+            return -1;
+        }
+
+        Os1ObserveKmemRecord record{};
+        record.cache_index = index;
+        record.object_size = static_cast<uint32_t>(snapshot.object_size);
+        record.alignment = static_cast<uint32_t>(snapshot.alignment);
+        record.slab_pages = snapshot.slab_count;
+        record.slab_count = snapshot.slab_count;
+        record.free_objects = snapshot.free_object_count;
+        record.live_objects = snapshot.live_object_count;
+        record.peak_live_objects = snapshot.peak_live_object_count;
+        record.alloc_count = snapshot.alloc_count;
+        record.free_count = snapshot.free_count;
+        record.failed_alloc_count = snapshot.failed_alloc_count;
+        copy_fixed_string(
+            record.name, sizeof(record.name), (nullptr != snapshot.name) ? snapshot.name : "");
+        if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
+        {
+            return -1;
+        }
+    }
+
+    return result;
+}
 }  // namespace
 
 long sys_observe(const ObserveContext& context, uint64_t kind, uint64_t user_buffer, size_t length)
@@ -750,6 +803,8 @@ long sys_observe(const ObserveContext& context, uint64_t kind, uint64_t user_buf
             return sys_observe_resources(context, thread, user_buffer, length);
         case OS1_OBSERVE_IRQS:
             return sys_observe_irqs(context, thread, user_buffer, length);
+        case OS1_OBSERVE_KMEM:
+            return sys_observe_kmem(context, thread, user_buffer, length);
         default:
             return -1;
     }

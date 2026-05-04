@@ -75,6 +75,27 @@ CPU_STATIC_ASSERT(tss_rsp0_offset, offsetof(cpu, tss) + offsetof(Tss64, rsp0) ==
 #undef CPU_STATIC_ASSERT
 
 extern cpu* g_cpu_boot;
+ 
+#if defined(OS1_HOST_TEST)
+extern cpu* g_cpu_host_current;
+
+static inline uint64_t read_rsp(void)
+{
+    return 0;
+}
+
+// Return the current CPU record in host tests through the CPU stub.
+static inline cpu* cpu_cur()
+{
+    return (nullptr != g_cpu_host_current) ? g_cpu_host_current : g_cpu_boot;
+}
+
+// Return true when running on the bootstrap CPU.
+static inline int cpu_on_boot()
+{
+    return cpu_cur() == g_cpu_boot;
+}
+#else
 
 // Read the current stack pointer.
 static inline uint64_t read_rsp(void)
@@ -104,6 +125,7 @@ static inline int cpu_on_boot()
 {
     return cpu_cur() == g_cpu_boot;
 }
+#endif
 
 // initialize the current CPU's GDT, TSS, and GS base.
 void cpu_init(void);

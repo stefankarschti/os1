@@ -347,6 +347,8 @@ const char* event_type_name(uint32_t type)
             return "timer-source";
         case OS1_KERNEL_EVENT_NET_RX:
             return "net-rx";
+        case OS1_KERNEL_EVENT_KMEM_CORRUPTION:
+            return "kmem-corruption";
         default:
             return "unknown";
     }
@@ -420,7 +422,7 @@ bool observe(uint32_t kind, const Record*& records, uint32_t& record_count)
 
 void run_help()
 {
-    write_string("help echo pid sys ps cpu pci initrd devices irqs resources events exec exit\n");
+    write_string("help echo pid sys ps cpu pci initrd devices irqs resources kmem events exec exit\n");
 }
 
 void run_echo(size_t argc, char* argv[kShellMaxTokens])
@@ -744,6 +746,70 @@ void run_resources()
         write_hex(records[i].size, 1);
         write_char('\n');
     }
+
+    write_string("resources complete\n");
+}
+
+void run_kmem()
+{
+    const Os1ObserveKmemRecord* records = nullptr;
+    uint32_t record_count = 0;
+    if(!observe(OS1_OBSERVE_KMEM, records, record_count))
+    {
+        write_observe_failure("kmem");
+        return;
+    }
+
+    uint64_t slab_pages = 0;
+    uint64_t free_objects = 0;
+    uint64_t live_objects = 0;
+    uint64_t failed_allocations = 0;
+    for(uint32_t index = 0; index < record_count; ++index)
+    {
+        slab_pages += records[index].slab_pages;
+        free_objects += records[index].free_objects;
+        live_objects += records[index].live_objects;
+        failed_allocations += records[index].failed_alloc_count;
+    }
+
+    write_string("kmem global caches=");
+    write_unsigned(record_count);
+    write_string(" slab_pages=");
+    write_unsigned(slab_pages);
+    write_string(" free=");
+    write_unsigned(free_objects);
+    write_string(" live=");
+    write_unsigned(live_objects);
+    write_string(" fail=");
+    write_unsigned(failed_allocations);
+    write_char('\n');
+
+    for(uint32_t index = 0; index < record_count; ++index)
+    {
+        write_string("kmem cache ");
+        write_string((0 != records[index].name[0]) ? records[index].name : "-");
+        write_string(" obj=");
+        write_unsigned(records[index].object_size);
+        write_string(" align=");
+        write_unsigned(records[index].alignment);
+        write_string(" slabs=");
+        write_unsigned(records[index].slab_count);
+        write_string(" free=");
+        write_unsigned(records[index].free_objects);
+        write_string(" live=");
+        write_unsigned(records[index].live_objects);
+        write_string(" peak=");
+        write_unsigned(records[index].peak_live_objects);
+        write_string(" alloc=");
+        write_unsigned(records[index].alloc_count);
+        write_string(" frees=");
+        write_unsigned(records[index].free_count);
+        write_string(" fail=");
+        write_unsigned(records[index].failed_alloc_count);
+        write_char('\n');
+    }
+
+    write_string("kmem complete\n");
 }
 
 void run_events()
@@ -984,6 +1050,10 @@ int main(void)
         else if(strings_equal(tokens[0], "resources"))
         {
             run_resources();
+        }
+        else if(strings_equal(tokens[0], "kmem"))
+        {
+            run_kmem();
         }
         else if(strings_equal(tokens[0], "events"))
         {

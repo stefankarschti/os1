@@ -6,17 +6,13 @@
 
 void reap_dead_threads(PageFrameContainer& frames)
 {
-    if(nullptr == threadTable)
-    {
-        return;
-    }
-
     Thread* active = current_thread();
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread;)
     {
-        Thread* thread = threadTable + i;
+        Thread* next = next_thread(thread);
         if((thread == active) || (ThreadState::Dying != thread->state))
         {
+            thread = next;
             continue;
         }
 
@@ -35,11 +31,14 @@ void reap_dead_threads(PageFrameContainer& frames)
         {
             if(ProcessState::Zombie == owner->state)
             {
+                thread = next;
                 continue;
             }
 
             reap_process(owner, frames);
         }
+
+        thread = next;
     }
 
     relink_runnable_threads();

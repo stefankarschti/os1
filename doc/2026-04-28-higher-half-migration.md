@@ -2,6 +2,13 @@
 
 > generated-by: Codex / GPT-5, 2026-04-28. Method: source code first, documents second. Target: x86_64 + QEMU first, real hardware later.
 
+Implementation status: implemented. This document is retained as historical
+migration context. Numeric layout examples and "current source tree" statements
+below describe the 2026-04-28 pre-migration state; the live layout is generated
+from `CMakeLists.txt` and documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+For example, the current BIOS initrd staging address is `0x90000`, not the older
+`0x80000` value referenced in this plan.
+
 ## 0. Scope And Recommendation
 
 - This plan migrates the shared kernel core from a low identity-linked kernel to a higher-half kernel.
@@ -105,11 +112,13 @@ Historical note:
 - The Limine frontend is already higher-half.
 - The shared kernel core is still low-half.
 
-### 1.2 Current CMake boot envelope
+### 1.2 Historical CMake boot envelope
 
 - [CMakeLists.txt](../CMakeLists.txt) owns the generated BIOS image layout.
+- The values below are the 2026-04-28 pre-migration values. The current live
+  initrd staging address is `0x90000`; see [ARCHITECTURE.md](ARCHITECTURE.md).
 - `OS1_KERNEL_IMAGE_LOAD_ADDRESS` is `0x10000`.
-- `OS1_INITRD_LOAD_ADDRESS` is `0x80000`.
+- `OS1_INITRD_LOAD_ADDRESS` was `0x80000`.
 - `OS1_KERNEL_RESERVED_PHYSICAL_START` is `0x100000`.
 - `OS1_KERNEL_RESERVED_PHYSICAL_END` is `0x160000`.
 - `OS1_KERNEL_POST_IMAGE_RESERVE_BYTES` is `0x3000`.

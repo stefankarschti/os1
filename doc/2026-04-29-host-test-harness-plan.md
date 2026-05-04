@@ -2,14 +2,15 @@
 
 Generated-by: Codex / GPT-5, based on source and document review on 2026-04-29.
 
-Implementation status: baseline harness implemented. GoogleTest is vendored as
+Implementation status: implemented and expanded. GoogleTest is vendored as
 `third_party/googletest`, the host CMake project lives under `tests/host/`, CI
-runs the host suite before the cross build, and the first collection currently
-registers 38 GoogleTest/CTest cases.
+runs the host suite before the cross build, and the suite now covers parser,
+ABI, memory-management, process, platform, PCI, USB, networking, allocator, and
+observe helper code.
 
 ## Purpose
 
-This plan stands up a host-side unit-test harness for `os1` using Google Test and wires it into GitHub Actions before the existing QEMU smoke matrix. The code is the source of truth: the current project has a freestanding cross-compiled kernel, QEMU smoke coverage, and no host unit-test target. The plan below is intentionally concrete about files, seams, test suites, and CI commands.
+This plan originally stood up a host-side unit-test harness for `os1` using Google Test and wired it into GitHub Actions before the existing QEMU smoke matrix. At the time it was written, the project had a freestanding cross-compiled kernel, QEMU smoke coverage, and no host unit-test target. That is no longer the current state; use this document as historical implementation context and use `tests/host/` plus [ARCHITECTURE.md](ARCHITECTURE.md) for the live test surface.
 
 The goal is not to replace boot smokes. The goal is to stop validating parsers, ABI packing, address-range checks, and page-table bookkeeping only by booting the whole OS.
 

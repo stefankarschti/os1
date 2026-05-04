@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(os1_host_tests LANGUAGES CXX)
 
+option(OS1_KMEM_DEBUG "Enable kernel small-object allocator debug instrumentation" ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -34,6 +36,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/googletest")
 
 add_library(os1_host_support
+  support/cpu_stubs.cpp
   support/debug_stub.cpp
   support/memory_stubs.cpp
   support/physical_memory.cpp
@@ -43,12 +46,14 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/device.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/driver_registry.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/pci_bus.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/drivers/net/arp_cache.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/usb/hid_keyboard.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/usb/xhci_controller.cpp"
   "${OS1_REPO_ROOT}/src/kernel/fs/cpio_newc.cpp"
   "${OS1_REPO_ROOT}/src/kernel/handoff/boot_info.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/boot_mapping.cpp"
   "${OS1_REPO_ROOT}/src/kernel/drivers/bus/resource.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/mm/kmem.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/page_frame.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/dma.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
@@ -61,9 +66,16 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/platform/pci_config.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/pci_msi.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/state.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/proc/process.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/proc/reaper.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/proc/thread.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/user_elf.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/sched/thread_queue.cpp"
 )
 target_compile_definitions(os1_host_support PUBLIC OS1_HOST_TEST=1)
+if(OS1_KMEM_DEBUG)
+  target_compile_definitions(os1_host_support PUBLIC OS1_KMEM_DEBUG=1)
+endif()
 target_include_directories(os1_host_support PUBLIC
   "${CMAKE_CURRENT_LIST_DIR}"
   "${OS1_REPO_ROOT}/src/common"
@@ -88,12 +100,15 @@ add_executable(os1_host_tests
   kernel/pci_capability_tests.cpp
   kernel/pci_msi_tests.cpp
   kernel/pci_resource_tests.cpp
+  kernel/arp_cache_tests.cpp
   kernel/hid_keyboard_tests.cpp
   kernel/xhci_controller_tests.cpp
+  mm/kmem_tests.cpp
   mm/page_frame_tests.cpp
   mm/dma_tests.cpp
   mm/user_address_tests.cpp
   mm/virtual_memory_tests.cpp
+  proc/task_registry_tests.cpp
   proc/user_elf_tests.cpp
   syscall/observe_abi_tests.cpp
 )

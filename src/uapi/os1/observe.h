@@ -14,6 +14,7 @@ enum
     OS1_OBSERVE_DEVICES = 7,
     OS1_OBSERVE_RESOURCES = 8,
     OS1_OBSERVE_IRQS = 9,
+    OS1_OBSERVE_KMEM = 10,
     OS1_OBSERVE_CONSOLE_NONE = 0,
     OS1_OBSERVE_CONSOLE_VGA = 1,
     OS1_OBSERVE_CONSOLE_FRAMEBUFFER = 2,
@@ -34,6 +35,7 @@ enum
     OS1_KERNEL_EVENT_SMOKE_MARKER = 7,
     OS1_KERNEL_EVENT_TIMER_SOURCE = 8,
     OS1_KERNEL_EVENT_NET_RX = 9,
+    OS1_KERNEL_EVENT_KMEM_CORRUPTION = 10,
     OS1_KERNEL_EVENT_FLAG_USER = 1u << 0,
     OS1_KERNEL_EVENT_FLAG_BEGIN = 1u << 1,
     OS1_KERNEL_EVENT_FLAG_SUCCESS = 1u << 2,
@@ -52,6 +54,7 @@ enum
     OS1_OBSERVE_PROCESS_NAME_BYTES = 32,
     OS1_OBSERVE_DRIVER_NAME_BYTES = 32,
     OS1_OBSERVE_INITRD_PATH_BYTES = 64,
+    OS1_OBSERVE_KMEM_NAME_BYTES = 32,
 };
 
 #define OS1_KERNEL_EVENT_SMOKE_MAGIC UINT64_C(0x4F53314556454E54)
@@ -186,6 +189,22 @@ struct Os1ObserveEventRecord
     uint32_t flags;
     uint32_t cpu;
     uint32_t reserved0;
+};
+
+struct Os1ObserveKmemRecord
+{
+    uint32_t cache_index;
+    uint32_t object_size;
+    uint32_t alignment;
+    uint32_t slab_pages;
+    uint32_t slab_count;
+    uint32_t free_objects;
+    uint32_t live_objects;
+    uint32_t peak_live_objects;
+    uint64_t alloc_count;
+    uint64_t free_count;
+    uint64_t failed_alloc_count;
+    char name[OS1_OBSERVE_KMEM_NAME_BYTES];
 };
 
 #pragma pack(pop)

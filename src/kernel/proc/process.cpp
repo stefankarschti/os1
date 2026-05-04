@@ -1,9 +1,11 @@
-// Fixed process-table implementation. This file owns process IDs, parent/child
-// metadata, address-space ownership, and process reaping once threads are gone.
+// Kmem-backed process-registry implementation. This file owns process IDs,
+// parent/child metadata, address-space ownership, and process reaping once
+// threads are gone.
 #include "proc/process.hpp"
 
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "mm/page_frame.hpp"
 #include "mm/virtual_memory.hpp"
 #include "proc/thread.hpp"
@@ -12,33 +14,89 @@
 
 namespace
 {
-constexpr size_t kProcessTablePageCount =
-    (kMaxProcesses * sizeof(Process) + kPageSize - 1) / kPageSize;
+constexpr char kProcessCacheName[] = "process";
 
 // BSP-only for now: PID allocation and process table ownership are serialized
-// by the parked-AP execution model, not by a real process-table lock.
+// by the parked-AP execution model, not by a real process-registry lock.
 OS1_BSP_ONLY uint64_t g_next_pid = 1;
 OS1_BSP_ONLY Process* g_kernel_process = nullptr;
+OS1_BSP_ONLY KmemCache* g_process_cache = nullptr;
+OS1_BSP_ONLY Process* g_process_head = nullptr;
+OS1_BSP_ONLY Process* g_process_tail = nullptr;
 
-Process* next_free_process()
+Process* allocate_process_record()
 {
-    for(size_t i = 0; i < kMaxProcesses; ++i)
+    if(nullptr == g_process_cache)
     {
-        if(ProcessState::Free == processTable[i].state)
-        {
-            return processTable + i;
-        }
+        return nullptr;
     }
-    return nullptr;
+    return static_cast<Process*>(kmem_cache_alloc(g_process_cache, KmallocFlags::Zero));
 }
 
-void clear_process(Process* process)
+void link_process(Process* process)
 {
-    if(process)
+    if(nullptr == process)
     {
-        memset(process, 0, sizeof(Process));
-        process->state = ProcessState::Free;
+        return;
     }
+
+    process->registry_next = nullptr;
+    if(nullptr != g_process_tail)
+    {
+        g_process_tail->registry_next = process;
+    }
+    else
+    {
+        g_process_head = process;
+    }
+    g_process_tail = process;
+}
+
+void unlink_process(Process* process)
+{
+    if((nullptr == process) || (nullptr == g_process_head))
+    {
+        return;
+    }
+
+    Process* previous = nullptr;
+    for(Process* candidate = g_process_head; nullptr != candidate;
+        candidate = candidate->registry_next)
+    {
+        if(candidate != process)
+        {
+            previous = candidate;
+            continue;
+        }
+
+        Process* next = candidate->registry_next;
+        if(nullptr != previous)
+        {
+            previous->registry_next = next;
+        }
+        else
+        {
+            g_process_head = next;
+        }
+        if(g_process_tail == candidate)
+        {
+            g_process_tail = previous;
+        }
+        candidate->registry_next = nullptr;
+        return;
+    }
+}
+
+void release_process_record(Process* process)
+{
+    if((nullptr == process) || (nullptr == g_process_cache))
+    {
+        return;
+    }
+
+    memset(process, 0, sizeof(Process));
+    process->state = ProcessState::Free;
+    kmem_cache_free(g_process_cache, process);
 }
 
 void orphan_children(Process* process)
@@ -48,11 +106,11 @@ void orphan_children(Process* process)
         return;
     }
 
-    for(size_t i = 0; i < kMaxProcesses; ++i)
+    for(Process* candidate = first_process(); nullptr != candidate; candidate = next_process(candidate))
     {
-        if(processTable[i].parent == process)
+        if(candidate->parent == process)
         {
-            processTable[i].parent = nullptr;
+            candidate->parent = nullptr;
         }
     }
 }
@@ -78,38 +136,38 @@ void fill_process_name(Process* process, const char* name)
 }
 }  // namespace
 
-OS1_BSP_ONLY Process* processTable = nullptr;
-
 bool initialize_process_table(PageFrameContainer& frames)
 {
     KASSERT_ON_BSP();
+    (void)frames;
     g_next_pid = 1;
     g_kernel_process = nullptr;
+    g_process_head = nullptr;
+    g_process_tail = nullptr;
 
-    if(nullptr == processTable)
+    g_process_cache = kmem_cache_create(kProcessCacheName, sizeof(Process), alignof(Process));
+    if(nullptr == g_process_cache)
     {
-        uint64_t process_table_address = 0;
-        if(!frames.allocate(process_table_address, kProcessTablePageCount))
-        {
-            debug("process table allocation failed free=")(frames.free_page_count())();
-            return false;
-        }
-        processTable = kernel_physical_pointer<Process>(process_table_address);
-        debug("process table allocated at 0x")(process_table_address, 16)();
-    }
-
-    memset(processTable, 0, kProcessTablePageCount * kPageSize);
-    for(size_t i = 0; i < kMaxProcesses; ++i)
-    {
-        processTable[i].state = ProcessState::Free;
+        debug("process cache creation failed")();
+        return false;
     }
     return true;
+}
+
+Process* first_process()
+{
+    return g_process_head;
+}
+
+Process* next_process(const Process* process)
+{
+    return (nullptr != process) ? process->registry_next : nullptr;
 }
 
 Process* create_kernel_process(uint64_t kernel_cr3)
 {
     KASSERT_ON_BSP();
-    Process* process = next_free_process();
+    Process* process = allocate_process_record();
     if(nullptr == process)
     {
         return nullptr;
@@ -120,6 +178,7 @@ Process* create_kernel_process(uint64_t kernel_cr3)
     process->address_space.cr3 = kernel_cr3;
     process->exit_status = 0;
     fill_process_name(process, "kernel");
+    link_process(process);
     g_kernel_process = process;
     return process;
 }
@@ -127,7 +186,7 @@ Process* create_kernel_process(uint64_t kernel_cr3)
 Process* create_user_process(const char* name, uint64_t cr3)
 {
     KASSERT_ON_BSP();
-    Process* process = next_free_process();
+    Process* process = allocate_process_record();
     if(nullptr == process)
     {
         return nullptr;
@@ -138,19 +197,20 @@ Process* create_user_process(const char* name, uint64_t cr3)
     process->address_space.cr3 = cr3;
     process->exit_status = 0;
     fill_process_name(process, name);
+    link_process(process);
     return process;
 }
 
 bool process_has_threads(Process* process)
 {
-    if((nullptr == process) || (nullptr == threadTable))
+    if(nullptr == process)
     {
         return false;
     }
 
-    for(size_t i = 0; i < kMaxThreads; ++i)
+    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        if((threadTable[i].process == process) && (ThreadState::Free != threadTable[i].state))
+        if((thread->process == process) && (ThreadState::Free != thread->state))
         {
             return true;
         }
@@ -173,6 +233,11 @@ bool reap_process(Process* process, PageFrameContainer& frames)
         frames.free(process->address_space.cr3);
     }
     orphan_children(process);
-    clear_process(process);
+    if(process == g_kernel_process)
+    {
+        g_kernel_process = nullptr;
+    }
+    unlink_process(process);
+    release_process_record(process);
     return true;
 }

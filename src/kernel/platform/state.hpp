@@ -24,14 +24,6 @@ struct PlatformState
     // BSP-only for now: PCI enumeration publishes this list once during boot.
     size_t device_count;
     PciDevice devices[kPlatformMaxPciDevices];
-    size_t irq_route_count;
-    IrqRoute irq_routes[kPlatformMaxIrqRoutes];
-    size_t device_binding_count;
-    DeviceBinding device_bindings[kPlatformMaxDeviceBindings];
-    size_t bar_claim_count;
-    PciBarClaim bar_claims[kPlatformMaxPciBarClaims];
-    size_t dma_allocation_count;
-    DmaAllocationRecord dma_allocations[kPlatformMaxDmaAllocations];
     HpetInfo hpet;
     AcpiFixedInfo acpi_fixed;
     size_t acpi_definition_block_count;
@@ -47,3 +39,9 @@ struct PlatformState
 // BSP-only for now: single normalized platform state instance built during
 // platform discovery and later augmented by device probing.
 OS1_BSP_ONLY extern PlatformState g_platform;
+
+// Reset driver-owned runtime registries without disturbing discovered platform state.
+void platform_reset_driver_state();
+
+// Reset all platform state, including dynamically allocated runtime registries.
+void platform_reset_state();

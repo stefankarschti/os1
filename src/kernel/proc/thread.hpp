@@ -1,6 +1,6 @@
-// Thread object model and the public scheduler-facing task API. Process table
-// ownership lives in proc/process.hpp; this header owns Thread layout, wait state,
-// and the assembly-visible offsets used by context-switch code.
+// Thread object model and the public scheduler-facing task API. Process
+// ownership lives in proc/process.hpp; this header owns Thread layout, wait
+// state, and the assembly-visible offsets used by context-switch code.
 #pragma once
 
 #include <stddef.h>
@@ -15,8 +15,6 @@ constexpr uint16_t kKernelCodeSegment = 0x08;
 constexpr uint16_t kKernelDataSegment = 0x10;
 constexpr uint16_t kUserDataSegment = 0x1B;
 constexpr uint16_t kUserCodeSegment = 0x23;
-
-constexpr size_t kMaxThreads = 32;
 
 enum class ThreadState : uint32_t
 {
@@ -79,6 +77,7 @@ struct Thread
     int exit_status = 0;
     TrapFrame frame{};
     ThreadWaitState wait{};
+    Thread* registry_next = nullptr;
 };
 
 #define THREAD_STATIC_ASSERT(name, expr) typedef char thread_static_assert_##name[(expr) ? 1 : -1]
@@ -89,7 +88,7 @@ THREAD_STATIC_ASSERT(stack_top_offset, offsetof(Thread, kernel_stack_top) == 56)
 
 #undef THREAD_STATIC_ASSERT
 
-// allocate and initialize the fixed thread table.
+// Initialize the kmem-backed process and thread registries.
 bool init_tasks(PageFrameContainer& frames);
 // Create a kernel-mode thread with a bootstrap frame that enters `entry`.
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames);
@@ -97,7 +96,11 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
 Thread* create_user_thread(Process* process,
                            uint64_t user_rip,
                            uint64_t user_rsp,
-                           PageFrameContainer& frames);
+                           PageFrameContainer& frames,
+                           bool start_ready = true);
+// Iterate the live thread registry in creation order.
+Thread* first_thread(void);
+Thread* next_thread(const Thread* thread);
 // Return the thread bound to the current CPU.
 Thread* current_thread(void);
 // Return the scheduler's idle thread.
@@ -127,7 +130,7 @@ Thread* first_blocked_thread(ThreadWaitReason reason);
 void wake_block_io_waiters(uint64_t completion_flag);
 // Mark the current thread dying and publish its process exit status.
 void mark_current_thread_dying(int exit_status);
-// Reset a thread table entry to the free state.
+// Reclaim a thread record after its stack and owner state have been torn down.
 void clear_thread(Thread* thread);
 // Reclaim dying threads and their associated process state when possible.
 void reap_dead_threads(PageFrameContainer& frames);
@@ -135,9 +138,6 @@ void reap_dead_threads(PageFrameContainer& frames);
 size_t runnable_thread_count(void);
 // Return the first runnable user thread, if any.
 Thread* first_runnable_user_thread(void);
-
-// BSP-only for now: fixed thread table and runnable links are mutated only on the BSP.
-OS1_BSP_ONLY extern Thread* threadTable;
 
 #ifdef __cplusplus
 extern "C"

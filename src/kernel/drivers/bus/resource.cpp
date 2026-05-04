@@ -2,28 +2,160 @@
 #include "drivers/bus/resource.hpp"
 
 #include "debug/debug.hpp"
+#include "mm/kmem.hpp"
 #include "platform/state.hpp"
+#include "sync/smp.hpp"
 
 namespace
 {
+struct PciBarClaimNode
+{
+    PciBarClaim claim{};
+    PciBarClaimNode* next = nullptr;
+};
+
+struct PciBarClaimRegistry
+{
+    Spinlock lock{"pci-bar-claim-registry"};
+    KmemCache* cache = nullptr;
+    PciBarClaimNode* head = nullptr;
+    PciBarClaimNode* tail = nullptr;
+    PciBarClaim* snapshot = nullptr;
+    size_t snapshot_capacity = 0;
+    size_t count = 0;
+};
+
+OS1_BSP_ONLY PciBarClaimRegistry g_pci_bar_claim_registry{};
+
+class PciBarClaimGuard
+{
+public:
+    explicit PciBarClaimGuard(Spinlock& lock) : irq_guard_(), lock_(lock)
+    {
+        lock_.lock();
+    }
+
+    PciBarClaimGuard(const PciBarClaimGuard&) = delete;
+    PciBarClaimGuard& operator=(const PciBarClaimGuard&) = delete;
+
+    ~PciBarClaimGuard()
+    {
+        lock_.unlock();
+    }
+
+private:
+    IrqGuard irq_guard_;
+    Spinlock& lock_;
+};
+
 [[nodiscard]] bool device_id_equal(DeviceId left, DeviceId right)
 {
     return (left.bus == right.bus) && (left.index == right.index);
 }
 
-PciBarClaim* find_claim(uint16_t pci_index, uint8_t bar_index)
+[[nodiscard]] bool ensure_pci_bar_claim_cache()
 {
-    for(size_t i = 0; i < g_platform.bar_claim_count; ++i)
+    if(nullptr != g_pci_bar_claim_registry.cache)
     {
-        PciBarClaim& claim = g_platform.bar_claims[i];
-        if(claim.active && (claim.pci_index == pci_index) && (claim.bar_index == bar_index))
+        return true;
+    }
+
+    g_pci_bar_claim_registry.cache =
+        kmem_cache_create("pci_bar_claim", sizeof(PciBarClaimNode), alignof(PciBarClaimNode));
+    return nullptr != g_pci_bar_claim_registry.cache;
+}
+
+[[nodiscard]] bool ensure_snapshot_capacity(size_t required_capacity)
+{
+    if(required_capacity <= g_pci_bar_claim_registry.snapshot_capacity)
+    {
+        return true;
+    }
+
+    size_t new_capacity = (0u == g_pci_bar_claim_registry.snapshot_capacity)
+                              ? 4u
+                              : g_pci_bar_claim_registry.snapshot_capacity;
+    while(new_capacity < required_capacity)
+    {
+        new_capacity *= 2u;
+    }
+
+    auto* new_snapshot = static_cast<PciBarClaim*>(kcalloc(new_capacity, sizeof(PciBarClaim)));
+    if(nullptr == new_snapshot)
+    {
+        return false;
+    }
+
+    kfree(g_pci_bar_claim_registry.snapshot);
+    g_pci_bar_claim_registry.snapshot = new_snapshot;
+    g_pci_bar_claim_registry.snapshot_capacity = new_capacity;
+    return true;
+}
+
+PciBarClaimNode* find_claim_locked(uint16_t pci_index, uint8_t bar_index, PciBarClaimNode** previous = nullptr)
+{
+    PciBarClaimNode* prior = nullptr;
+    for(PciBarClaimNode* node = g_pci_bar_claim_registry.head; nullptr != node; node = node->next)
+    {
+        if((node->claim.pci_index == pci_index) && (node->claim.bar_index == bar_index))
         {
-            return &claim;
+            if(nullptr != previous)
+            {
+                *previous = prior;
+            }
+            return node;
         }
+        prior = node;
+    }
+
+    if(nullptr != previous)
+    {
+        *previous = nullptr;
     }
     return nullptr;
 }
+
+void unlink_claim_node_locked(PciBarClaimNode* node, PciBarClaimNode* previous)
+{
+    if(nullptr == previous)
+    {
+        g_pci_bar_claim_registry.head = node->next;
+    }
+    else
+    {
+        previous->next = node->next;
+    }
+
+    if(g_pci_bar_claim_registry.tail == node)
+    {
+        g_pci_bar_claim_registry.tail = previous;
+    }
+
+    --g_pci_bar_claim_registry.count;
+}
 }  // namespace
+
+void pci_bar_claim_registry_reset()
+{
+    if(nullptr != g_pci_bar_claim_registry.cache)
+    {
+        for(PciBarClaimNode* node = g_pci_bar_claim_registry.head; nullptr != node;)
+        {
+            PciBarClaimNode* next = node->next;
+            kmem_cache_free(g_pci_bar_claim_registry.cache, node);
+            node = next;
+        }
+        (void)kmem_cache_destroy(g_pci_bar_claim_registry.cache);
+    }
+
+    g_pci_bar_claim_registry.cache = nullptr;
+    g_pci_bar_claim_registry.head = nullptr;
+    g_pci_bar_claim_registry.tail = nullptr;
+    g_pci_bar_claim_registry.count = 0;
+    kfree(g_pci_bar_claim_registry.snapshot);
+    g_pci_bar_claim_registry.snapshot = nullptr;
+    g_pci_bar_claim_registry.snapshot_capacity = 0;
+}
 
 bool claim_pci_bar(DeviceId owner, uint16_t pci_index, uint8_t bar_index, PciBarResource& resource)
 {
@@ -40,9 +172,10 @@ bool claim_pci_bar(DeviceId owner, uint16_t pci_index, uint8_t bar_index, PciBar
         return false;
     }
 
-    if(PciBarClaim* existing = find_claim(pci_index, bar_index))
+    PciBarClaimGuard guard(g_pci_bar_claim_registry.lock);
+    if(PciBarClaimNode* existing = find_claim_locked(pci_index, bar_index))
     {
-        if(!device_id_equal(existing->owner, owner))
+        if(!device_id_equal(existing->claim.owner, owner))
         {
             debug("pci: BAR already claimed pci=")(pci_index)(" bar=")(bar_index)();
             return false;
@@ -50,26 +183,44 @@ bool claim_pci_bar(DeviceId owner, uint16_t pci_index, uint8_t bar_index, PciBar
 
         resource.pci_index = pci_index;
         resource.bar_index = bar_index;
-        resource.type = existing->type;
-        resource.base = existing->base;
-        resource.size = existing->size;
+        resource.type = existing->claim.type;
+        resource.base = existing->claim.base;
+        resource.size = existing->claim.size;
         return true;
     }
 
-    if(g_platform.bar_claim_count >= kPlatformMaxPciBarClaims)
+    if(!ensure_snapshot_capacity(g_pci_bar_claim_registry.count + 1u) || !ensure_pci_bar_claim_cache())
     {
-        debug("pci: BAR claim table full")();
+        debug("pci: BAR claim allocation failed")();
         return false;
     }
 
-    PciBarClaim& claim = g_platform.bar_claims[g_platform.bar_claim_count++];
-    claim.active = true;
-    claim.owner = owner;
-    claim.pci_index = pci_index;
-    claim.bar_index = bar_index;
-    claim.type = bar.type;
-    claim.base = bar.base;
-    claim.size = bar.size;
+    auto* node = static_cast<PciBarClaimNode*>(
+        kmem_cache_alloc(g_pci_bar_claim_registry.cache, KmallocFlags::Zero));
+    if(nullptr == node)
+    {
+        debug("pci: BAR claim allocation failed")();
+        return false;
+    }
+
+    node->claim.active = true;
+    node->claim.owner = owner;
+    node->claim.pci_index = pci_index;
+    node->claim.bar_index = bar_index;
+    node->claim.type = bar.type;
+    node->claim.base = bar.base;
+    node->claim.size = bar.size;
+
+    if(nullptr == g_pci_bar_claim_registry.tail)
+    {
+        g_pci_bar_claim_registry.head = node;
+    }
+    else
+    {
+        g_pci_bar_claim_registry.tail->next = node;
+    }
+    g_pci_bar_claim_registry.tail = node;
+    ++g_pci_bar_claim_registry.count;
 
     resource.pci_index = pci_index;
     resource.bar_index = bar_index;
@@ -81,31 +232,57 @@ bool claim_pci_bar(DeviceId owner, uint16_t pci_index, uint8_t bar_index, PciBar
 
 void release_pci_bar(DeviceId owner, uint16_t pci_index, uint8_t bar_index)
 {
-    PciBarClaim* claim = find_claim(pci_index, bar_index);
-    if((nullptr != claim) && device_id_equal(claim->owner, owner))
+    PciBarClaimGuard guard(g_pci_bar_claim_registry.lock);
+    PciBarClaimNode* previous = nullptr;
+    PciBarClaimNode* node = find_claim_locked(pci_index, bar_index, &previous);
+    if((nullptr != node) && device_id_equal(node->claim.owner, owner))
     {
-        claim->active = false;
+        unlink_claim_node_locked(node, previous);
+        node->claim.active = false;
+        kmem_cache_free(g_pci_bar_claim_registry.cache, node);
     }
 }
 
 void release_pci_bars_for_owner(DeviceId owner)
 {
-    for(size_t i = 0; i < g_platform.bar_claim_count; ++i)
+    PciBarClaimGuard guard(g_pci_bar_claim_registry.lock);
+    PciBarClaimNode* previous = nullptr;
+    PciBarClaimNode* node = g_pci_bar_claim_registry.head;
+    while(nullptr != node)
     {
-        PciBarClaim& claim = g_platform.bar_claims[i];
-        if(claim.active && device_id_equal(claim.owner, owner))
+        if(device_id_equal(node->claim.owner, owner))
         {
-            claim.active = false;
+            PciBarClaimNode* next = node->next;
+            unlink_claim_node_locked(node, previous);
+            node->claim.active = false;
+            kmem_cache_free(g_pci_bar_claim_registry.cache, node);
+            node = next;
+            continue;
         }
+
+        previous = node;
+        node = node->next;
     }
 }
 
 size_t pci_bar_claim_count()
 {
-    return g_platform.bar_claim_count;
+    PciBarClaimGuard guard(g_pci_bar_claim_registry.lock);
+    return g_pci_bar_claim_registry.count;
 }
 
 const PciBarClaim* pci_bar_claims()
 {
-    return g_platform.bar_claims;
+    PciBarClaimGuard guard(g_pci_bar_claim_registry.lock);
+    if(0u == g_pci_bar_claim_registry.count)
+    {
+        return nullptr;
+    }
+
+    size_t index = 0;
+    for(PciBarClaimNode* node = g_pci_bar_claim_registry.head; nullptr != node; node = node->next)
+    {
+        g_pci_bar_claim_registry.snapshot[index++] = node->claim;
+    }
+    return g_pci_bar_claim_registry.snapshot;
 }
