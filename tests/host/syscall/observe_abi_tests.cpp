@@ -13,7 +13,13 @@ TEST(ObserveAbi, ConstantsAreStable)
     EXPECT_EQ(4, OS1_OBSERVE_PCI);
     EXPECT_EQ(5, OS1_OBSERVE_INITRD);
     EXPECT_EQ(6, OS1_OBSERVE_EVENTS);
+    EXPECT_EQ(7, OS1_OBSERVE_DEVICES);
+    EXPECT_EQ(8, OS1_OBSERVE_RESOURCES);
+    EXPECT_EQ(9, OS1_OBSERVE_IRQS);
     EXPECT_EQ(256, OS1_OBSERVE_EVENT_RING_CAPACITY);
+    EXPECT_EQ(32, OS1_OBSERVE_DRIVER_NAME_BYTES);
+    EXPECT_EQ(1, OS1_OBSERVE_RESOURCE_PCI_BAR);
+    EXPECT_EQ(2, OS1_OBSERVE_RESOURCE_DMA);
     EXPECT_EQ(1, OS1_KERNEL_EVENT_TRAP);
     EXPECT_EQ(2, OS1_KERNEL_EVENT_SCHED_TRANSITION);
     EXPECT_EQ(3, OS1_KERNEL_EVENT_IRQ);
@@ -21,6 +27,10 @@ TEST(ObserveAbi, ConstantsAreStable)
     EXPECT_EQ(5, OS1_KERNEL_EVENT_PCI_BIND);
     EXPECT_EQ(6, OS1_KERNEL_EVENT_USER_COPY_FAILURE);
     EXPECT_EQ(7, OS1_KERNEL_EVENT_SMOKE_MARKER);
+    EXPECT_EQ(8, OS1_KERNEL_EVENT_TIMER_SOURCE);
+    EXPECT_EQ(9, OS1_KERNEL_EVENT_NET_RX);
+    EXPECT_EQ(1, OS1_KERNEL_EVENT_TIMER_SOURCE_PIT);
+    EXPECT_EQ(2, OS1_KERNEL_EVENT_TIMER_SOURCE_LAPIC);
 }
 
 TEST(ObserveAbi, HeaderLayoutIsPacked)
@@ -46,6 +56,18 @@ TEST(ObserveAbi, RecordLayoutsArePacked)
     EXPECT_EQ(17u, sizeof(Os1ObservePciBar));
     EXPECT_EQ(119u, sizeof(Os1ObservePciRecord));
     EXPECT_EQ(17u, offsetof(Os1ObservePciRecord, bars));
+
+    EXPECT_EQ(40u, sizeof(Os1ObserveDeviceRecord));
+    EXPECT_EQ(8u, offsetof(Os1ObserveDeviceRecord, driver_name));
+
+    EXPECT_EQ(32u, sizeof(Os1ObserveResourceRecord));
+    EXPECT_EQ(0u, offsetof(Os1ObserveResourceRecord, base));
+    EXPECT_EQ(16u, offsetof(Os1ObserveResourceRecord, flags));
+    EXPECT_EQ(28u, offsetof(Os1ObserveResourceRecord, kind));
+
+    EXPECT_EQ(16u, sizeof(Os1ObserveIrqRecord));
+    EXPECT_EQ(0u, offsetof(Os1ObserveIrqRecord, vector));
+    EXPECT_EQ(12u, offsetof(Os1ObserveIrqRecord, gsi));
 
     EXPECT_EQ(72u, sizeof(Os1ObserveInitrdRecord));
     EXPECT_EQ(64u, offsetof(Os1ObserveInitrdRecord, size));

@@ -7,5 +7,5 @@
 
 struct Thread;
 
-// Main IRQ path called by trap dispatch for vectors T_IRQ0 through T_IRQ0+15.
+// Main IRQ path called by trap dispatch for any external interrupt vector.
 Thread* handle_irq(TrapFrame* frame);

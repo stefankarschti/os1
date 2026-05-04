@@ -4,7 +4,10 @@
 
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "debug/event_ring.hpp"
+#include "drivers/bus/device.hpp"
+#include "drivers/bus/resource.hpp"
 #include "fs/initrd.hpp"
+#include "mm/dma.hpp"
 #include "mm/user_copy.hpp"
 #include "platform/platform.hpp"
 #include "platform/topology.hpp"
@@ -20,6 +23,81 @@ namespace
     for(size_t i = 0; i < kMaxProcesses; ++i)
     {
         if(ProcessState::Free != processTable[i].state)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+[[nodiscard]] uint32_t count_active_device_bindings()
+{
+    uint32_t count = 0;
+    const DeviceBinding* bindings = device_bindings();
+    const size_t binding_count = device_binding_count();
+    for(size_t i = 0; i < binding_count; ++i)
+    {
+        if(bindings[i].active)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+[[nodiscard]] uint32_t count_active_acpi_devices()
+{
+    uint32_t count = 0;
+    const AcpiDeviceInfo* devices = platform_acpi_devices();
+    const size_t device_count = platform_acpi_device_count();
+    for(size_t i = 0; i < device_count; ++i)
+    {
+        if(devices[i].active && (0 != (devices[i].status & 0x1u)))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+[[nodiscard]] uint32_t count_active_irq_routes()
+{
+    uint32_t count = 0;
+    const IrqRoute* routes = platform_irq_routes();
+    const size_t route_count = platform_irq_route_count();
+    for(size_t i = 0; i < route_count; ++i)
+    {
+        if(routes[i].active)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+[[nodiscard]] uint32_t count_active_pci_bar_claims()
+{
+    uint32_t count = 0;
+    const PciBarClaim* claims = pci_bar_claims();
+    const size_t claim_count = pci_bar_claim_count();
+    for(size_t i = 0; i < claim_count; ++i)
+    {
+        if(claims[i].active)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+[[nodiscard]] uint32_t count_active_dma_allocations()
+{
+    uint32_t count = 0;
+    const DmaAllocationRecord* allocations = dma_allocation_records();
+    const size_t allocation_count = dma_allocation_count();
+    for(size_t i = 0; i < allocation_count; ++i)
+    {
+        if(allocations[i].active)
         {
             ++count;
         }
@@ -314,6 +392,201 @@ long sys_observe_pci(const ObserveContext& context,
     return result;
 }
 
+long sys_observe_devices(const ObserveContext& context,
+                         Thread* thread,
+                         uint64_t user_buffer,
+                         size_t length)
+{
+    const DeviceBinding* bindings = device_bindings();
+    const size_t binding_count = device_binding_count();
+
+    size_t offset = 0;
+    long result = -1;
+    if(!begin_observe_transfer(context,
+                               thread,
+                               user_buffer,
+                               length,
+                               OS1_OBSERVE_DEVICES,
+                               sizeof(Os1ObserveDeviceRecord),
+                               count_active_device_bindings() + count_active_acpi_devices(),
+                               offset,
+                               result))
+    {
+        return -1;
+    }
+
+    for(size_t i = 0; i < binding_count; ++i)
+    {
+        if(!bindings[i].active)
+        {
+            continue;
+        }
+
+        Os1ObserveDeviceRecord record{};
+        record.bus = static_cast<uint8_t>(bindings[i].id.bus);
+        record.state = static_cast<uint8_t>(bindings[i].state);
+        record.id = bindings[i].id.index;
+        record.pci_index = (DeviceBus::Pci == bindings[i].id.bus) ? bindings[i].pci_index
+                                                                  : static_cast<uint16_t>(OS1_OBSERVE_INDEX_NONE);
+        copy_fixed_string(record.driver_name,
+                          sizeof(record.driver_name),
+                          (nullptr != bindings[i].driver_name) ? bindings[i].driver_name : "");
+        if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
+        {
+            return -1;
+        }
+    }
+
+    const AcpiDeviceInfo* acpi_devices = platform_acpi_devices();
+    const size_t acpi_device_count = platform_acpi_device_count();
+    for(size_t i = 0; i < acpi_device_count; ++i)
+    {
+        if(!acpi_devices[i].active || (0 == (acpi_devices[i].status & 0x1u)))
+        {
+            continue;
+        }
+
+        Os1ObserveDeviceRecord record{};
+        record.bus = static_cast<uint8_t>(DeviceBus::Acpi);
+        record.state = static_cast<uint8_t>(DeviceState::Discovered);
+        record.id = static_cast<uint16_t>(i);
+        record.pci_index = static_cast<uint16_t>(OS1_OBSERVE_INDEX_NONE);
+        copy_fixed_string(record.driver_name,
+                          sizeof(record.driver_name),
+                          (0 != acpi_devices[i].hardware_id[0]) ? acpi_devices[i].hardware_id
+                                                                : acpi_devices[i].name);
+        if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
+        {
+            return -1;
+        }
+    }
+
+    return result;
+}
+
+long sys_observe_resources(const ObserveContext& context,
+                           Thread* thread,
+                           uint64_t user_buffer,
+                           size_t length)
+{
+    const PciBarClaim* claims = pci_bar_claims();
+    const size_t claim_count = pci_bar_claim_count();
+    const DmaAllocationRecord* allocations = dma_allocation_records();
+    const size_t allocation_count = dma_allocation_count();
+
+    size_t offset = 0;
+    long result = -1;
+    if(!begin_observe_transfer(context,
+                               thread,
+                               user_buffer,
+                               length,
+                               OS1_OBSERVE_RESOURCES,
+                               sizeof(Os1ObserveResourceRecord),
+                               count_active_pci_bar_claims() + count_active_dma_allocations(),
+                               offset,
+                               result))
+    {
+        return -1;
+    }
+
+    for(size_t i = 0; i < claim_count; ++i)
+    {
+        if(!claims[i].active)
+        {
+            continue;
+        }
+
+        Os1ObserveResourceRecord record{};
+        record.base = claims[i].base;
+        record.size = claims[i].size;
+        record.owner_id = claims[i].owner.index;
+        record.reference_id = claims[i].pci_index;
+        record.kind = OS1_OBSERVE_RESOURCE_PCI_BAR;
+        record.owner_bus = static_cast<uint8_t>(claims[i].owner.bus);
+        record.entry_index = claims[i].bar_index;
+        record.detail = static_cast<uint8_t>(claims[i].type);
+        if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
+        {
+            return -1;
+        }
+    }
+
+    for(size_t i = 0; i < allocation_count; ++i)
+    {
+        if(!allocations[i].active)
+        {
+            continue;
+        }
+
+        Os1ObserveResourceRecord record{};
+        record.base = allocations[i].physical_base;
+        record.size = allocations[i].size_bytes;
+        record.flags = allocations[i].coherent
+                   ? static_cast<uint32_t>(OS1_OBSERVE_RESOURCE_FLAG_COHERENT)
+                   : 0u;
+        record.page_count = allocations[i].page_count;
+        record.owner_id = allocations[i].owner.index;
+        record.reference_id = OS1_OBSERVE_INDEX_NONE;
+        record.kind = OS1_OBSERVE_RESOURCE_DMA;
+        record.owner_bus = static_cast<uint8_t>(allocations[i].owner.bus);
+        record.detail = static_cast<uint8_t>(allocations[i].direction);
+        if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
+        {
+            return -1;
+        }
+    }
+
+    return result;
+}
+
+long sys_observe_irqs(const ObserveContext& context,
+                      Thread* thread,
+                      uint64_t user_buffer,
+                      size_t length)
+{
+    const IrqRoute* routes = platform_irq_routes();
+    const size_t route_count = platform_irq_route_count();
+
+    size_t offset = 0;
+    long result = -1;
+    if(!begin_observe_transfer(context,
+                               thread,
+                               user_buffer,
+                               length,
+                               OS1_OBSERVE_IRQS,
+                               sizeof(Os1ObserveIrqRecord),
+                               count_active_irq_routes(),
+                               offset,
+                               result))
+    {
+        return -1;
+    }
+
+    for(size_t i = 0; i < route_count; ++i)
+    {
+        if(!routes[i].active)
+        {
+            continue;
+        }
+
+        Os1ObserveIrqRecord record{};
+        record.vector = routes[i].vector;
+        record.kind = static_cast<uint8_t>(routes[i].kind);
+        record.owner_bus = static_cast<uint8_t>(routes[i].owner.bus);
+        record.source_irq = routes[i].source_irq;
+        record.owner_id = routes[i].owner.index;
+        record.source_id = routes[i].source_id;
+        record.flags = routes[i].flags;
+        record.gsi = routes[i].gsi;
+        if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
+        {
+            return -1;
+        }
+    }
+
+    return result;
+}
+
 struct InitrdCountContext
 {
     uint32_t count = 0;
@@ -471,6 +744,12 @@ long sys_observe(const ObserveContext& context, uint64_t kind, uint64_t user_buf
             return sys_observe_initrd(context, thread, user_buffer, length);
         case OS1_OBSERVE_EVENTS:
             return sys_observe_events(context, thread, user_buffer, length);
+        case OS1_OBSERVE_DEVICES:
+            return sys_observe_devices(context, thread, user_buffer, length);
+        case OS1_OBSERVE_RESOURCES:
+            return sys_observe_resources(context, thread, user_buffer, length);
+        case OS1_OBSERVE_IRQS:
+            return sys_observe_irqs(context, thread, user_buffer, length);
         default:
             return -1;
     }

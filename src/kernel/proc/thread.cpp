@@ -13,6 +13,8 @@ namespace
 {
 constexpr size_t kThreadTablePageCount = (kMaxThreads * sizeof(Thread) + kPageSize - 1) / kPageSize;
 
+extern "C" void kernel_thread_start();
+
 // BSP-only for now: TID allocation, idle-thread publication, and thread table
 // mutation have no SMP lock until APs leave the parked idle loop.
 OS1_BSP_ONLY uint64_t g_next_tid = 1;
@@ -73,6 +75,11 @@ bool init_tasks(PageFrameContainer& frames)
 void relink_runnable_threads()
 {
     KASSERT_ON_BSP();
+    if(nullptr == threadTable)
+    {
+        return;
+    }
+
     Thread* first = nullptr;
     Thread* last = nullptr;
     for(size_t i = 0; i < kMaxThreads; ++i)
@@ -134,12 +141,11 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
     thread->kernel_stack_top = stack_top;
     thread->exit_status = 0;
     thread->frame = {};
-    // Kernel threads enter a normal C++ function through the scheduler return
-    // path, not a direct `call`, so reserve one dummy return slot at a SysV
-    // function-entry-aligned stack position. The 16 bytes above it stay available
-    // for the synthetic kernel `iretq` frame used by the scheduler.
+    // Kernel threads resume through `iretq` into a small trampoline that aligns
+    // the stack before calling the C++ entry point carried in RDI.
     *reinterpret_cast<uint64_t*>(thread->kernel_stack_top - 3 * sizeof(uint64_t)) = 0;
-    thread->frame.rip = (uint64_t)entry;
+    thread->frame.rip = (uint64_t)kernel_thread_start;
+    thread->frame.rdi = (uint64_t)entry;
     thread->frame.cs = kKernelCodeSegment;
     thread->frame.rflags = 0x202;
     thread->frame.rsp = thread->kernel_stack_top - 3 * sizeof(uint64_t);
@@ -277,6 +283,16 @@ void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t p
     block_current_thread(wait);
 }
 
+void block_current_thread_on_block_io(uint64_t completion_flag)
+{
+    ThreadWaitState wait{};
+    wait.reason = ThreadWaitReason::BlockIo;
+    wait.block_io = BlockIoWaitState{
+        .completion_flag = completion_flag,
+    };
+    block_current_thread(wait);
+}
+
 void clear_thread_wait(Thread* thread)
 {
     if(nullptr == thread)
@@ -287,8 +303,35 @@ void clear_thread_wait(Thread* thread)
     thread->wait = ThreadWaitState{};
 }
 
+void wake_blocked_thread(Thread* thread)
+{
+    KASSERT_ON_BSP();
+    if(nullptr == thread)
+    {
+        return;
+    }
+
+    clear_thread_wait(thread);
+    if(thread == current_thread())
+    {
+        thread->state = ThreadState::Running;
+        if(thread->process && (ProcessState::Dying != thread->process->state))
+        {
+            thread->process->state = ProcessState::Running;
+        }
+        return;
+    }
+
+    mark_thread_ready(thread);
+}
+
 Thread* first_blocked_thread(ThreadWaitReason reason)
 {
+    if(nullptr == threadTable)
+    {
+        return nullptr;
+    }
+
     for(size_t i = 0; i < kMaxThreads; ++i)
     {
         if((ThreadState::Blocked == threadTable[i].state) && (reason == threadTable[i].wait.reason))
@@ -297,6 +340,27 @@ Thread* first_blocked_thread(ThreadWaitReason reason)
         }
     }
     return nullptr;
+}
+
+void wake_block_io_waiters(uint64_t completion_flag)
+{
+    if((0 == completion_flag) || (nullptr == threadTable))
+    {
+        return;
+    }
+
+    for(size_t i = 0; i < kMaxThreads; ++i)
+    {
+        Thread* thread = threadTable + i;
+        if((ThreadState::Blocked != thread->state) ||
+           (ThreadWaitReason::BlockIo != thread->wait.reason) ||
+           (completion_flag != thread->wait.block_io.completion_flag))
+        {
+            continue;
+        }
+
+        wake_blocked_thread(thread);
+    }
 }
 
 void mark_current_thread_dying(int exit_status)

@@ -55,8 +55,7 @@ void wake_console_readers(PageFrameContainer& frames)
             return;
         }
 
-        clear_thread_wait(thread);
         thread->frame.rax = (uint64_t)result;
-        mark_thread_ready(thread);
+        wake_blocked_thread(thread);
     }
 }

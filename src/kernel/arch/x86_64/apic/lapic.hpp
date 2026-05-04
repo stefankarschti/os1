@@ -61,6 +61,21 @@ extern "C"
     // initialize current CPU's local APIC
     void lapic_init(void);
 
+    // Return true when the local APIC MMIO block is available.
+    bool lapic_timer_available(void);
+
+    // Prepare a masked local APIC timer countdown for calibration.
+    void lapic_timer_prepare_calibration(uint32_t initial_count);
+
+    // Return the current local APIC timer counter value.
+    uint32_t lapic_timer_current_count(void);
+
+    // Start a periodic local APIC timer on the supplied vector.
+    bool lapic_timer_start_periodic(uint8_t vector, uint32_t initial_count);
+
+    // Mask the local APIC timer.
+    void lapic_timer_mask(void);
+
     // Acknowledge interrupt
     void lapic_eoi(void);
 

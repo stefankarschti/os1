@@ -3,10 +3,12 @@
 #include <stdint.h>
 
 /**
- * @brief Stable user/kernel syscall numbers for the int 0x80 ABI.
+ * @brief Stable user/kernel ABI syscall numbers shared between the kernel
+ *        SYSCALL/SYSRET dispatcher and user-mode wrappers.
  *
  * These identifiers are intentionally C-compatible and global. Keep kernel
- * dispatch and user wrappers synchronized through this single header.
+ * dispatch and user wrappers synchronized through this single header. The
+ * entry mechanism itself lives in src/kernel/arch/x86_64/cpu/syscall.cpp.
  */
 enum
 {

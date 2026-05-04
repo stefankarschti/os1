@@ -2,7 +2,9 @@
 #include "platform/irq_routing.hpp"
 
 #include "arch/x86_64/apic/ioapic.hpp"
+#include "arch/x86_64/interrupt/interrupt.hpp"
 #include "debug/debug.hpp"
+#include "platform/irq_registry.hpp"
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
 #include "platform/topology.hpp"
@@ -21,15 +23,16 @@ bool add_legacy_interrupt_override(uint8_t bus_irq, uint32_t global_irq, uint16_
     return true;
 }
 
-bool platform_enable_isa_irq(int bus_irq, int irq)
+bool platform_route_isa_irq(DeviceId owner, int bus_irq, uint8_t vector)
 {
     if((nullptr == ioapic) || !ismp)
     {
         return false;
     }
-    if(irq < 0)
+    if(!interrupt_vector_is_external(vector))
     {
-        irq = bus_irq;
+        debug("platform: invalid ISA route vector 0x")(vector, 16, 2)();
+        return false;
     }
 
     uint32_t global_irq = static_cast<uint32_t>(bus_irq);
@@ -44,5 +47,31 @@ bool platform_enable_isa_irq(int bus_irq, int irq)
         }
     }
 
-    return ioapic_enable_gsi(global_irq, irq, flags);
+    if(!ioapic_enable_gsi(global_irq, vector, flags))
+    {
+        return false;
+    }
+
+    return platform_register_isa_irq_route(
+        owner, static_cast<uint8_t>(bus_irq), global_irq, flags, vector);
+}
+
+bool platform_route_gsi_irq(DeviceId owner, uint32_t gsi, uint16_t flags, uint8_t vector)
+{
+    if((nullptr == ioapic) || !ismp)
+    {
+        return false;
+    }
+    if(!interrupt_vector_is_external(vector))
+    {
+        debug("platform: invalid GSI route vector 0x")(vector, 16, 2)();
+        return false;
+    }
+    if(!ioapic_enable_gsi(gsi, vector, flags))
+    {
+        return false;
+    }
+
+    const uint8_t source_irq = (gsi <= 0xFFu) ? static_cast<uint8_t>(gsi) : 0xFFu;
+    return platform_register_isa_irq_route(owner, source_irq, gsi, flags, vector);
 }

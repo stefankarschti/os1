@@ -16,7 +16,9 @@ void ioapic_init(void);
 
 // Record the global-system-interrupt base for the primary IOAPIC.
 void ioapic_set_primary(uint32_t gsi_base);
-// Enable a platform GSI with ACPI polarity/trigger flags.
-bool ioapic_enable_gsi(uint32_t gsi, int irq, uint16_t flags);
-// Enable a legacy INTIN line with the default active-high edge-triggered policy.
-void ioapic_enable(int intin, int irq = -1);
+// Enable a platform GSI with ACPI polarity/trigger flags on one explicit IDT
+// vector.
+bool ioapic_enable_gsi(uint32_t gsi, uint8_t vector, uint16_t flags);
+// Enable a legacy INTIN line with the default active-high edge-triggered policy
+// on one explicit vector.
+void ioapic_enable(int intin, uint8_t vector);

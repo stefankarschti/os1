@@ -6,6 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(OS1_HOST_TEST)
+    #include <string.h>
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {

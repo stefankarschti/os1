@@ -87,7 +87,7 @@ trap_entry_common:
 	mov rdx, [r12 + TF_CS]
 	test dl, 3
 	jnz .switch_thread
-	jmp .resume_live_kernel
+	jmp .resume_frame
 
 .switch_thread:
 	mov rdi, rax
@@ -96,32 +96,6 @@ trap_entry_common:
 .resume_frame:
 	mov rdi, r12
 	jmp restore_frame_ptr
-
-.resume_live_kernel:
-	mov rdx, [r12 + TF_RIP]
-	mov [rsp + 32], rdx
-	mov rdx, [r12 + TF_CS]
-	mov [rsp + 40], rdx
-	mov rdx, [r12 + TF_RFLAGS]
-	mov [rsp + 48], rdx
-
-	mov r15, [r12 + TF_R15]
-	mov r14, [r12 + TF_R14]
-	mov r13, [r12 + TF_R13]
-	mov r11, [r12 + TF_R11]
-	mov r10, [r12 + TF_R10]
-	mov r9,  [r12 + TF_R9]
-	mov r8,  [r12 + TF_R8]
-	mov rbp, [r12 + TF_RBP]
-	mov rsi, [r12 + TF_RSI]
-	mov rdi, [r12 + TF_RDI]
-	mov rdx, [r12 + TF_RDX]
-	mov rcx, [r12 + TF_RCX]
-	mov rbx, [r12 + TF_RBX]
-	mov rax, [r12 + TF_RAX]
-	mov r12, [r12 + TF_R12]
-	add rsp, 32
-	iretq
 
 global syscall_entry
 syscall_entry:
@@ -207,27 +181,55 @@ syscall_entry:
 	hlt
 	jmp .no_thread
 
-%macro IRQ_STUB 1
+%macro LEGACY_IRQ_STUB 2
 global irq%1
+global irq_vector_%2
 irq%1:
+irq_vector_%2:
 	push qword 0
-	push qword (32 + %1)
+	push qword %2
 	jmp trap_entry_common
 %endmacro
 
-IRQ_STUB 0
-IRQ_STUB 1
-IRQ_STUB 2
-IRQ_STUB 3
-IRQ_STUB 4
-IRQ_STUB 5
-IRQ_STUB 6
-IRQ_STUB 7
-IRQ_STUB 8
-IRQ_STUB 9
-IRQ_STUB 10
-IRQ_STUB 11
-IRQ_STUB 12
-IRQ_STUB 13
-IRQ_STUB 14
-IRQ_STUB 15
+LEGACY_IRQ_STUB 0, 32
+LEGACY_IRQ_STUB 1, 33
+LEGACY_IRQ_STUB 2, 34
+LEGACY_IRQ_STUB 3, 35
+LEGACY_IRQ_STUB 4, 36
+LEGACY_IRQ_STUB 5, 37
+LEGACY_IRQ_STUB 6, 38
+LEGACY_IRQ_STUB 7, 39
+LEGACY_IRQ_STUB 8, 40
+LEGACY_IRQ_STUB 9, 41
+LEGACY_IRQ_STUB 10, 42
+LEGACY_IRQ_STUB 11, 43
+LEGACY_IRQ_STUB 12, 44
+LEGACY_IRQ_STUB 13, 45
+LEGACY_IRQ_STUB 14, 46
+LEGACY_IRQ_STUB 15, 47
+
+%assign vector 48
+%rep 208
+%if vector <> 128
+global irq_vector_%+vector
+irq_vector_%+vector:
+	push qword 0
+	push qword vector
+	jmp trap_entry_common
+%endif
+%assign vector vector + 1
+%endrep
+
+section .rodata
+align 8
+global interrupt_vector_stub_table
+interrupt_vector_stub_table:
+%assign vector 0
+%rep 256
+%if (vector < 32) || (vector = 128)
+	dq 0
+%else
+	dq irq_vector_%+vector
+%endif
+%assign vector vector + 1
+%endrep

@@ -40,6 +40,16 @@ set(qemu_command
   -no-shutdown
 )
 
+if(DEFINED MONITOR_SOCKET)
+  get_filename_component(monitor_dir "${MONITOR_SOCKET}" DIRECTORY)
+  file(MAKE_DIRECTORY "${monitor_dir}")
+  file(REMOVE "${MONITOR_SOCKET}")
+  list(APPEND qemu_command
+    -monitor
+    "unix:${MONITOR_SOCKET},server,nowait"
+  )
+endif()
+
 if(DEFINED ISO_IMAGE)
   if(NOT DEFINED OVMF_CODE)
     message(FATAL_ERROR "OVMF_CODE must be set for ISO-based smoke tests")
@@ -70,6 +80,13 @@ else()
   message(FATAL_ERROR "Either ISO_IMAGE or RAW_IMAGE must be set")
 endif()
 
+list(APPEND qemu_command
+  -netdev
+  "user,id=os1net"
+  -device
+  "virtio-net-pci,netdev=os1net,disable-legacy=on"
+)
+
 if(DEFINED VIRTIO_TEST_DISK)
   if(NOT EXISTS "${VIRTIO_TEST_DISK}")
     message(FATAL_ERROR "VIRTIO_TEST_DISK was set but does not exist: ${VIRTIO_TEST_DISK}")
@@ -80,6 +97,10 @@ if(DEFINED VIRTIO_TEST_DISK)
     -device
     "virtio-blk-pci,drive=virtio_test,disable-legacy=on"
   )
+endif()
+
+if(DEFINED EXTRA_QEMU_ARGS)
+  list(APPEND qemu_command ${EXTRA_QEMU_ARGS})
 endif()
 
 # Build the runner argv. The runner streams QEMU stdout/stderr, matches markers
@@ -106,6 +127,14 @@ endif()
 if(DEFINED SERIAL_INPUT_EVENTS)
   foreach(event IN LISTS SERIAL_INPUT_EVENTS)
     list(APPEND runner_command --send-after "${event}")
+  endforeach()
+endif()
+if(DEFINED MONITOR_SOCKET)
+  list(APPEND runner_command --monitor-socket "${MONITOR_SOCKET}")
+endif()
+if(DEFINED MONITOR_SEND_EVENTS)
+  foreach(event IN LISTS MONITOR_SEND_EVENTS)
+    list(APPEND runner_command --monitor-send-after "${event}")
   endforeach()
 endif()
 list(APPEND runner_command --)

@@ -112,8 +112,7 @@ void wake_child_waiters(PageFrameContainer& frames)
             continue;
         }
 
-        clear_thread_wait(thread);
         thread->frame.rax = static_cast<uint64_t>(result);
-        mark_thread_ready(thread);
+        wake_blocked_thread(thread);
     }
 }

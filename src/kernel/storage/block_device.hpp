@@ -1,26 +1,69 @@
-// Generic block-device facade above concrete storage drivers. Drivers fill one
-// of these records; storage and filesystem layers should depend on this shape,
-// not on virtio-specific queue state.
+// Generic block-device request facade above concrete storage drivers.
 #pragma once
 
 #include <stddef.h>
 #include <stdint.h>
 
+enum class BlockOperation : uint8_t
+{
+    Read = 0,
+    Write = 1,
+    Flush = 2,
+};
+
+enum class BlockRequestStatus : uint8_t
+{
+    Pending = 0,
+    Success = 1,
+    DeviceError = 2,
+    Invalid = 3,
+    Timeout = 4,
+    Busy = 5,
+};
+
+struct BlockRequest
+{
+    BlockOperation operation = BlockOperation::Read;
+    uint64_t sector = 0;
+    void* buffer = nullptr;
+    uint32_t sector_count = 0;
+    volatile bool completed = false;
+    volatile BlockRequestStatus status = BlockRequestStatus::Pending;
+    uint32_t bytes_transferred = 0;
+    void* driver_context = nullptr;
+};
+
 struct BlockDevice;
 
-using BlockRead = bool (*)(BlockDevice& device, uint64_t sector, void* buffer, size_t sector_count);
-using BlockWrite = bool (*)(BlockDevice& device,
-                            uint64_t sector,
-                            const void* buffer,
-                            size_t sector_count);
+using BlockSubmit = bool (*)(BlockDevice& device, BlockRequest& request);
+using BlockFlush = bool (*)(BlockDevice& device, BlockRequest& request);
 
-// Fixed block-device descriptor with sector geometry and driver callbacks.
 struct BlockDevice
 {
     const char* name = nullptr;
     uint64_t sector_count = 0;
     uint32_t sector_size = 0;
+    uint32_t max_sectors_per_request = 0;
+    uint32_t queue_depth = 0;
     void* driver_state = nullptr;
-    BlockRead read = nullptr;
-    BlockWrite write = nullptr;
+    BlockSubmit submit = nullptr;
+    BlockFlush flush = nullptr;
 };
+
+inline bool block_request_succeeded(const BlockRequest& request)
+{
+    return request.completed && (BlockRequestStatus::Success == request.status);
+}
+
+void block_request_complete(BlockRequest& request,
+                            BlockRequestStatus status,
+                            uint32_t bytes_transferred = 0);
+bool block_request_wait(BlockRequest& request);
+bool block_read_sync(BlockDevice& device,
+                     uint64_t sector,
+                     void* buffer,
+                     uint32_t sector_count);
+bool block_write_sync(BlockDevice& device,
+                      uint64_t sector,
+                      const void* buffer,
+                      uint32_t sector_count);

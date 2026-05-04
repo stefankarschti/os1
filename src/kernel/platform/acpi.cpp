@@ -3,13 +3,18 @@
 // interrupt routing, and PCI enumeration.
 #include "platform/acpi.hpp"
 
-#include "arch/x86_64/cpu/cpu.hpp"
-#include "arch/x86_64/cpu/x86.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
+
+#if defined(OS1_HOST_TEST)
+#include <string.h>
+#else
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/cpu/x86.hpp"
 #include "util/string.h"
+#endif
 
 namespace
 {
@@ -19,6 +24,16 @@ constexpr uint8_t kAcpiMadtTypeLocalApic = 0;
 constexpr uint8_t kAcpiMadtTypeIoApic = 1;
 constexpr uint8_t kAcpiMadtTypeInterruptOverride = 2;
 constexpr uint8_t kAcpiMadtTypeLocalApicAddressOverride = 5;
+constexpr uint8_t kAcpiAddressSpaceSystemMemory = 0;
+
+struct [[gnu::packed]] AcpiGas
+{
+    uint8_t address_space_id;
+    uint8_t register_bit_width;
+    uint8_t register_bit_offset;
+    uint8_t access_size;
+    uint64_t address;
+};
 
 struct [[gnu::packed]] AcpiRsdp
 {
@@ -105,6 +120,75 @@ struct [[gnu::packed]] AcpiMcfgEntry
     uint32_t reserved;
 };
 
+struct [[gnu::packed]] AcpiHpet
+{
+    AcpiSdtHeader header;
+    uint32_t event_timer_block_id;
+    AcpiGas base_address;
+    uint8_t hpet_number;
+    uint16_t minimum_tick;
+    uint8_t page_protection;
+};
+
+struct [[gnu::packed]] AcpiFadt
+{
+    AcpiSdtHeader header;
+    uint32_t firmware_ctrl;
+    uint32_t dsdt;
+    uint8_t reserved0;
+    uint8_t preferred_pm_profile;
+    uint16_t sci_interrupt;
+    uint32_t smi_command_port;
+    uint8_t acpi_enable;
+    uint8_t acpi_disable;
+    uint8_t s4bios_request;
+    uint8_t pstate_control;
+    uint32_t pm1a_event_block;
+    uint32_t pm1b_event_block;
+    uint32_t pm1a_control_block;
+    uint32_t pm1b_control_block;
+    uint32_t pm2_control_block;
+    uint32_t pm_timer_block;
+    uint32_t gpe0_block;
+    uint32_t gpe1_block;
+    uint8_t pm1_event_length;
+    uint8_t pm1_control_length;
+    uint8_t pm2_control_length;
+    uint8_t pm_timer_length;
+    uint8_t gpe0_block_length;
+    uint8_t gpe1_block_length;
+    uint8_t gpe1_base;
+    uint8_t cstate_control;
+    uint16_t c2_latency;
+    uint16_t c3_latency;
+    uint16_t flush_size;
+    uint16_t flush_stride;
+    uint8_t duty_offset;
+    uint8_t duty_width;
+    uint8_t day_alarm;
+    uint8_t month_alarm;
+    uint8_t century;
+    uint16_t boot_architecture_flags;
+    uint8_t reserved1;
+    uint32_t flags;
+    AcpiGas reset_register;
+    uint8_t reset_value;
+    uint16_t arm_boot_architecture_flags;
+    uint8_t minor_version;
+    uint64_t x_firmware_control;
+    uint64_t x_dsdt;
+};
+
+struct AcpiRootTables
+{
+    uint64_t madt_physical;
+    uint64_t mcfg_physical;
+    uint64_t hpet_physical;
+    uint64_t fadt_physical;
+    uint64_t ssdt_physical[kPlatformMaxAcpiDefinitionBlocks];
+    size_t ssdt_count;
+};
+
 struct AcpiOutput
 {
     uint64_t& lapic_base;
@@ -116,6 +200,10 @@ struct AcpiOutput
     size_t& override_count;
     PciEcamRegion* ecam_regions;
     size_t& ecam_region_count;
+    HpetInfo& hpet;
+    AcpiFixedInfo& acpi_fixed;
+    AcpiDefinitionBlock* definition_blocks;
+    size_t& definition_block_count;
 };
 
 [[nodiscard]] inline uint64_t align_down(uint64_t value, uint64_t alignment)
@@ -144,11 +232,20 @@ struct AcpiOutput
     return 0 == memcmp(left, right, length);
 }
 
+void copy_signature(char (&destination)[4], const char* source)
+{
+    memcpy(destination, source, sizeof(destination));
+}
+
 [[nodiscard]] uint8_t current_apic_id()
 {
+#if defined(OS1_HOST_TEST)
+    return 0;
+#else
     cpuinfo info{};
     cpuid(1, &info);
     return static_cast<uint8_t>((info.ebx >> 24) & 0xFFu);
+#endif
 }
 
 [[nodiscard]] bool map_acpi_range(VirtualMemory& kernel_vm,
@@ -395,13 +492,126 @@ template<typename T>
     return true;
 }
 
+[[nodiscard]] bool parse_hpet(VirtualMemory& kernel_vm,
+                              uint64_t physical_address,
+                              AcpiOutput& output)
+{
+    const auto* header = map_acpi_table(kernel_vm, physical_address, "HPET");
+    if(nullptr == header)
+    {
+        return false;
+    }
+    if(header->length < sizeof(AcpiHpet))
+    {
+        debug("acpi: HPET too short")();
+        return false;
+    }
+
+    const auto* hpet = reinterpret_cast<const AcpiHpet*>(header);
+    if((hpet->base_address.address_space_id != kAcpiAddressSpaceSystemMemory) ||
+       (0 == hpet->base_address.address))
+    {
+        debug("acpi: HPET has unsupported base address")();
+        return false;
+    }
+
+    output.hpet = {};
+    output.hpet.present = true;
+    output.hpet.hpet_number = hpet->hpet_number;
+    output.hpet.page_protection = hpet->page_protection;
+    output.hpet.minimum_tick = hpet->minimum_tick;
+    output.hpet.physical_address = hpet->base_address.address;
+    debug("acpi: HPET discovered base=0x")(output.hpet.physical_address, 16)(" number=")(
+        output.hpet.hpet_number)(" min_tick=")(output.hpet.minimum_tick)();
+    return true;
+}
+
+[[nodiscard]] bool add_definition_block(AcpiOutput& output,
+                                        uint64_t physical_address,
+                                        const AcpiSdtHeader& header)
+{
+    if(nullptr == output.definition_blocks)
+    {
+        return false;
+    }
+    if(output.definition_block_count >= kPlatformMaxAcpiDefinitionBlocks)
+    {
+        debug("acpi: definition-block table full")();
+        return false;
+    }
+
+    AcpiDefinitionBlock& block = output.definition_blocks[output.definition_block_count++];
+    block = {};
+    block.active = true;
+    copy_signature(block.signature, header.signature);
+    block.length = header.length;
+    block.physical_address = physical_address;
+    return true;
+}
+
+[[nodiscard]] bool parse_fadt(VirtualMemory& kernel_vm,
+                              uint64_t physical_address,
+                              AcpiOutput& output)
+{
+    const auto* header = map_acpi_table(kernel_vm, physical_address, "FACP");
+    if(nullptr == header)
+    {
+        return false;
+    }
+    if(header->length < offsetof(AcpiFadt, flags) + sizeof(uint32_t))
+    {
+        debug("acpi: FADT too short")();
+        return false;
+    }
+
+    const auto* fadt = reinterpret_cast<const AcpiFadt*>(header);
+    uint64_t firmware_ctrl = fadt->firmware_ctrl;
+    if((header->length >= offsetof(AcpiFadt, x_firmware_control) + sizeof(uint64_t)) &&
+       (0 != fadt->x_firmware_control))
+    {
+        firmware_ctrl = fadt->x_firmware_control;
+    }
+
+    uint64_t dsdt_physical = fadt->dsdt;
+    if((header->length >= offsetof(AcpiFadt, x_dsdt) + sizeof(uint64_t)) && (0 != fadt->x_dsdt))
+    {
+        dsdt_physical = fadt->x_dsdt;
+    }
+    if(0 == dsdt_physical)
+    {
+        debug("acpi: FADT did not provide a DSDT")();
+        return false;
+    }
+
+    const auto* dsdt = map_acpi_table(kernel_vm, dsdt_physical, "DSDT");
+    if(nullptr == dsdt)
+    {
+        return false;
+    }
+
+    output.acpi_fixed = {};
+    output.acpi_fixed.present = true;
+    output.acpi_fixed.preferred_pm_profile = fadt->preferred_pm_profile;
+    output.acpi_fixed.sci_interrupt = fadt->sci_interrupt;
+    output.acpi_fixed.boot_architecture_flags = fadt->boot_architecture_flags;
+    output.acpi_fixed.flags = fadt->flags;
+    output.acpi_fixed.firmware_ctrl = firmware_ctrl;
+    output.acpi_fixed.dsdt_physical = dsdt_physical;
+    if(!add_definition_block(output, dsdt_physical, *dsdt))
+    {
+        return false;
+    }
+
+    debug("acpi: FADT ready dsdt=0x")(output.acpi_fixed.dsdt_physical, 16)(" sci=")(
+        output.acpi_fixed.sci_interrupt)(" blocks=")(output.definition_block_count)();
+    return true;
+}
+
 [[nodiscard]] bool resolve_acpi_tables(VirtualMemory& kernel_vm,
                                        const BootInfo& boot_info,
-                                       uint64_t& madt_physical,
-                                       uint64_t& mcfg_physical)
+                                       AcpiRootTables& tables)
 {
-    madt_physical = 0;
-    mcfg_physical = 0;
+    tables = {};
     if(0 == boot_info.rsdp_physical)
     {
         debug("acpi: boot did not supply an RSDP")();
@@ -485,15 +695,33 @@ template<typename T>
         }
         if(signature_equals(entry_header->signature, "APIC", 4))
         {
-            madt_physical = entry_physical;
+            tables.madt_physical = entry_physical;
         }
         else if(signature_equals(entry_header->signature, "MCFG", 4))
         {
-            mcfg_physical = entry_physical;
+            tables.mcfg_physical = entry_physical;
+        }
+        else if(signature_equals(entry_header->signature, "HPET", 4))
+        {
+            tables.hpet_physical = entry_physical;
+        }
+        else if(signature_equals(entry_header->signature, "FACP", 4))
+        {
+            tables.fadt_physical = entry_physical;
+        }
+        else if(signature_equals(entry_header->signature, "SSDT", 4))
+        {
+            if(tables.ssdt_count >= kPlatformMaxAcpiDefinitionBlocks)
+            {
+                debug("acpi: too many SSDTs")();
+                return false;
+            }
+            tables.ssdt_physical[tables.ssdt_count++] = entry_physical;
         }
     }
 
-    return (0 != madt_physical) && (0 != mcfg_physical);
+    return (0 != tables.madt_physical) && (0 != tables.mcfg_physical) &&
+           (0 != tables.fadt_physical);
 }
 }  // namespace
 
@@ -507,17 +735,23 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
                             InterruptOverride* overrides,
                             size_t& override_count,
                             PciEcamRegion* ecam_regions,
-                            size_t& ecam_region_count)
+                            size_t& ecam_region_count,
+                            HpetInfo& hpet,
+                            AcpiFixedInfo& acpi_fixed,
+                            AcpiDefinitionBlock* definition_blocks,
+                            size_t& definition_block_count)
 {
     if((nullptr == cpus) || (nullptr == ioapics) || (nullptr == overrides) ||
-       (nullptr == ecam_regions))
+       (nullptr == ecam_regions) || (nullptr == definition_blocks))
     {
         return false;
     }
 
-    uint64_t madt_physical = 0;
-    uint64_t mcfg_physical = 0;
-    if(!resolve_acpi_tables(kernel_vm, boot_info, madt_physical, mcfg_physical))
+    definition_block_count = 0;
+    acpi_fixed = {};
+
+    AcpiRootTables tables{};
+    if(!resolve_acpi_tables(kernel_vm, boot_info, tables))
     {
         return false;
     }
@@ -532,7 +766,36 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
         .override_count = override_count,
         .ecam_regions = ecam_regions,
         .ecam_region_count = ecam_region_count,
+        .hpet = hpet,
+        .acpi_fixed = acpi_fixed,
+        .definition_blocks = definition_blocks,
+        .definition_block_count = definition_block_count,
     };
-    return parse_madt(kernel_vm, madt_physical, output) &&
-           parse_mcfg(kernel_vm, mcfg_physical, output);
+    output.hpet = {};
+    if(!parse_madt(kernel_vm, tables.madt_physical, output) ||
+       !parse_mcfg(kernel_vm, tables.mcfg_physical, output) ||
+       !parse_fadt(kernel_vm, tables.fadt_physical, output))
+    {
+        return false;
+    }
+
+    for(size_t i = 0; i < tables.ssdt_count; ++i)
+    {
+        const auto* ssdt = map_acpi_table(kernel_vm, tables.ssdt_physical[i], "SSDT");
+        if(nullptr == ssdt)
+        {
+            return false;
+        }
+        if(!add_definition_block(output, tables.ssdt_physical[i], *ssdt))
+        {
+            return false;
+        }
+    }
+
+    if((0 != tables.hpet_physical) && !parse_hpet(kernel_vm, tables.hpet_physical, output))
+    {
+        debug("acpi: ignoring unusable HPET table")();
+        output.hpet = {};
+    }
+    return true;
 }

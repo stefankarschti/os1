@@ -10,9 +10,9 @@ get_filename_component(OS1_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(OS1_HOST_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 
 set(OS1_KERNEL_IMAGE_LOAD_ADDRESS 0x10000)
-set(OS1_INITRD_LOAD_ADDRESS 0x80000)
+set(OS1_INITRD_LOAD_ADDRESS 0x90000)
 set(OS1_KERNEL_RESERVED_PHYSICAL_START 0x100000)
-set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x160000)
+set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x180000)
 set(OS1_KERNEL_VIRTUAL_OFFSET 0xFFFFFFFF80000000)
 set(OS1_KERNEL_SHIM_VIRTUAL_BASE 0xFFFFFFFF90000000)
 set(OS1_DIRECT_MAP_BASE 0xFFFF800000000000)
@@ -37,11 +37,30 @@ add_library(os1_host_support
   support/debug_stub.cpp
   support/memory_stubs.cpp
   support/physical_memory.cpp
+  "${OS1_REPO_ROOT}/src/kernel/arch/x86_64/interrupt/vector_allocator.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/core/timer_source.cpp"
   "${OS1_REPO_ROOT}/src/kernel/debug/event_ring.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/drivers/bus/device.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/drivers/bus/driver_registry.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/drivers/bus/pci_bus.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/drivers/usb/hid_keyboard.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/drivers/usb/xhci_controller.cpp"
   "${OS1_REPO_ROOT}/src/kernel/fs/cpio_newc.cpp"
   "${OS1_REPO_ROOT}/src/kernel/handoff/boot_info.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/mm/boot_mapping.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/drivers/bus/resource.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/page_frame.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/mm/dma.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/acpi.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/acpi_aml.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/hpet.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/irq_registry.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/power.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/pci_capability.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/pci_config.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/pci_msi.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/state.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/user_elf.cpp"
 )
 target_compile_definitions(os1_host_support PUBLIC OS1_HOST_TEST=1)
@@ -58,9 +77,21 @@ add_executable(os1_host_tests
   common/freestanding_string_tests.cpp
   fs/cpio_newc_tests.cpp
   handoff/boot_info_tests.cpp
+  kernel/acpi_hpet_tests.cpp
+  kernel/acpi_aml_tests.cpp
   kernel/utility_tests.cpp
   kernel/event_ring_tests.cpp
+  kernel/irq_route_registry_tests.cpp
+  kernel/irq_vector_allocator_tests.cpp
+  kernel/timer_source_tests.cpp
+  kernel/pci_bus_tests.cpp
+  kernel/pci_capability_tests.cpp
+  kernel/pci_msi_tests.cpp
+  kernel/pci_resource_tests.cpp
+  kernel/hid_keyboard_tests.cpp
+  kernel/xhci_controller_tests.cpp
   mm/page_frame_tests.cpp
+  mm/dma_tests.cpp
   mm/user_address_tests.cpp
   mm/virtual_memory_tests.cpp
   proc/user_elf_tests.cpp

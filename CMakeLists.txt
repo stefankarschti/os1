@@ -60,6 +60,7 @@ set(OS1_BIOS_SERIAL_LOG "${OS1_ARTIFACT_DIR}/os1-bios.log")
 set(OS1_OVMF_VARS_FILE "${OS1_ARTIFACT_DIR}/ovmf-vars.fd")
 set(OS1_SMOKE_LOG "${OS1_ARTIFACT_DIR}/smoke.log")
 set(OS1_SMOKE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-bios.log")
+set(OS1_SMOKE_XHCI_LOG "${OS1_ARTIFACT_DIR}/smoke-xhci.log")
 set(OS1_SMOKE_OBSERVE_LOG "${OS1_ARTIFACT_DIR}/smoke-observe.log")
 set(OS1_SMOKE_OBSERVE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-observe-bios.log")
 set(OS1_SMOKE_SPAWN_LOG "${OS1_ARTIFACT_DIR}/smoke-spawn.log")
@@ -86,9 +87,9 @@ foreach(OS1_VENDOR_FILE
 endforeach()
 
 set(OS1_KERNEL_IMAGE_LOAD_ADDRESS 0x10000)
-set(OS1_INITRD_LOAD_ADDRESS 0x80000)
+set(OS1_INITRD_LOAD_ADDRESS 0x90000)
 set(OS1_KERNEL_RESERVED_PHYSICAL_START 0x100000)
-set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x160000)
+set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x180000)
 set(OS1_KERNEL_VIRTUAL_OFFSET 0xFFFFFFFF80000000)
 set(OS1_KERNEL_SHIM_VIRTUAL_BASE 0xFFFFFFFF90000000)
 set(OS1_DIRECT_MAP_BASE 0xFFFF800000000000)
@@ -421,6 +422,10 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
       "if=pflash,format=raw,file=${OS1_OVMF_VARS_FILE}"
       -cdrom
       "${OS1_ISO_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -453,6 +458,10 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
       "if=pflash,format=raw,file=${OS1_OVMF_VARS_FILE}"
       -cdrom
       "${OS1_ISO_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -485,6 +494,10 @@ if(OS1_QEMU_EXECUTABLE)
       4
       -drive
       "format=raw,file=${OS1_RAW_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -512,6 +525,10 @@ if(OS1_QEMU_EXECUTABLE)
       4
       -drive
       "format=raw,file=${OS1_RAW_IMAGE}"
+      -netdev
+      "user,id=os1net"
+      -device
+      "virtio-net-pci,netdev=os1net,disable-legacy=on"
       -drive
       "if=none,id=virtio_test,format=raw,file=${OS1_VIRTIO_TEST_DISK}"
       -device
@@ -551,7 +568,7 @@ set(OS1_SMOKE_REJECT_MARKERS
 # smoke runner observes it when the following command output flushes.
 set(OS1_SHELL_INPUT_EVENTS
   "shell prompt ready::help\\n"
-  "help echo pid sys ps cpu pci initrd events exec exit::echo hi\\n"
+  "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit::echo hi\\n"
   "echo: hi::pid\\n"
 )
 
@@ -561,7 +578,10 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "pid tid pstate tstate mode cr3 name::cpu\\n"
   "cpu slot apic bsp booted pid tid::pci\\n"
   "pci 00:03.0 1af4:1042::initrd\\n"
-  "initrd /bin/fault size=::events\\n"
+  "initrd complete::devices\\n"
+  "device bus id state pci driver::irqs\\n"
+  "irq vector kind owner source gsi flags::resources\\n"
+  "resource kind owner ref detail base size extra::events\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -607,6 +627,51 @@ if(OS1_REQUIRE_UEFI_SMOKE)
 endif()
 
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
+  set(OS1_UEFI_XHCI_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "boot source: limine"
+    "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
+    "shell prompt ready"
+    "xhci: HID keyboard ready"
+  )
+  set(OS1_XHCI_QEMU_ARGS
+    -device
+    qemu-xhci,id=xhci
+    -device
+    usb-kbd,bus=xhci.0
+  )
+
+  add_test(
+    NAME os1_smoke_xhci
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DISO_IMAGE=${OS1_ISO_IMAGE}"
+      "-DOVMF_CODE=${OS1_OVMF_CODE}"
+      "-DOVMF_VARS_TEMPLATE=${OS1_OVMF_VARS_TEMPLATE}"
+      "-DLOG_FILE=${OS1_SMOKE_XHCI_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_UEFI_XHCI_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DEXTRA_QEMU_ARGS=${OS1_XHCI_QEMU_ARGS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke_xhci
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_xhci$"
+    DEPENDS os1_image "${OS1_VIRTIO_TEST_DISK}"
+    USES_TERMINAL
+    VERBATIM
+  )
+
   set(OS1_UEFI_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
@@ -615,12 +680,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "acpi: MCFG ready"
     "pci: enumerated devices="
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "ncpu: 4"
     "framebuffer console active"
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd events exec exit"
+    "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -659,6 +726,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[kernel64] hello!"
     "boot source: limine"
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "framebuffer console active"
     "starting first user process"
     "shell prompt ready"
@@ -669,12 +738,23 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "cpu 3 03 no yes"
     "pci bdf vendor:device class irq bars"
     "pci 00:03.0 1af4:1042 class=01:00"
+    "pci 00:02.0 1af4:1041 class=02:00"
     "initrd path size"
     "initrd /bin/sh size="
     "initrd /bin/yield size="
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
+    "device bus id state pci driver"
+    "device pci 3 started 3 virtio-blk"
+    "device pci 2 started 2 virtio-net"
+    "irq vector kind owner source gsi flags"
+    "irq 33 legacy-isa platform:1 irq=1 id=0 gsi=1 flags=0x0"
+    "resource kind owner ref detail base size extra"
+    "resource bar pci:3 pci=3 bar="
+    "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event net-rx seq="
+    "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"
   )
@@ -712,6 +792,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[kernel64] hello!"
     "boot source: limine"
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "[user/yield] tick 0"
@@ -759,6 +841,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "[kernel64] hello!"
     "boot source: limine"
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "shell exec start /bin/yield"
@@ -811,12 +895,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "acpi: MCFG ready"
     "pci: enumerated devices="
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "ncpu: 4"
     "Interrupts initialization successful"
     "initrd module discovered"
     "starting first user process"
     "shell prompt ready"
-    "help echo pid sys ps cpu pci initrd events exec exit"
+    "help echo pid sys ps cpu pci initrd devices irqs resources events exec exit"
     "echo: hi"
     "pid: "
     "idle thread online"
@@ -853,6 +939,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[kernel64] hello!"
     "boot source: bios"
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "Interrupts initialization successful"
     "starting first user process"
     "shell prompt ready"
@@ -863,12 +951,23 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "cpu 3 03 no yes"
     "pci bdf vendor:device class irq bars"
     "pci 00:03.0 1af4:1042 class=01:00"
+    "pci 00:02.0 1af4:1041 class=02:00"
     "initrd path size"
     "initrd /bin/sh size="
     "initrd /bin/yield size="
     "initrd /bin/fault size="
     "initrd /bin/copycheck size="
+    "device bus id state pci driver"
+    "device pci 3 started 3 virtio-blk"
+    "device pci 2 started 2 virtio-net"
+    "irq vector kind owner source gsi flags"
+    "irq 33 legacy-isa platform:1 irq=1 id=0 gsi=1 flags=0x0"
+    "resource kind owner ref detail base size extra"
+    "resource bar pci:3 pci=3 bar="
+    "resource dma pci:3 dir=bidirectional pages=3 coherent=yes"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
+    "event net-rx seq="
+    "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"
   )
@@ -904,6 +1003,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[kernel64] hello!"
     "boot source: bios"
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "[user/yield] tick 0"
@@ -949,6 +1050,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "[kernel64] hello!"
     "boot source: bios"
     "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
     "shell exec start /bin/yield"
@@ -993,7 +1096,7 @@ endif()
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   add_custom_target(
     smoke_all
-    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_observe|_spawn|_exec)?(_bios)?$"
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_observe|_spawn|_exec|_xhci)?(_bios)?$"
     DEPENDS os1_image os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM

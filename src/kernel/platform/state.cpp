@@ -26,3 +26,23 @@ const PciDevice* platform_pci_devices()
 {
     return g_platform.devices;
 }
+
+size_t platform_irq_route_count()
+{
+    return g_platform.irq_route_count;
+}
+
+const IrqRoute* platform_irq_routes()
+{
+    return g_platform.irq_routes;
+}
+
+size_t platform_acpi_device_count()
+{
+    return g_platform.acpi_device_count;
+}
+
+const AcpiDeviceInfo* platform_acpi_devices()
+{
+    return g_platform.acpi_devices;
+}

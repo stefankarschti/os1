@@ -1,28 +1,13 @@
 #include "arch/x86_64/interrupt/interrupt.hpp"
 
+#include "arch/x86_64/apic/lapic.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "arch/x86_64/cpu/io_port.hpp"
+#include "arch/x86_64/interrupt/vector_allocator.hpp"
 #include "util/memory.h"
 
 extern "C"
 {
-    int irq0();
-    int irq1();
-    int irq2();
-    int irq3();
-    int irq4();
-    int irq5();
-    int irq6();
-    int irq7();
-    int irq8();
-    int irq9();
-    int irq10();
-    int irq11();
-    int irq12();
-    int irq13();
-    int irq14();
-    int irq15();
-
     int int_00h();
     int int_01h();
     int int_02h();
@@ -44,12 +29,14 @@ extern "C"
     int int_13h();
     int int_1Dh();
     int int_1Eh();
+
+    extern uint64_t interrupt_vector_stub_table[256];
 }
 
 namespace
 {
-void (*irq_hook[16])(void*) = {};
-void* irq_data[16] = {};
+InterruptHandler irq_handler_function[256] = {};
+void* irq_handler_data[256] = {};
 ExceptionHandler exception_handler_function[256] = {};
 
 static inline void lidt(void* base, uint16_t size)
@@ -62,13 +49,31 @@ static inline void lidt(void* base, uint16_t size)
 
     asm volatile("lidt %0" : : "m"(idtr));
 }
+
+void lapic_error_vector_handler(void*)
+{
+    lapic_err_intr();
+}
 }  // namespace
+
+void dispatch_interrupt_vector(uint8_t vector)
+{
+    if(irq_handler_function[vector])
+    {
+        irq_handler_function[vector](irq_handler_data[vector]);
+    }
+}
+
+bool interrupt_vector_has_handler(uint8_t vector)
+{
+    return nullptr != irq_handler_function[vector];
+}
 
 void dispatch_irq_hook(int number)
 {
-    if((number >= 0) && (number < 16) && irq_hook[number])
+    if((number >= 0) && (number < 16))
     {
-        irq_hook[number](irq_data[number]);
+        dispatch_interrupt_vector(static_cast<uint8_t>(T_IRQ0 + number));
     }
 }
 
@@ -121,22 +126,17 @@ bool Interrupts::initialize()
     outb(0x21, 0x0);
     outb(0xA1, 0x0);
 
-    set_idt(32, (uint64_t)irq0);
-    set_idt(33, (uint64_t)irq1);
-    set_idt(34, (uint64_t)irq2);
-    set_idt(35, (uint64_t)irq3);
-    set_idt(36, (uint64_t)irq4);
-    set_idt(37, (uint64_t)irq5);
-    set_idt(38, (uint64_t)irq6);
-    set_idt(39, (uint64_t)irq7);
-    set_idt(40, (uint64_t)irq8);
-    set_idt(41, (uint64_t)irq9);
-    set_idt(42, (uint64_t)irq10);
-    set_idt(43, (uint64_t)irq11);
-    set_idt(44, (uint64_t)irq12);
-    set_idt(45, (uint64_t)irq13);
-    set_idt(46, (uint64_t)irq14);
-    set_idt(47, (uint64_t)irq15);
+    for(uint16_t vector = T_IRQ0; vector <= 0xFFu; ++vector)
+    {
+        if(vector == T_SYSCALL)
+        {
+            continue;
+        }
+        if(0 != interrupt_vector_stub_table[vector])
+        {
+            set_idt(static_cast<int>(vector), interrupt_vector_stub_table[vector]);
+        }
+    }
 
     set_idt(0x00, (uint64_t)int_00h);
     set_idt(0x01, (uint64_t)int_01h);
@@ -159,27 +159,31 @@ bool Interrupts::initialize()
     set_idt(0x13, (uint64_t)int_13h);
     set_idt(0x1D, (uint64_t)int_1Dh);
     set_idt(0x1E, (uint64_t)int_1Eh);
-    for(int i = 0; i < 16; ++i)
-    {
-        irq_hook[i] = nullptr;
-        irq_data[i] = nullptr;
-    }
     for(int i = 0; i < 256; ++i)
     {
+        irq_handler_function[i] = nullptr;
+        irq_handler_data[i] = nullptr;
         exception_handler_function[i] = nullptr;
     }
+    set_vector_handler(T_LERROR, lapic_error_vector_handler, nullptr);
+    irq_vector_allocator_reset();
 
     lidt(IDT, 256 * sizeof(IDTDescriptor));
     asm volatile("sti");
     return true;
 }
 
-void Interrupts::set_irq_handler(int number, void (*pFunction)(void*), void* data)
+void Interrupts::set_vector_handler(uint8_t vector, InterruptHandler pFunction, void* data)
+{
+    irq_handler_function[vector] = pFunction;
+    irq_handler_data[vector] = data;
+}
+
+void Interrupts::set_irq_handler(int number, InterruptHandler pFunction, void* data)
 {
     if((number >= 0) && (number < 16))
     {
-        irq_hook[number] = pFunction;
-        irq_data[number] = data;
+        set_vector_handler(static_cast<uint8_t>(T_IRQ0 + number), pFunction, data);
     }
 }
 

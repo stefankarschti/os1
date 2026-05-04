@@ -6,6 +6,11 @@
 
 void reap_dead_threads(PageFrameContainer& frames)
 {
+    if(nullptr == threadTable)
+    {
+        return;
+    }
+
     Thread* active = current_thread();
     for(size_t i = 0; i < kMaxThreads; ++i)
     {

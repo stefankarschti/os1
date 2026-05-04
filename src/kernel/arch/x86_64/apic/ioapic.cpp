@@ -129,16 +129,19 @@ void ioapic_set_primary(uint32_t gsi_base)
     g_ioapic_gsi_base = gsi_base;
 }
 
-bool ioapic_enable_gsi(uint32_t gsi, int irq, uint16_t flags)
+bool ioapic_enable_gsi(uint32_t gsi, uint8_t vector, uint16_t flags)
 {
     if(!ismp)
         return false;
     if(ioapic == NULL)
         return false;
-    if(irq < 0)
-        irq = static_cast<int>(gsi);
     if(gsi < g_ioapic_gsi_base)
         return false;
+    if(!interrupt_vector_is_external(vector))
+    {
+        debug("ioapic: invalid vector 0x")(vector, 16, 2)();
+        return false;
+    }
 
     const uint32_t intin = gsi - g_ioapic_gsi_base;
     if((g_ioapic_maxintr >= 0) && (intin > static_cast<uint32_t>(g_ioapic_maxintr)))
@@ -153,12 +156,12 @@ bool ioapic_enable_gsi(uint32_t gsi, int irq, uint16_t flags)
         return false;
     }
 
-    ioapic_write(REG_TABLE + 2 * intin, INT_LOGICAL | INT_LOWEST | mode_bits | (T_IRQ0 + irq));
+    ioapic_write(REG_TABLE + 2 * intin, INT_LOGICAL | INT_LOWEST | mode_bits | vector);
     ioapic_write(REG_TABLE + 2 * intin + 1, 0xff << 24);
     return true;
 }
 
-void ioapic_enable(int intin, int irq)
+void ioapic_enable(int intin, uint8_t vector)
 {
-    (void)ioapic_enable_gsi(g_ioapic_gsi_base + static_cast<uint32_t>(intin), irq, 0);
+    (void)ioapic_enable_gsi(g_ioapic_gsi_base + static_cast<uint32_t>(intin), vector, 0);
 }

@@ -24,7 +24,7 @@ Thread* schedule_next(bool keep_current)
     reap_dead_threads(page_frames);
     wake_child_waiters(page_frames);
     Thread* current = current_thread();
-    if(keep_current && current)
+    if(keep_current && current && (ThreadState::Running == current->state))
     {
         mark_thread_ready(current);
     }

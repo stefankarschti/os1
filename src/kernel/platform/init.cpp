@@ -1,5 +1,5 @@
-// Platform initialization sequence: ACPI discovery, topology publication, PCI
-// enumeration, and current device probing.
+// Platform discovery sequence: ACPI discovery, topology publication, and PCI
+// enumeration. Driver probing is deferred until interrupts are online.
 #include "arch/x86_64/apic/ioapic.hpp"
 #include "debug/debug.hpp"
 #include "handoff/boot_info.hpp"
@@ -7,7 +7,8 @@
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
-#include "platform/device_probe.hpp"
+#include "platform/acpi_aml.hpp"
+#include "platform/hpet.hpp"
 #include "platform/pci.hpp"
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
@@ -15,7 +16,7 @@
 #include "sync/smp.hpp"
 #include "util/memory.h"
 
-bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm)
+bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
 {
     KASSERT_ON_BSP();
     memset(&g_platform, 0, sizeof(g_platform));
@@ -30,11 +31,26 @@ bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm)
                                                        g_platform.overrides,
                                                        g_platform.override_count,
                                                        g_platform.ecam_regions,
-                                                       g_platform.ecam_region_count);
+                                                       g_platform.ecam_region_count,
+                                                       g_platform.hpet,
+                                                       g_platform.acpi_fixed,
+                                                       g_platform.acpi_definition_blocks,
+                                                       g_platform.acpi_definition_block_count);
     if(!acpi_available)
     {
         (void)kernel_vm;
         debug("platform: ACPI required; legacy MP discovery removed")();
+        return false;
+    }
+
+    if(!acpi_namespace_load(kernel_vm,
+                            g_platform.acpi_definition_blocks,
+                            g_platform.acpi_definition_block_count) ||
+       !acpi_build_device_info(g_platform.acpi_devices,
+                               g_platform.acpi_device_count,
+                               g_platform.acpi_pci_routes,
+                               g_platform.acpi_pci_route_count))
+    {
         return false;
     }
 
@@ -49,6 +65,14 @@ bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm)
             return false;
         }
     }
+    if(g_platform.hpet.present && !map_mmio_range(kernel_vm, g_platform.hpet.physical_address, kPageSize))
+    {
+        return false;
+    }
+    if(!platform_hpet_initialize())
+    {
+        return false;
+    }
     if(!allocate_cpus_from_topology())
     {
         return false;
@@ -59,8 +83,7 @@ bool platform_init(const BootInfo& boot_info, VirtualMemory& kernel_vm)
                       g_platform.ecam_regions,
                       g_platform.ecam_region_count,
                       g_platform.devices,
-                      g_platform.device_count) ||
-       !probe_devices(kernel_vm))
+                      g_platform.device_count))
     {
         return false;
     }

@@ -441,49 +441,53 @@ The in-repo milestone designs (M1–M5) refine the coarser A–G map below into 
 - serial output and terminal output
 - centralized early-boot addresses, AP idle state, C++20 kernel baseline, headless QEMU smoke test in CI
 
-### Milestone B: Modern platform handoff *(partially implemented — M1 covers the contract; M3 + M4 deliver the modern boot and discovery paths)*
+### Milestone B: Modern platform handoff *(implemented for QEMU/q35; broader real-hardware breadth tracked separately)*
 
 - common boot information handoff structure (*`BootInfo` — implemented*)
-- UEFI path ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md))
+- UEFI path ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md) — implemented)
 - framebuffer support (M3 handoff; compositor later)
-- ACPI discovery ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented)
+- ACPI discovery ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented; FADT/HPET added in the 2026-04-30 [driver/device/platform pass](doc/2026-04-29-driver-device-platform-implementation-plan.md))
 - improved platform abstraction (M4 — implemented)
-- PCIe enumeration and first `virtio-blk` transport ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented)
-- ACPI-first machine discovery that begins with RSDP/XSDT, MADT, FADT, MCFG, and HPET; AML-based device and power support later
-- PCIe support that expands from enumeration into BAR/resource ownership, driver binding, bus mastering, MSI/MSI-X, and DMA-safe building blocks
-- USB host-controller discovery through PCI, with xHCI as the first USB transport and HID keyboard/mouse as the first USB class targets
-- early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, ACPI-derived AP bring-up, and AP idle state are implemented; SMP scheduling is still a follow-on)
+- PCIe enumeration, BAR ownership, MSI-X/MSI/INTx fallback, shared virtio transport, request-shaped block layer, and interrupt-driven `virtio-blk` reads + writes ([2026-04-30 pass](doc/2026-04-29-driver-device-platform-implementation-plan.md) — implemented)
+- ACPI-first machine discovery starting with RSDP/XSDT, MADT, FADT, MCFG, and HPET, plus a deliberately minimal AML interpreter for `_PRT`/`_CRS`/`_STA`/`_ADR`/`_BBN`/`_HID`/`_UID`/`_PS0`/`_PS3` (implemented; broader AML coverage remains a real-hardware-driven follow-up)
+- PCIe support expanding from enumeration into BAR/resource ownership, driver binding, bus mastering, MSI/MSI-X, and DMA-safe building blocks (implemented)
+- USB host-controller discovery through PCI, with xHCI as the first USB transport and HID keyboard as the first USB class target ([2026-04-30 pass](doc/2026-04-29-driver-device-platform-implementation-plan.md) — implemented; HID mouse recognized but not yet routed; USB hub class and mass storage remain follow-on work)
+- HPET-calibrated LAPIC periodic timer with PIT fallback (implemented)
+- early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, ACPI-derived AP bring-up, AP idle state, `Spinlock`/`IrqGuard` synchronization vocabulary, and an `OS1_BSP_ONLY` annotation system are implemented; per-CPU IRQ steering and full SMP scheduling are still follow-on work)
 - early accelerator / GPU device discovery path where feasible
 
 ### Milestone C: Protected userland and operator shell baseline *(implemented across [M2 design](doc/2026-04-22-milestone-2-process-model-and-isolation.md) and [M5 design](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md))*
 
 - ring-3 user-mode execution
 - ELF64 executable loading from a cpio-newc initrd
-- a small `int 0x80` syscall interface for console I/O, observability, and initrd-backed process control
-- initrd-backed operator environment with `/bin/init`, `/bin/sh`, `/bin/yield`, and `/bin/fault`
+- a small SYSCALL/SYSRET-entered syscall interface (`write`, `read`, `exit`, `yield`, `getpid`, `observe`, `spawn`, `waitpid`, `exec`) for console I/O, observability, and initrd-backed process control
+- initrd-backed operator environment with `/bin/init`, `/bin/sh`, `/bin/yield`, `/bin/fault`, `/bin/copycheck`, and `/bin/ascii` (the last is a human-only visual probe; see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) for why it is deliberately not asserted by smoke)
 - serial-drivable shell and smoke coverage on both boot paths
+- structured observability through versioned fixed-record snapshots (`sys`, `ps`, `cpu`, `pci`, `initrd`, `events`, `devices`, `resources`, `irqs`) and a 256-record kernel event ring covering traps, scheduler transitions, IRQs, block I/O, PCI bind, user-copy failures, smoke markers, timer-source choice, and NIC RX
 
-Later follow-ups expected in this area: filesystem-backed loading, richer file-descriptor semantics, arguments/environment support, and an optional fast-syscall (`SYSCALL`/`SYSRET`) path.
+Later follow-ups expected in this area: filesystem-backed loading, richer file-descriptor / handle semantics, arguments/environment passing, and process credentials.
 
-### Milestone D: Persistence and local security *(next)*
+### Milestone D: Persistence and local security *(next; block-layer half done, filesystem and multiuser halves remain)*
 
-The virtio-blk probe in Milestone 4 is a smoke path, not a block layer. Milestone D therefore has two halves that should not be conflated:
+The block-layer half of Milestone D is now done as part of the 2026-04-30 [driver/device/platform pass](doc/2026-04-29-driver-device-platform-implementation-plan.md): `BlockDevice` is request-shaped with completion, error, and write support; `virtio-blk` runs through MSI-X with INTx fallback. The two remaining halves are no longer "block layer plus filesystem plus multiuser" — they are filesystem and multiuser:
 
-1. a narrow in-kernel `BlockDevice` abstraction above `virtio-blk`, followed by a first read-only filesystem (FAT32 or a bespoke simple FS) and filesystem-backed `exec`;
-2. a small multiuser/permissions foundation (uid/gid, file ownership, user table) so Milestone F can meaningfully run SSH.
+1. a first read-only filesystem (FAT32 or a bespoke simple FS) on top of `BlockDevice`, plus a minimal VFS and filesystem-backed `exec`;
+2. a small multiuser/permissions foundation (uid/gid, file ownership, user table, credential checks) so Milestone F can meaningfully run SSH.
 
 Implementation notes grounded in current source:
 
-- grow the current `BlockDevice` facade in [src/kernel/storage/block_device.hpp](src/kernel/storage/block_device.hpp) and [src/kernel/drivers/block/virtio_blk.cpp](src/kernel/drivers/block/virtio_blk.cpp) from polling smoke coverage into request ownership, completion, errors, and eventually write support
-- move `virtio-blk` to MSI/MSI-X *before* the filesystem layer is written on top
-- treat USB mass storage as a later storage target, after xHCI and the initial USB class model are stable
-- add argv/envp handoff in the initrd-backed loader under [src/kernel/proc/user_program.cpp](src/kernel/proc/user_program.cpp) so a real `init` can evolve apart from `/bin/sh`
+- bounded multi-sector reads and writes are now in code at [src/kernel/drivers/block/virtio_blk.cpp](src/kernel/drivers/block/virtio_blk.cpp) and exercised by both the boot-time and threaded smokes; the cap is `kVirtioBlkMaxSectorsPerRequest = 8` (4 KiB per request). Per-page user-buffer scatter-gather is the next storage extension and should land together with user-DMA pinning
+- a kernel small-object allocator (`kmalloc`/slab) under [src/kernel/mm/](src/kernel/mm/) before the first inode/dentry cache lands
+- decide the native object/handle vs POSIX-FD stance before adding a per-process descriptor table; this affects VFS shape, sockets shape, device-handle shape, and POSIX-shim direction simultaneously (see drafts under [doc/shell-language/](doc/shell-language/))
+- add argv/envp handoff in the initrd-backed loader under [src/kernel/proc/user_program.cpp](src/kernel/proc/user_program.cpp) so a real `init` can evolve apart from `/bin/sh` and so filesystem-backed `exec` can pass arguments meaningfully
+- treat USB mass storage as a later storage target, after the USB hub class and the first non-virtio storage path are stable
 
-### Milestone E: Networking foundation
+### Milestone E: Networking foundation *(driver in; protocol stack not started)*
 
-- NIC support
+- NIC support — `virtio-net` is implemented through the shared virtio transport with MSI-X-driven RX/TX completion and an ARP probe smoke; see [src/kernel/drivers/net/virtio_net.cpp](src/kernel/drivers/net/virtio_net.cpp)
 - IP networking
 - TCP basics
+- DHCP and DNS resolver
 - remote shell building blocks
 
 ### Milestone F: SSH-capable remote administration
@@ -506,17 +510,19 @@ Some earlier open questions have since been resolved in source or in the milesto
 
 - **Resolved:** the kernel-facing boot contract is a single versioned `BootInfo` block normalized by each boot source (see [M1](doc/2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md) and [src/kernel/handoff/boot_info.hpp](src/kernel/handoff/boot_info.hpp)).
 - **Resolved:** the modern default boot path is Limine plus UEFI, while BIOS remains available during the transition ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md)).
-- **Resolved:** the first protected-userland ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with `int 0x80` syscalls matching the System V AMD64 register layout and now covering console I/O, observability, and initrd-backed process control ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [src/uapi/os1/syscall_numbers.h](src/uapi/os1/syscall_numbers.h), [src/kernel/syscall/abi.hpp](src/kernel/syscall/abi.hpp), [src/uapi/os1/observe.h](src/uapi/os1/observe.h), [src/user/](src/user/)).
+- **Resolved:** the first protected-userland ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with SYSCALL/SYSRET-entered syscalls matching the System V AMD64 register layout and now covering console I/O, observability, and initrd-backed process control ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [src/uapi/os1/syscall_numbers.h](src/uapi/os1/syscall_numbers.h), [src/kernel/syscall/abi.hpp](src/kernel/syscall/abi.hpp), [src/kernel/arch/x86_64/cpu/syscall.cpp](src/kernel/arch/x86_64/cpu/syscall.cpp), [src/uapi/os1/observe.h](src/uapi/os1/observe.h), [src/user/](src/user/)).
 - **Resolved:** the first operator environment is an initrd-backed ring-3 shell entered through a minimal `/bin/init` that `exec`s `/bin/sh`, scriptable through serial input and backed by explicit kernel observability snapshots rather than parsed boot logs ([M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)).
+- **Resolved:** PCI device interrupts use MSI-X first, then MSI, then IOAPIC INTx as a best-effort fallback. AML `_PRT` data feeds the INTx fallback when present; firmware-populated `interrupt_line` is the secondary fallback ([src/kernel/platform/pci_msi.cpp](src/kernel/platform/pci_msi.cpp), [src/kernel/platform/acpi_aml.cpp](src/kernel/platform/acpi_aml.cpp)).
+- **Resolved:** the BSP scheduler tick uses an HPET-calibrated LAPIC periodic timer when available, with the PIT retained as a fallback when HPET or LAPIC calibration is unavailable ([src/kernel/core/kernel_main.cpp](src/kernel/core/kernel_main.cpp)).
+- **Resolved:** the first NIC target in QEMU/virtio-first environments is `virtio-net` over the shared virtio PCI transport, with MSI-X-driven RX/TX completion and an ARP probe smoke ([src/kernel/drivers/net/virtio_net.cpp](src/kernel/drivers/net/virtio_net.cpp)). The protocol stack on top remains future work.
+- **Resolved:** the first USB transport is xHCI bound by PCI class `0x0c/0x03/0x30`, with HID boot-keyboard input feeding the canonical console-input path used by PS/2 ([src/kernel/drivers/usb/xhci.cpp](src/kernel/drivers/usb/xhci.cpp), [src/kernel/drivers/usb/hid_keyboard.cpp](src/kernel/drivers/usb/hid_keyboard.cpp)).
 
 The following are not fully decided yet and should be revisited explicitly:
 
 - first filesystem choice
-- first NIC/device targets in QEMU / virtio-first environments beyond the initial `virtio-blk` + `virtio-net` set proposed in [M4](doc/2026-04-22-milestone-4-modern-platform-support.md)
 - staging plan from AP startup (currently: APs run `cpu_idle_loop()`) to full user-process SMP scheduling across CPUs
 - later GPU / accelerator target model after discovery-only phase: compute queues, minimal kernel offload primitives, or richer user-facing submission model
 - whether the terminal compositor stays intentionally minimal or grows into a broader desktop shell
-- whether to keep `int 0x80` as the permanent syscall entry or migrate to `SYSCALL`/`SYSRET` once the current userland matures
 
 ## Additional recommended goals
 

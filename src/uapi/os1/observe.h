@@ -11,6 +11,9 @@ enum
     OS1_OBSERVE_PCI = 4,
     OS1_OBSERVE_INITRD = 5,
     OS1_OBSERVE_EVENTS = 6,
+    OS1_OBSERVE_DEVICES = 7,
+    OS1_OBSERVE_RESOURCES = 8,
+    OS1_OBSERVE_IRQS = 9,
     OS1_OBSERVE_CONSOLE_NONE = 0,
     OS1_OBSERVE_CONSOLE_VGA = 1,
     OS1_OBSERVE_CONSOLE_FRAMEBUFFER = 2,
@@ -18,7 +21,10 @@ enum
     OS1_OBSERVE_PROCESS_FLAG_USER_MODE = 1u << 0,
     OS1_OBSERVE_CPU_FLAG_BSP = 1u << 0,
     OS1_OBSERVE_CPU_FLAG_BOOTED = 1u << 1,
+    OS1_OBSERVE_RESOURCE_FLAG_COHERENT = 1u << 0,
     OS1_OBSERVE_EVENT_RING_CAPACITY = 256,
+    OS1_OBSERVE_RESOURCE_PCI_BAR = 1,
+    OS1_OBSERVE_RESOURCE_DMA = 2,
     OS1_KERNEL_EVENT_TRAP = 1,
     OS1_KERNEL_EVENT_SCHED_TRANSITION = 2,
     OS1_KERNEL_EVENT_IRQ = 3,
@@ -26,19 +32,25 @@ enum
     OS1_KERNEL_EVENT_PCI_BIND = 5,
     OS1_KERNEL_EVENT_USER_COPY_FAILURE = 6,
     OS1_KERNEL_EVENT_SMOKE_MARKER = 7,
+    OS1_KERNEL_EVENT_TIMER_SOURCE = 8,
+    OS1_KERNEL_EVENT_NET_RX = 9,
     OS1_KERNEL_EVENT_FLAG_USER = 1u << 0,
     OS1_KERNEL_EVENT_FLAG_BEGIN = 1u << 1,
     OS1_KERNEL_EVENT_FLAG_SUCCESS = 1u << 2,
     OS1_KERNEL_EVENT_FLAG_FAILURE = 1u << 3,
     OS1_KERNEL_EVENT_FLAG_TO_USER = 1u << 4,
     OS1_KERNEL_EVENT_FLAG_FROM_USER = 1u << 5,
+    OS1_KERNEL_EVENT_TIMER_SOURCE_PIT = 1,
+    OS1_KERNEL_EVENT_TIMER_SOURCE_LAPIC = 2,
     OS1_KERNEL_EVENT_USER_COPY_NULL_CONTEXT = 1,
     OS1_KERNEL_EVENT_USER_COPY_BAD_RANGE = 2,
     OS1_KERNEL_EVENT_USER_COPY_TRANSLATE = 3,
     OS1_KERNEL_EVENT_USER_COPY_PERMISSION = 4,
     OS1_KERNEL_EVENT_USER_COPY_STRING_TOO_LONG = 5,
+    OS1_OBSERVE_INDEX_NONE = 0xFFFFu,
     OS1_OBSERVE_BOOTLOADER_NAME_BYTES = 64,
     OS1_OBSERVE_PROCESS_NAME_BYTES = 32,
+    OS1_OBSERVE_DRIVER_NAME_BYTES = 32,
     OS1_OBSERVE_INITRD_PATH_BYTES = 64,
 };
 
@@ -115,6 +127,43 @@ struct Os1ObservePciRecord
     uint8_t capability_pointer;
     uint8_t bar_count;
     struct Os1ObservePciBar bars[6];
+};
+
+struct Os1ObserveDeviceRecord
+{
+    uint8_t bus;
+    uint8_t state;
+    uint16_t id;
+    uint16_t pci_index;
+    uint16_t reserved0;
+    char driver_name[OS1_OBSERVE_DRIVER_NAME_BYTES];
+};
+
+struct Os1ObserveResourceRecord
+{
+    uint64_t base;
+    uint64_t size;
+    uint32_t flags;
+    uint32_t page_count;
+    uint16_t owner_id;
+    uint16_t reference_id;
+    uint8_t kind;
+    uint8_t owner_bus;
+    uint8_t entry_index;
+    uint8_t detail;
+};
+
+struct Os1ObserveIrqRecord
+{
+    uint8_t vector;
+    uint8_t kind;
+    uint8_t owner_bus;
+    uint8_t source_irq;
+    uint16_t owner_id;
+    uint16_t source_id;
+    uint16_t flags;
+    uint16_t reserved0;
+    uint32_t gsi;
 };
 
 struct Os1ObserveInitrdRecord
