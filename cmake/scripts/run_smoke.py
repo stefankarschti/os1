@@ -36,7 +36,7 @@ class MonitorEvent:
     sent: bool = False
 
 
-def normalize_for_marker_matching(text, sent_serial_texts):
+def normalize_for_marker_matching(text, sent_serial_texts, marker_noise=()):
     # The guest shell prompt and echoed input share the same serial stream as
     # kernel/user output, so they can appear in the middle of marker text.
     normalized = ANSI_ESCAPE_RE.sub("", text).replace("\r", "")
@@ -44,7 +44,14 @@ def normalize_for_marker_matching(text, sent_serial_texts):
     for sent_text in sent_serial_texts:
         if sent_text:
             normalized = normalized.replace(sent_text, "")
+    for marker in marker_noise:
+        if marker:
+            normalized = normalized.replace(marker, "")
     return normalized
+
+
+def compact_for_marker_matching(text):
+    return "".join(text.split())
 
 
 def parse_event_spec(parser, spec, flag_name):
@@ -173,11 +180,14 @@ def main():
                     log_file.flush()
                     match_buffer = (match_buffer + line)[-MAX_MATCH_BUFFER_CHARS:]
                     sent_serial_texts = [event.text for event in send_events if event.sent]
+                    marker_noise = [marker for marker in markers if marker in match_buffer]
                     normalized_line = normalize_for_marker_matching(line, sent_serial_texts)
                     normalized_match_buffer = normalize_for_marker_matching(
                         match_buffer,
                         sent_serial_texts,
+                        marker_noise,
                     )
+                    compact_normalized_match_buffer = compact_for_marker_matching(normalized_match_buffer)
                     for marker in reject_markers:
                         if marker in line or marker in normalized_line:
                             nonlocal_rejected[0] = marker
@@ -186,6 +196,7 @@ def main():
                     for marker in markers:
                         if marker not in seen and (
                             marker in line or marker in match_buffer or marker in normalized_match_buffer
+                            or compact_for_marker_matching(marker) in compact_normalized_match_buffer
                         ):
                             seen.add(marker)
                     if proc.stdin is not None:
