@@ -47,23 +47,51 @@ void idle_entry()
 {
 }
 
+void reset_host_cpu_scheduler_state(cpu* owner)
+{
+    if(nullptr == owner)
+    {
+        return;
+    }
+
+    owner->current_thread = nullptr;
+    owner->idle_thread = nullptr;
+    owner->runq.head = nullptr;
+    owner->runq.tail = nullptr;
+    owner->runq.length = 0;
+    owner->timer_ticks = 0;
+    owner->reschedule_pending = 0;
+    owner->irq_stack_thread = nullptr;
+    owner->enqueue_count = 0;
+    owner->dequeue_count = 0;
+    owner->idle_ticks = 0;
+    owner->kernel_thread_ping_count = 0;
+    owner->migrate_in = 0;
+    owner->migrate_out = 0;
+}
+
 struct HostCpuScope
 {
-    explicit HostCpuScope(cpu* ap) : saved_next(g_cpu_boot->next), saved_current(g_cpu_host_current)
+    explicit HostCpuScope(cpu* ap_cpu)
+        : saved_next(g_cpu_boot->next), saved_current(g_cpu_host_current), ap(ap_cpu)
     {
+        reset_host_cpu_scheduler_state(g_cpu_boot);
+        reset_host_cpu_scheduler_state(ap);
         g_cpu_boot->next = ap;
         g_cpu_host_current = g_cpu_boot;
     }
 
     ~HostCpuScope()
     {
+        reset_host_cpu_scheduler_state(g_cpu_boot);
+        reset_host_cpu_scheduler_state(ap);
         g_cpu_boot->next = saved_next;
-        g_cpu_boot->idle_thread = nullptr;
         g_cpu_host_current = saved_current;
     }
 
     cpu* saved_next;
     cpu* saved_current;
+    cpu* ap;
 };
 
 struct HostCpuChainScope
@@ -71,6 +99,9 @@ struct HostCpuChainScope
     HostCpuChainScope(cpu* first_ap, cpu* second_ap)
         : saved_next(g_cpu_boot->next), saved_current(g_cpu_host_current), first(first_ap), second(second_ap)
     {
+        reset_host_cpu_scheduler_state(g_cpu_boot);
+        reset_host_cpu_scheduler_state(first);
+        reset_host_cpu_scheduler_state(second);
         g_cpu_boot->next = first;
         if(nullptr != first)
         {
@@ -85,17 +116,17 @@ struct HostCpuChainScope
 
     ~HostCpuChainScope()
     {
+        reset_host_cpu_scheduler_state(g_cpu_boot);
+        reset_host_cpu_scheduler_state(first);
+        reset_host_cpu_scheduler_state(second);
         g_cpu_boot->next = saved_next;
-        g_cpu_boot->idle_thread = nullptr;
         if(nullptr != first)
         {
             first->next = nullptr;
-            first->idle_thread = nullptr;
         }
         if(nullptr != second)
         {
             second->next = nullptr;
-            second->idle_thread = nullptr;
         }
         g_cpu_host_current = saved_current;
     }
@@ -112,6 +143,8 @@ TEST(RunQueue, PopsReadyThreadsInFifoOrder)
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     PageFrameContainer frames = initialized_frames();
     kmem_init(frames);
+
+    reset_host_cpu_scheduler_state(g_cpu_boot);
 
     ASSERT_TRUE(init_tasks(frames));
     Process* kernel_process = create_kernel_process(0);
@@ -133,7 +166,7 @@ TEST(RunQueue, PopsReadyThreadsInFifoOrder)
     EXPECT_EQ(0u, cpu_run_queue_length(g_cpu_boot));
 }
 
-TEST(RunQueue, DefaultWakeTargetUsesAssignedCpu)
+TEST(RunQueue, KernelWakeTargetUsesAssignedCpu)
 {
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     PageFrameContainer frames = initialized_frames();
@@ -154,11 +187,11 @@ TEST(RunQueue, DefaultWakeTargetUsesAssignedCpu)
     ASSERT_NE(nullptr, create_idle_thread_for_cpu(kernel_process, g_cpu_boot, idle_entry, frames));
     ASSERT_NE(nullptr, create_idle_thread_for_cpu(kernel_process, &ap_cpu, idle_entry, frames));
 
-    g_cpu_host_current = &ap_cpu;
-    Process* user_process = create_user_process("worker", 0);
-    ASSERT_NE(nullptr, user_process);
-    Thread* blocked = create_user_thread(user_process, 0x1000, 0x2000, frames, false);
+    Thread* blocked = create_kernel_thread(kernel_process, idle_entry, frames);
     ASSERT_NE(nullptr, blocked);
+    g_cpu_host_current = &ap_cpu;
+    EXPECT_EQ(blocked, next_runnable_thread(nullptr));
+    blocked->state = ThreadState::Blocked;
     blocked->scheduler_cpu = &ap_cpu;
     EXPECT_EQ(nullptr, blocked->run_queue_cpu);
 
@@ -223,7 +256,7 @@ TEST(RunQueue, KernelThreadsRoundRobinAcrossBootedCpus)
     EXPECT_EQ(1u, cpu_run_queue_length(g_cpu_boot));
 }
 
-TEST(RunQueue, UserThreadsStayPinnedToBsp)
+TEST(RunQueue, UserThreadsPreferLeastLoadedCpu)
 {
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     PageFrameContainer frames = initialized_frames();
@@ -242,14 +275,55 @@ TEST(RunQueue, UserThreadsStayPinnedToBsp)
     ASSERT_NE(nullptr, create_idle_thread_for_cpu(kernel_process, g_cpu_boot, idle_entry, frames));
     ASSERT_NE(nullptr, create_idle_thread_for_cpu(kernel_process, &ap_cpu, idle_entry, frames));
 
-    g_cpu_host_current = &ap_cpu;
     Process* user_process = create_user_process("user-worker", 0);
     ASSERT_NE(nullptr, user_process);
-    Thread* user_thread = create_user_thread(user_process, 0x1000, 0x2000, frames, true);
-    ASSERT_NE(nullptr, user_thread);
+    Thread* first_user = create_user_thread(user_process, 0x1000, 0x2000, frames, true);
+    Thread* second_user = create_user_thread(user_process, 0x1000, 0x3000, frames, true);
 
-    EXPECT_EQ(g_cpu_boot, user_thread->scheduler_cpu);
-    EXPECT_EQ(g_cpu_boot, user_thread->run_queue_cpu);
+    ASSERT_NE(nullptr, first_user);
+    ASSERT_NE(nullptr, second_user);
+    EXPECT_EQ(&ap_cpu, first_user->scheduler_cpu);
+    EXPECT_EQ(&ap_cpu, first_user->run_queue_cpu);
+    EXPECT_EQ(g_cpu_boot, second_user->scheduler_cpu);
+    EXPECT_EQ(g_cpu_boot, second_user->run_queue_cpu);
     EXPECT_EQ(1u, cpu_run_queue_length(g_cpu_boot));
-    EXPECT_EQ(0u, cpu_run_queue_length(&ap_cpu));
+    EXPECT_EQ(1u, cpu_run_queue_length(&ap_cpu));
+}
+
+TEST(RunQueue, WokenUserThreadsUseLeastLoadedCpu)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    cpu ap_cpu{};
+    ap_cpu.self = &ap_cpu;
+    ap_cpu.id = 1;
+    ap_cpu.booted = 1;
+    ap_cpu.magic = CPU_MAGIC;
+
+    HostCpuScope cpu_scope(&ap_cpu);
+    ASSERT_TRUE(init_tasks(frames));
+    Process* kernel_process = create_kernel_process(0);
+    ASSERT_NE(nullptr, kernel_process);
+    ASSERT_NE(nullptr, create_idle_thread_for_cpu(kernel_process, g_cpu_boot, idle_entry, frames));
+    ASSERT_NE(nullptr, create_idle_thread_for_cpu(kernel_process, &ap_cpu, idle_entry, frames));
+
+    Process* user_process = create_user_process("user-worker", 0);
+    ASSERT_NE(nullptr, user_process);
+    Thread* running_elsewhere = create_user_thread(user_process, 0x1000, 0x2000, frames, true);
+    Thread* blocked = create_user_thread(user_process, 0x1000, 0x3000, frames, false);
+
+    ASSERT_NE(nullptr, running_elsewhere);
+    ASSERT_NE(nullptr, blocked);
+    EXPECT_EQ(&ap_cpu, running_elsewhere->scheduler_cpu);
+    EXPECT_EQ(&ap_cpu, running_elsewhere->run_queue_cpu);
+
+    blocked->scheduler_cpu = &ap_cpu;
+    mark_thread_ready(blocked);
+
+    EXPECT_EQ(g_cpu_boot, blocked->scheduler_cpu);
+    EXPECT_EQ(g_cpu_boot, blocked->run_queue_cpu);
+    EXPECT_EQ(1u, cpu_run_queue_length(g_cpu_boot));
+    EXPECT_EQ(1u, cpu_run_queue_length(&ap_cpu));
 }

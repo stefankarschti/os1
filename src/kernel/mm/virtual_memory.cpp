@@ -2,6 +2,7 @@
 // four-level walks, permission updates, user-slot teardown, and CR3 activation.
 #include "mm/virtual_memory.hpp"
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "util/memory.h"
@@ -17,6 +18,31 @@ constexpr uint64_t kEntryAddressMask = 0x000FFFFFFFFFF000ull;
 [[nodiscard]] inline uint64_t page_index(uint64_t virtual_address, unsigned shift)
 {
     return (virtual_address >> shift) & 0x1FFull;
+}
+
+[[nodiscard]] inline bool address_is_in_user_slot(uint64_t virtual_address)
+{
+    return page_index(virtual_address, 39) == kUserPml4Index;
+}
+
+void maybe_shootdown_user_mappings(uint64_t root, uint64_t virtual_address)
+{
+    if((0 == root) || (~0ull == root) || !address_is_in_user_slot(virtual_address))
+    {
+        return;
+    }
+
+    (void)ipi_send_tlb_shootdown();
+}
+
+void maybe_shootdown_user_slot(uint64_t root, uint64_t slot)
+{
+    if((0 == root) || (~0ull == root) || (slot != kUserPml4Index))
+    {
+        return;
+    }
+
+    (void)ipi_send_tlb_shootdown();
 }
 }  // namespace
 
@@ -230,6 +256,8 @@ bool VirtualMemory::protect(uint64_t virtual_address, uint64_t num_pages, PageFl
         *leaf_entry = physical_page | flags_to_entry(flags | PageFlags::Present);
     }
 
+    maybe_shootdown_user_mappings(root_, virtual_address);
+
     return true;
 }
 
@@ -329,6 +357,7 @@ bool VirtualMemory::destroy_user_slot(uint64_t slot)
 
     uint64_t* pml4 = kernel_physical_pointer<uint64_t>(root_);
     destroy_table(pml4[slot], 4, true);
+    maybe_shootdown_user_slot(root_, slot);
     return true;
 }
 
@@ -350,6 +379,8 @@ bool VirtualMemory::free(uint64_t start_address, uint64_t num_pages)
         frames_.free(*leaf_entry & kEntryAddressMask);
         *leaf_entry = 0;
     }
+
+    maybe_shootdown_user_mappings(root_, start_address);
 
     return true;
 }

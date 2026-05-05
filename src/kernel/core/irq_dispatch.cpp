@@ -63,7 +63,8 @@ Thread* handle_irq(TrapFrame* frame)
     const int irq = legacy_irq_from_vector(vector);
     const bool scheduler_tick = timer_vector_is_scheduler_tick(vector);
     const bool reschedule_ipi = ipi_is_reschedule_vector(vector);
-    if(!scheduler_tick && !reschedule_ipi)
+    const bool tlb_shootdown_ipi = ipi_is_tlb_shootdown_vector(vector);
+    if(!scheduler_tick && !reschedule_ipi && !tlb_shootdown_ipi)
     {
         kernel_event::record(OS1_KERNEL_EVENT_IRQ,
                              0,
@@ -90,6 +91,10 @@ Thread* handle_irq(TrapFrame* frame)
                              cpu_cur()->id,
                              vector,
                              0);
+    }
+    else if(tlb_shootdown_ipi)
+    {
+        ipi_handle_tlb_shootdown();
     }
 
     acknowledge_irq_vector(vector);

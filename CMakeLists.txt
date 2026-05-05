@@ -582,9 +582,10 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "event smoke-marker seq=::pci\\n"
   "pci 00:03.0 1af4:1042::initrd\\n"
   "initrd complete::devices\\n"
-  "device bus id state pci driver::irqs\\n"
-  "irq vector kind owner source gsi flags::resources\\n"
+  "devices complete::irqs\\n"
+  "irqs complete::resources\\n"
   "resources complete::kmem\\n"
+  "kmem complete::smpcheck\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -759,6 +760,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "kmem global caches="
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
+    "[user/smpcheck] observed pids "
+    "shell spawn smpcheck ok pid="
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event ap-online seq="
@@ -978,6 +981,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "kmem global caches="
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
+    "[user/smpcheck] observed pids "
+    "shell spawn smpcheck ok pid="
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event ap-online seq="

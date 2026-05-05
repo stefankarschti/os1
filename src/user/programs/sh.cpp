@@ -675,6 +675,8 @@ void run_devices()
         write_string((0 != records[i].driver_name[0]) ? records[i].driver_name : "-");
         write_char('\n');
     }
+
+    write_string("devices complete\n");
 }
 
 void run_irqs()
@@ -706,6 +708,8 @@ void run_irqs()
         write_hex(records[i].flags, 1);
         write_char('\n');
     }
+
+    write_string("irqs complete\n");
 }
 
 void run_resources()

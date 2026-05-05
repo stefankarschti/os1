@@ -40,11 +40,60 @@ namespace
     return cpu_cur();
 }
 
+[[nodiscard]] size_t cpu_run_queue_length_locked(cpu* owner)
+{
+    if(nullptr == owner)
+    {
+        return 0;
+    }
+
+    IrqSpinGuard guard(owner->runq.lock);
+    return owner->runq.length;
+}
+
+[[nodiscard]] cpu* select_least_loaded_cpu(cpu* start_after)
+{
+    cpu* best = next_schedulable_cpu_after(start_after);
+    if(nullptr == best)
+    {
+        return cpu_cur();
+    }
+
+    size_t best_length = cpu_run_queue_length_locked(best);
+    if(0u == best_length)
+    {
+        return best;
+    }
+
+    for(cpu* candidate = next_schedulable_cpu_after(best); candidate != best;
+        candidate = next_schedulable_cpu_after(candidate))
+    {
+        const size_t candidate_length = cpu_run_queue_length_locked(candidate);
+        if(candidate_length < best_length)
+        {
+            best = candidate;
+            best_length = candidate_length;
+            if(0u == best_length)
+            {
+                break;
+            }
+        }
+    }
+
+    return best;
+}
+
+[[nodiscard]] cpu* select_user_target_cpu();
+
 [[nodiscard]] cpu* select_target_cpu(Thread* thread, cpu* target)
 {
     if(nullptr != target)
     {
         return target;
+    }
+    if((nullptr != thread) && thread->user_mode)
+    {
+        return select_user_target_cpu();
     }
     if((nullptr != thread) && (nullptr != thread->scheduler_cpu))
     {
@@ -168,6 +217,23 @@ OS1_LOCKED_BY(g_thread_registry_lock) KmemCache* g_thread_cache = nullptr;
 OS1_LOCKED_BY(g_thread_registry_lock) Thread* g_thread_head = nullptr;
 OS1_LOCKED_BY(g_thread_registry_lock) Thread* g_thread_tail = nullptr;
 OS1_LOCKED_BY(g_thread_registry_lock) cpu* g_last_kernel_thread_cpu = nullptr;
+OS1_LOCKED_BY(g_thread_registry_lock) cpu* g_last_user_thread_cpu = nullptr;
+
+[[nodiscard]] cpu* select_user_target_cpu()
+{
+    cpu* start_after = nullptr;
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        start_after = g_last_user_thread_cpu;
+    }
+
+    cpu* best = select_least_loaded_cpu(start_after);
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        g_last_user_thread_cpu = best;
+    }
+    return best;
+}
 
 void set_process_state(Thread* thread, ProcessState state)
 {
@@ -333,6 +399,7 @@ bool initialize_thread_table(PageFrameContainer& frames)
     (void)frames;
     g_next_tid = 1;
     g_last_kernel_thread_cpu = g_cpu_boot;
+    g_last_user_thread_cpu = g_cpu_boot;
     clear_cpu_idle_threads();
     g_thread_head = nullptr;
     g_thread_tail = nullptr;
@@ -497,7 +564,7 @@ Thread* create_user_thread(Process* process,
     thread->address_space_cr3 = process->address_space.cr3;
     thread->kernel_stack_base = stack_base;
     thread->kernel_stack_top = stack_top;
-    thread->scheduler_cpu = g_cpu_boot;
+    thread->scheduler_cpu = select_target_cpu(thread, nullptr);
     thread->exit_status = 0;
     thread->frame = {};
     thread->frame.rip = user_rip;
@@ -512,7 +579,7 @@ Thread* create_user_thread(Process* process,
     }
     if(start_ready)
     {
-        (void)enqueue_thread_on_cpu(thread, g_cpu_boot);
+        (void)enqueue_thread_on_cpu(thread, thread->scheduler_cpu);
     }
     return thread;
 }
