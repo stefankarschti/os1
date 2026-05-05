@@ -59,8 +59,9 @@ if(DEFINED ISO_IMAGE)
   endif()
 
   get_filename_component(log_dir "${LOG_FILE}" DIRECTORY)
+  get_filename_component(log_name "${LOG_FILE}" NAME_WE)
   file(MAKE_DIRECTORY "${log_dir}")
-  set(ovmf_vars_copy "${log_dir}/smoke-ovmf-vars.fd")
+  set(ovmf_vars_copy "${log_dir}/${log_name}-ovmf-vars.fd")
   file(COPY_FILE "${OVMF_VARS_TEMPLATE}" "${ovmf_vars_copy}" ONLY_IF_DIFFERENT)
 
   list(APPEND qemu_command

@@ -173,6 +173,19 @@ int main(void)
         os1::user::yield();
     }
 
+    if(!observed)
+    {
+        for(uint32_t i = 0; i < started; ++i)
+        {
+            int status = 0;
+            (void)os1::user::waitpid(pids[i], &status);
+        }
+        write_failure("observe");
+        return 1;
+    }
+
+    write_success(delta, total_runq, migrate_total);
+
     bool waited_ok = true;
     for(uint32_t i = 0; i < started; ++i)
     {
@@ -184,17 +197,10 @@ int main(void)
         }
     }
 
-    if(!observed)
-    {
-        write_failure("observe");
-        return 1;
-    }
     if(!waited_ok)
     {
         write_failure("wait");
         return 1;
     }
-
-    write_success(delta, total_runq, migrate_total);
     return 0;
 }

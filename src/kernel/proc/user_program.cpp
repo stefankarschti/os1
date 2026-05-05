@@ -190,7 +190,5 @@ Thread* load_user_program(PageFrameContainer& frames,
     }
     prepare_user_thread_entry(thread, entry, user_rsp);
 
-    debug("user thread ready pid ")(process->pid)(" tid ")(thread->tid)(" entry 0x")(
-        entry, 16)(" rsp 0x")(user_rsp, 16)();
     return thread;
 }

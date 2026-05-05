@@ -159,22 +159,27 @@ int main(void)
         os1::user::yield();
     }
 
+    if(!observed)
+    {
+        int first_status = 0;
+        int second_status = 0;
+        (void)os1::user::waitpid(first_pid, &first_status);
+        (void)os1::user::waitpid(second_pid, &second_status);
+        write_failure("observe");
+        return 1;
+    }
+
+    write_success(first_pid, first_cpu, second_pid, second_cpu);
+
     int first_status = 0;
     int second_status = 0;
     const long waited_first = os1::user::waitpid(first_pid, &first_status);
     const long waited_second = os1::user::waitpid(second_pid, &second_status);
-    if(!observed)
-    {
-        write_failure("observe");
-        return 1;
-    }
     if((waited_first != static_cast<long>(first_pid)) || (first_status != 0) ||
        (waited_second != static_cast<long>(second_pid)) || (second_status != 0))
     {
         write_failure("wait");
         return 1;
     }
-
-    write_success(first_pid, first_cpu, second_pid, second_cpu);
     return 0;
 }

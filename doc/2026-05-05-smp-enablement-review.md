@@ -9,12 +9,15 @@ using the recommended per-CPU run-queue/load-balancer option.
 
    `smoke_balance_bios` can time out after spawning all 16 balance workers without
    ever printing `[user/balancecheck] runq delta=` or the shell completion marker.
-   The smoke program waits for every worker to complete, and each worker yields
-   65,536 times. That is fine for UEFI on this machine but too slow for the BIOS
-   path under the current 30s smoke ceiling.
+   The smoke program waits for every worker to complete before printing its
+   balance marker, and each worker originally yielded 65,536 times. Even after
+   shortening to 8,192 yields, forced repeated smoke runs still reproduced BIOS
+   timeouts after all workers had been spawned.
 
-   Fix: shorten the balance worker loop to keep the smoke focused on observing
-   queue convergence, not on long post-observation child runtime.
+   Fix: shorten the worker loop further and print the balance observation marker
+   as soon as run queues converge. The program still waits for children before
+   returning when run outside the smoke runner, but smoke coverage no longer
+   depends on long post-observation child runtime.
 
 2. **AP timer smoke evidence is incomplete.**
 
@@ -57,6 +60,43 @@ using the recommended per-CPU run-queue/load-balancer option.
    consolidated smokes assert the same observables; AP tick was the missing
    observable from that set.
 
+6. **QEMU smoke tests are not safe under CTest parallelism.**
+
+   Reproduced with `ctest --test-dir build --output-on-failure -j 11`: 10 of 11
+   smoke tests failed immediately because QEMU could not take write locks on
+   shared images (`os1.raw` and `virtio-test-disk.raw`). The UEFI runner also
+   reused one mutable `smoke-ovmf-vars.fd` across all UEFI smokes. A plain serial
+   `smoke_all` run can pass, but CI or `act` can inherit `CTEST_PARALLEL_LEVEL`
+   and make the same target flaky.
+
+   Fix: mark all QEMU smoke tests `RUN_SERIAL` with a shared CTest resource lock,
+   and give each UEFI smoke its own OVMF vars copy derived from its log file.
+
+7. **Smoke markers can be split by unsynchronized console output.**
+
+   Reproduced in `os1_smoke_spawn_bios`: the log contained the yield program's
+   `tick 0` output, but a kernel `user thread ready` debug line interleaved with
+   the marker text, so the smoke runner never saw the exact marker. The console
+   stream was mirroring syscall writes byte-by-byte without an output lock, and
+   the per-spawn debug line was high-volume enough to split user markers.
+
+   Fix: serialize console writes with a console-output spinlock, remove the noisy
+   per-spawn `user thread ready` debug line, and keep spawn/exec smoke assertions
+   on `tick 2` plus shell completion rather than the more fragile first tick.
+
+8. **Observe smoke waits on `smpcheck` child cleanup instead of the SMP evidence.**
+
+   Reproduced on pass 5 of repeated `smoke_all` under `CTEST_PARALLEL_LEVEL=11`:
+   `os1_smoke_observe_bios` reached the `smpcheck` command, but timed out before
+   `[user/smpcheck] observed pids` and shell completion. Like balance, `smpcheck`
+   waited for long-running helper children before printing its observation
+   marker, so the smoke depended on cleanup runtime rather than the SMP condition.
+
+   Fix: print the `smpcheck` observation marker as soon as the two helper
+   processes are observed on different CPUs, shorten the helper loop, remove the
+   shell-completion marker from observe smokes, and reject explicit smpcheck or
+   balancecheck failure markers.
+
 ## Plan
 
 1. Convert console-read blocking/wakeup to the console-owned wait queue.
@@ -64,4 +104,8 @@ using the recommended per-CPU run-queue/load-balancer option.
 3. Emit and assert early AP tick events.
 4. Shorten the balance worker loop so the BIOS balance smoke completes within
    the existing timeout.
-5. Re-run host tests and `smoke_all`; iterate until both pass.
+5. Serialize QEMU smoke tests and stop sharing UEFI vars state between smoke
+   cases.
+6. Serialize console writes and remove fragile first-tick smoke markers.
+7. Make observe smokes assert the `smpcheck` observation instead of child cleanup.
+8. Re-run host tests and `smoke_all`; iterate until both pass.

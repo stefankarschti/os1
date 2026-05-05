@@ -566,6 +566,8 @@ set(OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS 1)
 set(OS1_SMOKE_REJECT_MARKERS
   "#GP general protection"
   "#UD invalid opcode"
+  "[user/balancecheck] fail"
+  "[user/smpcheck] fail"
 )
 
 # The shell prompt does not terminate with a newline, so the line-buffered
@@ -636,6 +638,8 @@ if(OS1_REQUIRE_UEFI_SMOKE)
   endif()
 endif()
 
+set(OS1_QEMU_SMOKE_TESTS)
+
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   set(OS1_UEFI_XHCI_SMOKE_MARKERS
     "[kernel64] hello!"
@@ -673,6 +677,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_xhci)
 
   add_custom_target(
     smoke_xhci
@@ -723,6 +728,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke)
 
   add_custom_target(
     smoke
@@ -767,7 +773,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
     "[user/smpcheck] observed pids "
-    "shell spawn smpcheck ok pid="
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event ap-online seq="
@@ -798,6 +803,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_observe)
 
   add_custom_target(
     smoke_observe
@@ -816,7 +822,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "starting first user process"
     "shell prompt ready"
     "[user/balancecheck] runq delta="
-    "shell spawn balancecheck ok pid="
     "idle thread online"
   )
 
@@ -840,6 +845,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_balance)
 
   add_custom_target(
     smoke_balance
@@ -857,7 +863,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
-    "[user/yield] tick 0"
     "[user/yield] tick 2"
     "shell spawn yield ok pid="
     "shell prompt resumed"
@@ -889,6 +894,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_spawn)
 
   add_custom_target(
     smoke_spawn
@@ -907,7 +913,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "starting first user process"
     "shell prompt ready"
     "shell exec start /bin/yield"
-    "[user/yield] tick 0"
     "[user/yield] tick 2"
     "idle thread online"
   )
@@ -932,6 +937,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_exec)
 
   add_custom_target(
     smoke_exec
@@ -988,6 +994,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_bios)
 
   add_custom_target(
     smoke_bios
@@ -1032,7 +1039,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
     "[user/smpcheck] observed pids "
-    "shell spawn smpcheck ok pid="
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event ap-online seq="
@@ -1061,6 +1067,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_observe_bios)
 
   add_custom_target(
     smoke_observe_bios
@@ -1079,7 +1086,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "starting first user process"
     "shell prompt ready"
     "[user/balancecheck] runq delta="
-    "shell spawn balancecheck ok pid="
     "idle thread online"
   )
 
@@ -1101,6 +1107,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_balance_bios)
 
   add_custom_target(
     smoke_balance_bios
@@ -1118,7 +1125,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "virtio-net smoke ok"
     "starting first user process"
     "shell prompt ready"
-    "[user/yield] tick 0"
     "[user/yield] tick 2"
     "shell spawn yield ok pid="
     "shell prompt resumed"
@@ -1148,6 +1154,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_spawn_bios)
 
   add_custom_target(
     smoke_spawn_bios
@@ -1166,7 +1173,6 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "starting first user process"
     "shell prompt ready"
     "shell exec start /bin/yield"
-    "[user/yield] tick 0"
     "[user/yield] tick 2"
     "idle thread online"
   )
@@ -1189,6 +1195,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
       -P
       "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
   )
+  list(APPEND OS1_QEMU_SMOKE_TESTS os1_smoke_exec_bios)
 
   add_custom_target(
     smoke_exec_bios
@@ -1203,6 +1210,15 @@ else()
   os1_add_unavailable_target(smoke_balance_bios "smoke_balance_bios target unavailable: qemu-system-x86_64 was not found")
   os1_add_unavailable_target(smoke_spawn_bios "smoke_spawn_bios target unavailable: qemu-system-x86_64 was not found")
   os1_add_unavailable_target(smoke_exec_bios "smoke_exec_bios target unavailable: qemu-system-x86_64 was not found")
+endif()
+
+if(OS1_QEMU_SMOKE_TESTS)
+  set_tests_properties(
+    ${OS1_QEMU_SMOKE_TESTS}
+    PROPERTIES
+      RUN_SERIAL TRUE
+      RESOURCE_LOCK os1_qemu_smoke_artifacts
+  )
 endif()
 
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
