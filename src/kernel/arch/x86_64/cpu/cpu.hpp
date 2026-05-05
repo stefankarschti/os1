@@ -73,6 +73,7 @@ struct cpu
     uint64_t enqueue_count;
     uint64_t dequeue_count;
     uint64_t idle_ticks;
+    uint64_t kernel_thread_ping_count;
     uint64_t migrate_in;
     uint64_t migrate_out;
     cpu* next;

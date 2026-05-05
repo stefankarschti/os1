@@ -355,6 +355,8 @@ const char* event_type_name(uint32_t type)
             return "ap-tick";
         case OS1_KERNEL_EVENT_IPI_RESCHED:
             return "ipi-resched";
+        case OS1_KERNEL_EVENT_KERNEL_THREAD_PING:
+            return "kernel-thread-ping";
         default:
             return "unknown";
     }

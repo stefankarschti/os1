@@ -14,6 +14,32 @@
 
 namespace
 {
+[[nodiscard]] bool cpu_is_schedulable(const cpu* owner)
+{
+    return (nullptr != owner) && ((owner == g_cpu_boot) || (0u != owner->booted));
+}
+
+[[nodiscard]] cpu* next_schedulable_cpu_after(cpu* after)
+{
+    cpu* candidate = (nullptr != after && nullptr != after->next) ? after->next : g_cpu_boot;
+    if(nullptr == candidate)
+    {
+        return cpu_cur();
+    }
+
+    cpu* start = candidate;
+    do
+    {
+        if(cpu_is_schedulable(candidate))
+        {
+            return candidate;
+        }
+        candidate = (nullptr != candidate->next) ? candidate->next : g_cpu_boot;
+    } while(candidate != start);
+
+    return cpu_cur();
+}
+
 [[nodiscard]] cpu* select_target_cpu(Thread* thread, cpu* target)
 {
     if(nullptr != target)
@@ -141,6 +167,7 @@ OS1_LOCKED_BY(g_thread_registry_lock) uint64_t g_next_tid = 1;
 OS1_LOCKED_BY(g_thread_registry_lock) KmemCache* g_thread_cache = nullptr;
 OS1_LOCKED_BY(g_thread_registry_lock) Thread* g_thread_head = nullptr;
 OS1_LOCKED_BY(g_thread_registry_lock) Thread* g_thread_tail = nullptr;
+OS1_LOCKED_BY(g_thread_registry_lock) cpu* g_last_kernel_thread_cpu = nullptr;
 
 void set_process_state(Thread* thread, ProcessState state)
 {
@@ -305,6 +332,7 @@ bool initialize_thread_table(PageFrameContainer& frames)
     KASSERT_ON_BSP();
     (void)frames;
     g_next_tid = 1;
+    g_last_kernel_thread_cpu = g_cpu_boot;
     clear_cpu_idle_threads();
     g_thread_head = nullptr;
     g_thread_tail = nullptr;
@@ -376,6 +404,12 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
     }
 
     cpu* owner = cpu_cur();
+    if((nullptr == owner) || (nullptr != owner->idle_thread))
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        owner = next_schedulable_cpu_after(g_last_kernel_thread_cpu);
+        g_last_kernel_thread_cpu = owner;
+    }
     thread->scheduler_cpu = owner;
     if((nullptr != owner) && (nullptr == owner->idle_thread))
     {
@@ -463,7 +497,7 @@ Thread* create_user_thread(Process* process,
     thread->address_space_cr3 = process->address_space.cr3;
     thread->kernel_stack_base = stack_base;
     thread->kernel_stack_top = stack_top;
-    thread->scheduler_cpu = cpu_cur();
+    thread->scheduler_cpu = g_cpu_boot;
     thread->exit_status = 0;
     thread->frame = {};
     thread->frame.rip = user_rip;
@@ -478,7 +512,7 @@ Thread* create_user_thread(Process* process,
     }
     if(start_ready)
     {
-        (void)enqueue_thread_on_cpu(thread, thread->scheduler_cpu);
+        (void)enqueue_thread_on_cpu(thread, g_cpu_boot);
     }
     return thread;
 }

@@ -63,6 +63,15 @@ constexpr DeviceId kPitTimerOwner{DeviceBus::Platform, 0};
 constexpr DeviceId kKeyboardOwner{DeviceBus::Platform, 1};
 constexpr DeviceId kLapicTimerOwner{DeviceBus::Platform, 2};
 
+[[noreturn]] void finish_kernel_thread(int exit_status)
+{
+    mark_current_thread_dying(exit_status);
+    for(;;)
+    {
+        asm volatile("hlt" : : : "memory");
+    }
+}
+
 uint64_t gcd_u64(uint64_t left, uint64_t right)
 {
     while(0u != right)
@@ -115,6 +124,43 @@ bool create_idle_threads_for_discovered_cpus(Process* kernel_process)
             return false;
         }
     }
+    return true;
+}
+
+bool spawn_kernel_smp_ping_threads(Process* kernel_process)
+{
+    if(nullptr == kernel_process)
+    {
+        return false;
+    }
+
+    size_t booted_ap_count = 0;
+    for(cpu* c = g_cpu_boot; nullptr != c; c = c->next)
+    {
+        if((c != g_cpu_boot) && (0u != c->booted))
+        {
+            ++booted_ap_count;
+        }
+    }
+
+    for(size_t index = 0; index < booted_ap_count; ++index)
+    {
+        if(nullptr == create_kernel_thread(kernel_process, [] {
+               cpu* local_cpu = cpu_cur();
+               const uint64_t ping_count = ++local_cpu->kernel_thread_ping_count;
+               kernel_event::record(OS1_KERNEL_EVENT_KERNEL_THREAD_PING,
+                                    OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                                    local_cpu->id,
+                                    ping_count,
+                                    reinterpret_cast<uint64_t>(local_cpu),
+                                    0);
+               finish_kernel_thread(0);
+           }, page_frames))
+        {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -279,16 +325,18 @@ bool prepare_scheduler_timer()
 
 [[noreturn]] void finish_boot_sequence_thread(int exit_status)
 {
-    mark_current_thread_dying(exit_status);
-    for(;;)
-    {
-        asm volatile("hlt" : : : "memory");
-    }
+    finish_kernel_thread(exit_status);
 }
 
 [[noreturn]] void kernel_boot_sequence_thread()
 {
     if(!run_virtio_blk_threaded_smoke())
+    {
+        finish_boot_sequence_thread(1);
+    }
+
+    if(!spawn_kernel_smp_ping_threads((nullptr != current_thread()) ? current_thread()->process
+                                                                  : nullptr))
     {
         finish_boot_sequence_thread(1);
     }
