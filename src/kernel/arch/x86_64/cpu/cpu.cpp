@@ -5,6 +5,7 @@
 #include "arch/x86_64/cpu/syscall.hpp"
 #include "arch/x86_64/cpu/x86.hpp"
 #include "core/kernel_state.hpp"
+#include "core/timer_source.hpp"
 #include "debug/event_ring.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/page_frame.hpp"
@@ -69,6 +70,15 @@ void clear_ap_startup_idt()
                          reinterpret_cast<uint64_t>(cpu_cur()),
                          reinterpret_cast<uint64_t>(idle),
                          0);
+
+    if(timer_source_ap_timer_enabled())
+    {
+        if(!cpu_start_local_apic_timer())
+        {
+            debug("cpu ")(cpu_cur()->id)(" lapic timer start failed")();
+        }
+    }
+
     xchg(&cpu_cur()->booted, 1);
     enter_first_thread(idle, idle->kernel_stack_top);
     cpu_idle_loop();

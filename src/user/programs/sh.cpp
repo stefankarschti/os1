@@ -351,6 +351,8 @@ const char* event_type_name(uint32_t type)
             return "kmem-corruption";
         case OS1_KERNEL_EVENT_AP_ONLINE:
             return "ap-online";
+        case OS1_KERNEL_EVENT_AP_TICK:
+            return "ap-tick";
         default:
             return "unknown";
     }

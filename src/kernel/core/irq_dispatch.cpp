@@ -11,10 +11,14 @@
 #include "debug/event_ring.hpp"
 #include "proc/thread.hpp"
 #include "sched/scheduler.hpp"
+#include "sync/atomic.hpp"
 #include "syscall/console_read.hpp"
 
 namespace
 {
+// Rate-limit AP_TICK event emission to once per second per CPU at 1 kHz.
+constexpr uint64_t kApTickEventInterval = 1000;
+
 void acknowledge_irq_vector(uint8_t vector)
 {
     lapic_eoi();
@@ -27,6 +31,23 @@ void acknowledge_irq_vector(uint8_t vector)
     if(irq >= 8)
     {
         outb(0xA0, 0x20);
+    }
+}
+
+void account_scheduler_tick()
+{
+    cpu* c = cpu_cur();
+    const uint64_t local_ticks = ++c->timer_ticks;
+    (void)atomic_fetch_add(&g_timer_ticks, static_cast<uint64_t>(1));
+
+    if(!cpu_on_boot() && (0u == (local_ticks % kApTickEventInterval)))
+    {
+        kernel_event::record(OS1_KERNEL_EVENT_AP_TICK,
+                             OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                             c->id,
+                             local_ticks,
+                             0,
+                             0);
     }
 }
 }  // namespace
@@ -45,10 +66,13 @@ Thread* handle_irq(TrapFrame* frame)
                              g_timer_ticks,
                              0);
     }
-    if(scheduler_tick && cpu_on_boot())
+    if(scheduler_tick)
     {
-        console_input_poll_serial();
-        ++g_timer_ticks;
+        account_scheduler_tick();
+        if(cpu_on_boot())
+        {
+            console_input_poll_serial();
+        }
     }
     dispatch_interrupt_vector(vector);
 

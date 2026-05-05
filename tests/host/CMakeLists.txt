@@ -38,6 +38,7 @@ add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/
 add_library(os1_host_support
   support/cpu_stubs.cpp
   support/debug_stub.cpp
+  support/lapic_stub.cpp
   support/memory_stubs.cpp
   support/physical_memory.cpp
   "${OS1_REPO_ROOT}/src/kernel/arch/x86_64/interrupt/vector_allocator.cpp"

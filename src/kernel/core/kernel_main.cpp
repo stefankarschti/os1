@@ -226,17 +226,23 @@ bool calibrate_lapic_timer_from_hpet(uint32_t target_hz, uint32_t& initial_count
     return true;
 }
 
-bool initialize_scheduler_timer()
+// BSP-only preparation: calibrate the LAPIC, allocate the vector, and pick a
+// source. Does not arm the local timer — that is per-CPU work issued separately
+// after AP bring-up (BSP) and from enter_ap_idle_thread (APs).
+bool prepare_scheduler_timer()
 {
     timer_source_set_scheduler(SchedulerTimerSource::Pit);
+    timer_source_set_lapic_calibration(0, 0, kSchedulerTimerFrequencyHz);
+    timer_source_set_ap_timer_enabled(true);
 
     uint32_t lapic_initial_count = 0;
     if(calibrate_lapic_timer_from_hpet(kSchedulerTimerFrequencyHz, lapic_initial_count))
     {
         uint8_t lapic_vector = 0;
-        if(platform_allocate_local_apic_irq_route(kLapicTimerOwner, T_LTIMER, lapic_vector) &&
-           lapic_timer_start_periodic(lapic_vector, lapic_initial_count))
+        if(platform_allocate_local_apic_irq_route(kLapicTimerOwner, T_LTIMER, lapic_vector))
         {
+            timer_source_set_lapic_calibration(
+                lapic_vector, lapic_initial_count, kSchedulerTimerFrequencyHz);
             timer_source_set_scheduler(SchedulerTimerSource::Lapic);
             kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
                                  OS1_KERNEL_EVENT_FLAG_SUCCESS,
@@ -250,10 +256,6 @@ bool initialize_scheduler_timer()
         }
 
         lapic_timer_mask();
-        if(0u != lapic_vector)
-        {
-            (void)platform_release_irq_route(lapic_vector);
-        }
     }
 
     if(ismp && !platform_route_isa_irq(kPitTimerOwner, IRQ_TIMER, kPitSchedulerVector))
@@ -262,13 +264,15 @@ bool initialize_scheduler_timer()
     }
 
     set_timer(kSchedulerTimerFrequencyHz);
+    timer_source_set_ap_timer_enabled(false);
     kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
-                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                         OS1_KERNEL_EVENT_FLAG_SUCCESS |
+                             OS1_KERNEL_EVENT_TIMER_SOURCE_AP_TICKS_DISABLED,
                          OS1_KERNEL_EVENT_TIMER_SOURCE_PIT,
                          kPitSchedulerVector,
                          kSchedulerTimerFrequencyHz,
                          0);
-    debug("timer: PIT fallback")();
+    debug("timer: PIT fallback (AP ticks disabled)")();
     return true;
 }
 
@@ -565,14 +569,29 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         return;
     }
 
-    cpu_boot_others(g_kernel_root_cr3);
-
-    kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
     debug("start multitasking")();
-    if(!initialize_scheduler_timer())
+    // Calibrate and choose the source on the BSP first; APs read the cached
+    // calibration when they start their own LAPIC timer in enter_ap_idle_thread.
+    // Arming the BSP's own timer is deferred until after AP bring-up so that a
+    // tick during cpu_boot_others does not yank the BSP into the boot-sequence
+    // thread before the APs have started.
+    if(!prepare_scheduler_timer())
     {
         return;
     }
+
+    cpu_boot_others(g_kernel_root_cr3);
+
+    if(SchedulerTimerSource::Lapic == timer_source_scheduler())
+    {
+        if(!cpu_start_local_apic_timer())
+        {
+            debug("timer: BSP lapic timer start failed")();
+            return;
+        }
+    }
+
+    kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
     enter_first_thread(boot_sequence_thread, boot_sequence_thread->kernel_stack_top);
     halt_forever();
 }
