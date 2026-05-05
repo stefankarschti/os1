@@ -11,6 +11,8 @@
 #include "proc/process.hpp"
 #include "sync/smp.hpp"
 
+struct cpu;
+
 OS1_BSP_ONLY extern Spinlock g_thread_registry_lock;
 
 constexpr uint16_t kKernelCodeSegment = 0x08;
@@ -95,6 +97,11 @@ THREAD_STATIC_ASSERT(stack_top_offset, offsetof(Thread, kernel_stack_top) == 56)
 bool init_tasks(PageFrameContainer& frames);
 // Create a kernel-mode thread with a bootstrap frame that enters `entry`.
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames);
+// Create or return the idle thread assigned to one CPU.
+Thread* create_idle_thread_for_cpu(Process* process,
+                                   cpu* owner,
+                                   void (*entry)(void),
+                                   PageFrameContainer& frames);
 // Create a user-mode thread with an interrupt-return frame for ring 3 entry.
 Thread* create_user_thread(Process* process,
                            uint64_t user_rip,
@@ -108,6 +115,8 @@ Thread* next_thread(const Thread* thread);
 Thread* current_thread(void);
 // Return the scheduler's idle thread.
 Thread* idle_thread(void);
+// Return the idle thread assigned to `owner`, if any.
+Thread* idle_thread_for_cpu(const cpu* owner);
 // Find the next runnable thread after `after` in circular table order.
 Thread* next_runnable_thread(Thread* after);
 // Rebuild next pointers for runnable threads after state changes.

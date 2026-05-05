@@ -104,6 +104,19 @@ bool divide_product_rounded(uint64_t left, uint64_t right, uint64_t denominator,
     return true;
 }
 
+bool create_idle_threads_for_discovered_cpus(Process* kernel_process)
+{
+    for(cpu* c = g_cpu_boot; nullptr != c; c = c->next)
+    {
+        if(nullptr == create_idle_thread_for_cpu(kernel_process, c, kernel_idle_thread, page_frames))
+        {
+            debug("cpu: idle thread creation failed for cpu ")(c->id)();
+            return false;
+        }
+    }
+    return true;
+}
+
 bool map_kernel_section(VirtualMemory& vm, uint8_t* start, uint8_t* end, PageFlags flags)
 {
     if(start >= end)
@@ -412,7 +425,6 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     pic_init();
     ioapic_init();
     lapic_init();
-    cpu_boot_others(g_kernel_root_cr3);
 
     g_text_display = select_text_display(*g_boot_info);
 
@@ -501,6 +513,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     g_boot_irq_thread.state = ThreadState::Running;
     g_boot_irq_thread.address_space_cr3 = g_kernel_root_cr3;
     g_boot_irq_thread.kernel_stack_top = read_rsp();
+    cpu_cur()->irq_stack_thread = &g_boot_irq_thread;
     set_current_thread(&g_boot_irq_thread);
 
     const uint8_t kernel_fault_vectors[] = {T_DIVIDE, T_DEBUG, T_NMI,    T_BRKPT,  T_OFLOW,
@@ -540,7 +553,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
-    if(nullptr == create_kernel_thread(kernel_process, kernel_idle_thread, page_frames))
+    if(!create_idle_threads_for_discovered_cpus(kernel_process))
     {
         return;
     }
@@ -550,6 +563,8 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
+
+    cpu_boot_others(g_kernel_root_cr3);
 
     kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
     debug("start multitasking")();

@@ -48,6 +48,16 @@ struct Tss64
     uint16_t io_bitmap_base;
 } __attribute__((packed));
 
+struct RunQueue
+{
+    constexpr RunQueue() : lock("cpu-runq") {}
+
+    Spinlock lock;
+    Thread* head = nullptr;
+    Thread* tail = nullptr;
+    size_t length = 0;
+};
+
 struct cpu
 {
     cpu* self;
@@ -55,6 +65,16 @@ struct cpu
     TrapFrame interrupt_frame;
     uint64_t gdt[CPU_GDT_NDESC];
     Tss64 tss;
+    Thread* idle_thread;
+    RunQueue runq;
+    uint64_t timer_ticks;
+    uint64_t reschedule_pending;
+    Thread* irq_stack_thread;
+    uint64_t enqueue_count;
+    uint64_t dequeue_count;
+    uint64_t idle_ticks;
+    uint64_t migrate_in;
+    uint64_t migrate_out;
     cpu* next;
     uint8_t id;
     volatile uint32_t booted;
@@ -71,6 +91,7 @@ CPU_STATIC_ASSERT(current_thread_offset, offsetof(cpu, current_thread) == 8);
 CPU_STATIC_ASSERT(interrupt_frame_offset, offsetof(cpu, interrupt_frame) == 16);
 CPU_STATIC_ASSERT(tss_offset, offsetof(cpu, tss) == 248);
 CPU_STATIC_ASSERT(tss_rsp0_offset, offsetof(cpu, tss) + offsetof(Tss64, rsp0) == 252);
+CPU_STATIC_ASSERT(kstackhi_offset, offsetof(cpu, kstackhi) == 4096);
 
 #undef CPU_STATIC_ASSERT
 

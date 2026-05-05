@@ -25,7 +25,6 @@ namespace
 // BSP-only for now: TID allocation, idle-thread publication, and thread registry
 // mutation have no SMP lock until APs leave the parked idle loop.
 OS1_BSP_ONLY uint64_t g_next_tid = 1;
-OS1_BSP_ONLY Thread* g_idle_thread = nullptr;
 OS1_BSP_ONLY KmemCache* g_thread_cache = nullptr;
 OS1_BSP_ONLY Thread* g_thread_head = nullptr;
 OS1_BSP_ONLY Thread* g_thread_tail = nullptr;
@@ -104,12 +103,78 @@ void release_thread_record(Thread* thread)
     kmem_cache_free(g_thread_cache, thread);
 }
 
+void clear_cpu_idle_threads()
+{
+    for(cpu* c = g_cpu_boot; nullptr != c; c = c->next)
+    {
+        c->idle_thread = nullptr;
+    }
+}
+
+Thread* allocate_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames)
+{
+    if((nullptr == process) || (nullptr == entry))
+    {
+        return nullptr;
+    }
+
+    Thread* thread = allocate_thread_record();
+    if(nullptr == thread)
+    {
+        return nullptr;
+    }
+
+    uint64_t stack_base = 0;
+    if(!frames.allocate(stack_base, kKernelThreadStackPages))
+    {
+        release_thread_record(thread);
+        return nullptr;
+    }
+    uint8_t* stack_memory = kernel_physical_pointer<uint8_t>(stack_base);
+    memset(stack_memory, 0, kKernelThreadStackPages * kPageSize);
+    const uint64_t stack_top = (uint64_t)(stack_memory + kKernelThreadStackPages * kPageSize);
+
+    thread->tid = g_next_tid++;
+    thread->process = process;
+    thread->state = ThreadState::Ready;
+    thread->user_mode = false;
+    thread->address_space_cr3 = process->address_space.cr3;
+    thread->kernel_stack_base = stack_base;
+    thread->kernel_stack_top = stack_top;
+    thread->exit_status = 0;
+    thread->frame = {};
+    // Kernel threads resume through `iretq` into a small trampoline that aligns
+    // the stack before calling the C++ entry point carried in RDI.
+    *reinterpret_cast<uint64_t*>(thread->kernel_stack_top - 3 * sizeof(uint64_t)) = 0;
+    thread->frame.rip = (uint64_t)kernel_thread_start;
+    thread->frame.rdi = (uint64_t)entry;
+    thread->frame.cs = kKernelCodeSegment;
+    thread->frame.rflags = 0x202;
+    thread->frame.rsp = thread->kernel_stack_top - 3 * sizeof(uint64_t);
+    thread->frame.ss = kKernelDataSegment;
+    return thread;
+}
+
+void publish_idle_thread(cpu* owner, Thread* thread)
+{
+    if((nullptr == owner) || (nullptr == thread))
+    {
+        return;
+    }
+
+    // The idle thread enables interrupts explicitly once it reaches its
+    // steady-state `sti; hlt` loop. Starting it with IF clear avoids taking a
+    // timer interrupt in the middle of its first console write.
+    thread->frame.rflags = 0x2;
+    owner->idle_thread = thread;
+}
+
 bool initialize_thread_table(PageFrameContainer& frames)
 {
     KASSERT_ON_BSP();
     (void)frames;
     g_next_tid = 1;
-    g_idle_thread = nullptr;
+    clear_cpu_idle_threads();
     g_thread_head = nullptr;
     g_thread_tail = nullptr;
 
@@ -179,9 +244,12 @@ void clear_thread(Thread* thread)
         return;
     }
 
-    if(thread == g_idle_thread)
+    for(cpu* c = g_cpu_boot; nullptr != c; c = c->next)
     {
-        g_idle_thread = nullptr;
+        if(thread == c->idle_thread)
+        {
+            c->idle_thread = nullptr;
+        }
     }
     unlink_thread(thread);
     release_thread_record(thread);
@@ -190,57 +258,57 @@ void clear_thread(Thread* thread)
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames)
 {
     KASSERT_ON_BSP();
-    if((nullptr == process) || (nullptr == entry))
-    {
-        return nullptr;
-    }
-
-    Thread* thread = allocate_thread_record();
+    Thread* thread = allocate_kernel_thread(process, entry, frames);
     if(nullptr == thread)
     {
         return nullptr;
     }
 
-    uint64_t stack_base = 0;
-    if(!frames.allocate(stack_base, kKernelThreadStackPages))
+    cpu* owner = cpu_cur();
+    if((nullptr != owner) && (nullptr == owner->idle_thread))
     {
-        release_thread_record(thread);
-        return nullptr;
-    }
-    uint8_t* stack_memory = kernel_physical_pointer<uint8_t>(stack_base);
-    memset(stack_memory, 0, kKernelThreadStackPages * kPageSize);
-    const uint64_t stack_top = (uint64_t)(stack_memory + kKernelThreadStackPages * kPageSize);
-
-    thread->tid = g_next_tid++;
-    thread->process = process;
-    thread->state = ThreadState::Ready;
-    thread->user_mode = false;
-    thread->address_space_cr3 = process->address_space.cr3;
-    thread->kernel_stack_base = stack_base;
-    thread->kernel_stack_top = stack_top;
-    thread->exit_status = 0;
-    thread->frame = {};
-    // Kernel threads resume through `iretq` into a small trampoline that aligns
-    // the stack before calling the C++ entry point carried in RDI.
-    *reinterpret_cast<uint64_t*>(thread->kernel_stack_top - 3 * sizeof(uint64_t)) = 0;
-    thread->frame.rip = (uint64_t)kernel_thread_start;
-    thread->frame.rdi = (uint64_t)entry;
-    thread->frame.cs = kKernelCodeSegment;
-    thread->frame.rflags = 0x202;
-    thread->frame.rsp = thread->kernel_stack_top - 3 * sizeof(uint64_t);
-    thread->frame.ss = kKernelDataSegment;
-
-    if(nullptr == g_idle_thread)
-    {
-        // The idle thread enables interrupts explicitly once it reaches its
-        // steady-state `sti; hlt` loop. Starting it with IF clear avoids taking a
-        // timer interrupt in the middle of its first console write.
-        thread->frame.rflags = 0x2;
-        g_idle_thread = thread;
+        publish_idle_thread(owner, thread);
     }
 
     link_thread(thread);
     relink_runnable_threads();
+    return thread;
+}
+
+Thread* create_idle_thread_for_cpu(Process* process,
+                                   cpu* owner,
+                                   void (*entry)(void),
+                                   PageFrameContainer& frames)
+{
+    KASSERT_ON_BSP();
+    if(nullptr == owner)
+    {
+        return nullptr;
+    }
+    if(nullptr != owner->idle_thread)
+    {
+        return owner->idle_thread;
+    }
+
+    Thread* thread = allocate_kernel_thread(process, entry, frames);
+    if(nullptr == thread)
+    {
+        return nullptr;
+    }
+
+    publish_idle_thread(owner, thread);
+    if(owner != cpu_cur())
+    {
+        // Phase 1 pre-creates AP idle records while APs still park in
+        // cpu_idle_loop(); keep them off the BSP global runnable list.
+        thread->state = ThreadState::Blocked;
+    }
+
+    link_thread(thread);
+    if(ThreadState::Ready == thread->state)
+    {
+        relink_runnable_threads();
+    }
     return thread;
 }
 
@@ -302,7 +370,12 @@ Thread* current_thread(void)
 
 Thread* idle_thread(void)
 {
-    return g_idle_thread;
+    return idle_thread_for_cpu(cpu_cur());
+}
+
+Thread* idle_thread_for_cpu(const cpu* owner)
+{
+    return (nullptr != owner) ? owner->idle_thread : nullptr;
 }
 
 void set_current_thread(Thread* thread)

@@ -72,6 +72,10 @@ void initialize_cpu_record_prefix(cpu* c)
     c->gdt[CPU_GDT_UCODE >> 3] = SEGDESC64_CODE(3);
     c->gdt[CPU_GDT_TSS >> 3] = 0;
     c->gdt[(CPU_GDT_TSS >> 3) + 1] = 0;
+    c->runq.lock.reset("cpu-runq");
+    c->runq.head = nullptr;
+    c->runq.tail = nullptr;
+    c->runq.length = 0;
     c->magic = CPU_MAGIC;
 }
 }  // namespace

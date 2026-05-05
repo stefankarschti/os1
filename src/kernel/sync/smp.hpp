@@ -73,6 +73,12 @@ public:
         __atomic_store_n(&locked_, 0u, __ATOMIC_RELEASE);
     }
 
+    void reset(const char* name)
+    {
+        __atomic_store_n(&locked_, 0u, __ATOMIC_RELAXED);
+        name_ = name;
+    }
+
     [[nodiscard]] bool locked() const
     {
         return __atomic_load_n(&locked_, __ATOMIC_RELAXED) != 0u;

@@ -92,6 +92,7 @@ add_executable(os1_host_tests
   kernel/atomic_tests.cpp
   kernel/acpi_hpet_tests.cpp
   kernel/acpi_aml_tests.cpp
+  kernel/cpu_record_tests.cpp
   kernel/utility_tests.cpp
   kernel/event_ring_tests.cpp
   kernel/irq_route_registry_tests.cpp
