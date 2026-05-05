@@ -2,6 +2,7 @@
 
 #include "console/console_input.hpp"
 #include "mm/user_copy.hpp"
+#include "sync/wait_queue.hpp"
 
 bool try_complete_console_read(
     PageFrameContainer& frames, Thread* thread, uint64_t user_buffer, size_t length, long& result)
@@ -39,7 +40,7 @@ void wake_console_readers(PageFrameContainer& frames)
 {
     while(console_input_has_line())
     {
-        Thread* thread = first_blocked_thread(ThreadWaitReason::ConsoleRead);
+        Thread* thread = wait_queue_dequeue(console_input_read_wait_queue());
         if(nullptr == thread)
         {
             return;
@@ -52,6 +53,7 @@ void wake_console_readers(PageFrameContainer& frames)
                                       (size_t)thread->wait.console_read.length,
                                       result))
         {
+            wait_queue_enqueue(console_input_read_wait_queue(), thread);
             return;
         }
 

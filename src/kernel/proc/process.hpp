@@ -6,9 +6,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "sync/wait_queue.hpp"
 #include "sync/smp.hpp"
 
 class PageFrameContainer;
+
+extern Spinlock g_process_table_lock;
 
 // Process lifecycle state as observed by wait/reap and observe syscalls.
 enum class ProcessState : uint32_t
@@ -36,6 +39,7 @@ struct Process
     int exit_status = 0;
     Process* parent = nullptr;
     char name[32]{};
+    WaitQueue child_exit_waiters;
     Process* registry_next = nullptr;
 };
 

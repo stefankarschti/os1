@@ -11,6 +11,11 @@
 #include "proc/process.hpp"
 #include "sync/smp.hpp"
 
+struct cpu;
+struct Completion;
+
+extern Spinlock g_thread_registry_lock;
+
 constexpr uint16_t kKernelCodeSegment = 0x08;
 constexpr uint16_t kKernelDataSegment = 0x10;
 constexpr uint16_t kUserDataSegment = 0x1B;
@@ -47,7 +52,7 @@ struct ChildExitWaitState
 
 struct BlockIoWaitState
 {
-    uint64_t completion_flag = 0;
+    Completion* completion = nullptr;
 };
 
 struct ThreadWaitState
@@ -78,6 +83,11 @@ struct Thread
     TrapFrame frame{};
     ThreadWaitState wait{};
     Thread* registry_next = nullptr;
+    Thread* wait_link = nullptr;
+    cpu* scheduler_cpu = nullptr;
+    cpu* run_queue_cpu = nullptr;
+    uint64_t affinity_mask = ~0ull;
+    uint64_t last_migration_tick = 0;
 };
 
 #define THREAD_STATIC_ASSERT(name, expr) typedef char thread_static_assert_##name[(expr) ? 1 : -1]
@@ -92,6 +102,11 @@ THREAD_STATIC_ASSERT(stack_top_offset, offsetof(Thread, kernel_stack_top) == 56)
 bool init_tasks(PageFrameContainer& frames);
 // Create a kernel-mode thread with a bootstrap frame that enters `entry`.
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames);
+// Create or return the idle thread assigned to one CPU.
+Thread* create_idle_thread_for_cpu(Process* process,
+                                   cpu* owner,
+                                   void (*entry)(void),
+                                   PageFrameContainer& frames);
 // Create a user-mode thread with an interrupt-return frame for ring 3 entry.
 Thread* create_user_thread(Process* process,
                            uint64_t user_rip,
@@ -105,6 +120,8 @@ Thread* next_thread(const Thread* thread);
 Thread* current_thread(void);
 // Return the scheduler's idle thread.
 Thread* idle_thread(void);
+// Return the idle thread assigned to `owner`, if any.
+Thread* idle_thread_for_cpu(const cpu* owner);
 // Find the next runnable thread after `after` in circular table order.
 Thread* next_runnable_thread(Thread* after);
 // Rebuild next pointers for runnable threads after state changes.
@@ -112,22 +129,22 @@ void relink_runnable_threads();
 // Bind the current CPU to `thread`.
 void set_current_thread(Thread* thread);
 // Mark a thread ready and update its owning process state if needed.
-void mark_thread_ready(Thread* thread);
+void mark_thread_ready(Thread* thread, cpu* target = nullptr);
 // Block the current thread until console input can complete a read.
 void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length);
 // Block the current thread until the selected child can be reaped.
 void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid);
 // Block the current thread until a block-I/O completion flag is signaled.
-void block_current_thread_on_block_io(uint64_t completion_flag);
+void block_current_thread_on_block_io(Completion* completion);
 // clear a thread's wait metadata after the wait has completed.
 void clear_thread_wait(Thread* thread);
 // Wake a blocked thread, preserving the currently running thread state when the
 // wake happens from an interrupt on that same thread.
-void wake_blocked_thread(Thread* thread);
+void wake_blocked_thread(Thread* thread, cpu* target = nullptr);
 // Return the first thread blocked on a wait reason.
 Thread* first_blocked_thread(ThreadWaitReason reason);
 // Wake any thread blocked on a matching block-I/O completion flag.
-void wake_block_io_waiters(uint64_t completion_flag);
+void wake_block_io_waiters(Completion* completion);
 // Mark the current thread dying and publish its process exit status.
 void mark_current_thread_dying(int exit_status);
 // Reclaim a thread record after its stack and owner state have been torn down.
@@ -136,6 +153,8 @@ void clear_thread(Thread* thread);
 void reap_dead_threads(PageFrameContainer& frames);
 // Count threads currently eligible to run.
 size_t runnable_thread_count(void);
+// Return the number of ready threads queued on `owner`.
+size_t cpu_run_queue_length(const cpu* owner);
 // Return the first runnable user thread, if any.
 Thread* first_runnable_user_thread(void);
 

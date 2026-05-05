@@ -3,7 +3,8 @@
 #include "core/kernel_state.hpp"
 
 Interrupts interrupts;
-OS1_BSP_ONLY PageFrameContainer page_frames;
+OS1_LOCKED_BY(g_page_frames_lock) PageFrameContainer page_frames;
+Spinlock g_page_frames_lock{"page-frames"};
 Keyboard keyboard(interrupts);
 
 // BSP-only for now: terminal state is mutated only by the BSP console/input path.

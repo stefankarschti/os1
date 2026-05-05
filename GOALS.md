@@ -296,7 +296,7 @@ The system should support:
 - per-process isolation
 - scheduler with clear policy
 - early SMP-aware design
-- eventual full user-process SMP scheduling across CPUs
+- full user-process SMP scheduling across CPUs as the baseline runtime
 
 Early SMP work should target symmetric CPU scheduling on the primary architecture. Later designs should remain open to heterogeneous processor topologies with capability-aware scheduling and affinity policies.
 
@@ -309,6 +309,8 @@ SMP should come early enough to shape:
 - tracing / observability design
 
 The implementation may still progress through simpler intermediate steps, but the architecture should not assume that single-core is the long-term model.
+
+That first SMP baseline now exists on `x86_64`: APs run per-CPU idle threads, take LAPIC timer ticks, use per-CPU run queues, accept remote wakeups via reschedule IPIs, and participate in load-balanced user-thread scheduling. Follow-on SMP work is now about device-IRQ steering, lock-order enforcement, and policy refinement rather than first bring-up.
 
 ### Security model
 
@@ -453,7 +455,7 @@ The in-repo milestone designs (M1–M5) refine the coarser A–G map below into 
 - PCIe support expanding from enumeration into BAR/resource ownership, driver binding, bus mastering, MSI/MSI-X, and DMA-safe building blocks (implemented)
 - USB host-controller discovery through PCI, with xHCI as the first USB transport and HID keyboard as the first USB class target ([2026-04-30 pass](doc/2026-04-29-driver-device-platform-implementation-plan.md) — implemented; HID mouse recognized but not yet routed; USB hub class and mass storage remain follow-on work)
 - HPET-calibrated LAPIC periodic timer with PIT fallback (implemented)
-- early APIC / SMP-oriented platform groundwork (per-CPU `cpu` pages, TSS, ACPI-derived AP bring-up, AP idle state, `Spinlock`/`IrqGuard` synchronization vocabulary, and an `OS1_BSP_ONLY` annotation system are implemented; per-CPU IRQ steering and full SMP scheduling are still follow-on work)
+- early APIC / SMP-oriented platform groundwork plus the first operational SMP runtime (per-CPU `cpu` pages, TSS, ACPI-derived AP bring-up, per-CPU idle threads, per-CPU LAPIC timer ticks, reschedule IPIs, per-CPU run queues, load-balanced user-thread placement, `WaitQueue` / `Completion`-based blocking, `Spinlock`/`IrqGuard` synchronization vocabulary, and an `OS1_BSP_ONLY` annotation system are implemented; per-CPU device IRQ steering remains follow-on work)
 - early accelerator / GPU device discovery path where feasible
 
 ### Milestone C: Protected userland and operator shell baseline *(implemented across [M2 design](doc/2026-04-22-milestone-2-process-model-and-isolation.md) and [M5 design](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md))*
@@ -463,7 +465,7 @@ The in-repo milestone designs (M1–M5) refine the coarser A–G map below into 
 - a small SYSCALL/SYSRET-entered syscall interface (`write`, `read`, `exit`, `yield`, `getpid`, `observe`, `spawn`, `waitpid`, `exec`) for console I/O, observability, and initrd-backed process control
 - initrd-backed operator environment with `/bin/init`, `/bin/sh`, `/bin/yield`, `/bin/fault`, `/bin/copycheck`, and `/bin/ascii` (the last is a human-only visual probe; see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) for why it is deliberately not asserted by smoke)
 - serial-drivable shell and smoke coverage on both boot paths
-- structured observability through versioned fixed-record snapshots (`sys`, `ps`, `cpu`, `pci`, `initrd`, `events`, `devices`, `resources`, `irqs`) and a 256-record kernel event ring covering traps, scheduler transitions, IRQs, block I/O, PCI bind, user-copy failures, smoke markers, timer-source choice, and NIC RX
+- structured observability through versioned fixed-record snapshots (`sys`, `ps`, `cpu`, `pci`, `initrd`, `events`, `devices`, `resources`, `irqs`, `kmem`) and a 256-record kernel event ring covering traps, scheduler transitions, IRQs, block I/O, PCI bind, user-copy failures, smoke markers, timer-source choice, `kmem` corruption, NIC RX, AP-online/tick events, reschedule/TLB-shootdown IPIs, thread migration, and run-queue depth
 
 Later follow-ups expected in this area: filesystem-backed loading, richer file-descriptor / handle semantics, arguments/environment passing, and process credentials.
 
@@ -520,7 +522,7 @@ Some earlier open questions have since been resolved in source or in the milesto
 The following are not fully decided yet and should be revisited explicitly:
 
 - first filesystem choice
-- staging plan from AP startup (currently: APs run `cpu_idle_loop()`) to full user-process SMP scheduling across CPUs
+- follow-on plan from the current SMP baseline to AP-targeted device IRQ steering, lock-order assertions, and later scheduler-policy refinement
 - later GPU / accelerator target model after discovery-only phase: compute queues, minimal kernel offload primitives, or richer user-facing submission model
 - whether the terminal compositor stays intentionally minimal or grows into a broader desktop shell
 
@@ -542,4 +544,4 @@ These are strong candidates to adopt explicitly:
 
 ## Short project thesis
 
-`os1` should become a clean, well-documented, terminal-first operating system for `x86_64` that demonstrates the major mechanisms of a modern OS, prioritizes protected userland over early hardware breadth, adopts monolithic-kernel and QEMU/virtio-first development early, grows toward full SMP user-process scheduling, secure multiuser networking, and remote login, and optionally supports a simple home-made framebuffer terminal compositor later without compromising core system clarity.
+`os1` should become a clean, well-documented, terminal-first operating system for `x86_64` that demonstrates the major mechanisms of a modern OS, prioritizes protected userland over early hardware breadth, adopts monolithic-kernel and QEMU/virtio-first development early, now includes a first full SMP user-process scheduling baseline, grows toward secure multiuser networking and remote login, and optionally supports a simple home-made framebuffer terminal compositor later without compromising core system clarity.

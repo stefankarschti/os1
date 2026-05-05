@@ -37,9 +37,13 @@ add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/
 
 add_library(os1_host_support
   support/cpu_stubs.cpp
+  support/console_input_stub.cpp
   support/debug_stub.cpp
+  support/kernel_state_stub.cpp
+  support/lapic_stub.cpp
   support/memory_stubs.cpp
   support/physical_memory.cpp
+  "${OS1_REPO_ROOT}/src/kernel/arch/x86_64/apic/ipi.cpp"
   "${OS1_REPO_ROOT}/src/kernel/arch/x86_64/interrupt/vector_allocator.cpp"
   "${OS1_REPO_ROOT}/src/kernel/core/timer_source.cpp"
   "${OS1_REPO_ROOT}/src/kernel/debug/event_ring.cpp"
@@ -56,6 +60,7 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/mm/kmem.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/page_frame.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/dma.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/mm/user_copy.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi_aml.cpp"
@@ -70,7 +75,10 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/proc/reaper.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/thread.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/user_elf.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/sched/scheduler.cpp"
   "${OS1_REPO_ROOT}/src/kernel/sched/thread_queue.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/sync/wait_queue.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/syscall/wait.cpp"
 )
 target_compile_definitions(os1_host_support PUBLIC OS1_HOST_TEST=1)
 if(OS1_KMEM_DEBUG)
@@ -89,17 +97,22 @@ add_executable(os1_host_tests
   common/freestanding_string_tests.cpp
   fs/cpio_newc_tests.cpp
   handoff/boot_info_tests.cpp
+  kernel/atomic_tests.cpp
   kernel/acpi_hpet_tests.cpp
   kernel/acpi_aml_tests.cpp
+  kernel/cpu_record_tests.cpp
   kernel/utility_tests.cpp
   kernel/event_ring_tests.cpp
   kernel/irq_route_registry_tests.cpp
   kernel/irq_vector_allocator_tests.cpp
+  kernel/load_balancer_tests.cpp
+  kernel/runqueue_tests.cpp
   kernel/timer_source_tests.cpp
   kernel/pci_bus_tests.cpp
   kernel/pci_capability_tests.cpp
   kernel/pci_msi_tests.cpp
   kernel/pci_resource_tests.cpp
+  kernel/wait_queue_tests.cpp
   kernel/arp_cache_tests.cpp
   kernel/hid_keyboard_tests.cpp
   kernel/xhci_controller_tests.cpp

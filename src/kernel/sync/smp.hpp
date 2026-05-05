@@ -1,6 +1,5 @@
-// SMP synchronization contract. APs are online but parked today, so the shared
-// state annotations below make the current BSP-only assumptions explicit before
-// the scheduler grows multi-CPU execution.
+// SMP synchronization contract. The annotations below document remaining
+// ownership constraints; they do not replace locks for shared runtime state.
 #pragma once
 
 #include <stdint.h>
@@ -9,6 +8,10 @@
 // CPU for now. This is documentation with compiler-visible placement; it is not
 // a lock and must be replaced or removed when the state becomes SMP-safe.
 #define OS1_BSP_ONLY [[maybe_unused]]
+
+// Marker for globals whose mutation is serialized by `name`. This is
+// documentation-only and intentionally easy to grep during SMP conversions.
+#define OS1_LOCKED_BY(name) [[maybe_unused]]
 
 #if defined(OS1_HOST_TEST)
 #define KASSERT_ON_BSP() \
@@ -71,6 +74,12 @@ public:
     void unlock()
     {
         __atomic_store_n(&locked_, 0u, __ATOMIC_RELEASE);
+    }
+
+    void reset(const char* name)
+    {
+        __atomic_store_n(&locked_, 0u, __ATOMIC_RELAXED);
+        name_ = name;
     }
 
     [[nodiscard]] bool locked() const
@@ -142,4 +151,39 @@ private:
 
     uint64_t saved_rflags_;
     bool restore_interrupts_;
+};
+
+template <typename Lock = Spinlock>
+class IrqSpinGuard
+{
+public:
+    explicit IrqSpinGuard(Lock& lock) : irq_guard_(), lock_(lock)
+    {
+        lock_.lock();
+    }
+
+    IrqSpinGuard(const IrqSpinGuard&) = delete;
+    IrqSpinGuard& operator=(const IrqSpinGuard&) = delete;
+
+    ~IrqSpinGuard()
+    {
+        if(locked_)
+        {
+            lock_.unlock();
+        }
+    }
+
+    void unlock()
+    {
+        if(locked_)
+        {
+            lock_.unlock();
+            locked_ = false;
+        }
+    }
+
+private:
+    IrqGuard irq_guard_;
+    Lock& lock_;
+    bool locked_ = true;
 };

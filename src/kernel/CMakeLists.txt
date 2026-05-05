@@ -3,6 +3,7 @@ set(KERNEL_LIMINE_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/linker/kernel_limin
 set(KERNEL_ARCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/arch/x86_64")
 
 set(KERNEL_ARCH_SOURCES
+  arch/x86_64/apic/ipi.cpp
   arch/x86_64/apic/ioapic.cpp
   arch/x86_64/apic/lapic.cpp
   arch/x86_64/apic/pic.cpp
@@ -111,6 +112,7 @@ set(KERNEL_SYSCALL_SOURCES
 
 set(KERNEL_SYNC_SOURCES
   sync/smp.cpp
+  sync/wait_queue.cpp
 )
 
 set(KERNEL_DEBUG_SOURCES

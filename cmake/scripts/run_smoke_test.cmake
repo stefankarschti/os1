@@ -14,6 +14,10 @@ if(NOT DEFINED SMOKE_SETTLE_AFTER_MARKERS_SECONDS)
   set(SMOKE_SETTLE_AFTER_MARKERS_SECONDS 0)
 endif()
 
+if(NOT DEFINED SMOKE_SEND_DELAY_SECONDS)
+  set(SMOKE_SEND_DELAY_SECONDS 0)
+endif()
+
 if(NOT DEFINED EXPECTED_MARKERS)
   set(EXPECTED_MARKERS "")
 endif()
@@ -59,8 +63,9 @@ if(DEFINED ISO_IMAGE)
   endif()
 
   get_filename_component(log_dir "${LOG_FILE}" DIRECTORY)
+  get_filename_component(log_name "${LOG_FILE}" NAME_WE)
   file(MAKE_DIRECTORY "${log_dir}")
-  set(ovmf_vars_copy "${log_dir}/smoke-ovmf-vars.fd")
+  set(ovmf_vars_copy "${log_dir}/${log_name}-ovmf-vars.fd")
   file(COPY_FILE "${OVMF_VARS_TEMPLATE}" "${ovmf_vars_copy}" ONLY_IF_DIFFERENT)
 
   list(APPEND qemu_command
@@ -115,6 +120,8 @@ set(runner_command
   "${SMOKE_TIMEOUT_SECONDS}"
   --settle-after-markers
   "${SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
+  --send-delay
+  "${SMOKE_SEND_DELAY_SECONDS}"
 )
 foreach(marker IN LISTS EXPECTED_MARKERS)
   list(APPEND runner_command --marker "${marker}")

@@ -4,6 +4,12 @@
 
 #include "core/kernel_state.hpp"
 #include "debug/debug.hpp"
+#include "sync/smp.hpp"
+
+namespace
+{
+Spinlock g_console_output_lock{"console-output"};
+}
 
 void write_console_bytes(const char* data, size_t length)
 {
@@ -12,6 +18,7 @@ void write_console_bytes(const char* data, size_t length)
         return;
     }
 
+    IrqSpinGuard guard(g_console_output_lock);
     for(size_t i = 0; i < length; ++i)
     {
         debug.write(data[i]);
@@ -29,6 +36,7 @@ void write_console_line(const char* text)
         return;
     }
 
+    IrqSpinGuard guard(g_console_output_lock);
     debug.write_line(text);
     if(active_terminal)
     {

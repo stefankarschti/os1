@@ -1,0 +1,17 @@
+// Local APIC interrupt-command helpers for kernel IPIs.
+#pragma once
+
+#include <stdint.h>
+
+struct cpu;
+
+bool ipi_initialize();
+[[nodiscard]] bool ipi_send(uint8_t apic_id, uint8_t vector);
+[[nodiscard]] bool ipi_send_all_but_self(uint8_t vector);
+[[nodiscard]] bool ipi_send_reschedule(const cpu* target);
+[[nodiscard]] bool ipi_send_tlb_shootdown();
+[[nodiscard]] uint8_t ipi_reschedule_vector();
+[[nodiscard]] uint8_t ipi_tlb_shootdown_vector();
+[[nodiscard]] bool ipi_is_reschedule_vector(uint8_t vector);
+[[nodiscard]] bool ipi_is_tlb_shootdown_vector(uint8_t vector);
+void ipi_handle_tlb_shootdown();

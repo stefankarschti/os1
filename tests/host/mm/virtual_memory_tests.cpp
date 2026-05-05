@@ -1,6 +1,8 @@
 #include "mm/virtual_memory.hpp"
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "handoff/memory_layout.h"
+#include "support/lapic_stub.hpp"
 #include "support/physical_memory.hpp"
 
 #include <gtest/gtest.h>
@@ -60,6 +62,26 @@ TEST(VirtualMemory, MapsProtectsAndTranslatesPages)
     EXPECT_EQ(0x00500000ull, physical);
     EXPECT_EQ(static_cast<uint64_t>(PageFlags::Present | PageFlags::User | PageFlags::NoExecute),
               flags);
+}
+
+TEST(VirtualMemory, ProtectingUserMappingsTriggersTlbShootdown)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = make_frames(arena);
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(ipi_initialize());
+    lapic_stub_reset();
+    ASSERT_TRUE(vm.map_physical(kUserImageBase,
+                                0x00500000,
+                                1,
+                                PageFlags::Present | PageFlags::User | PageFlags::Write));
+
+    ASSERT_TRUE(vm.protect(kUserImageBase,
+                           1,
+                           PageFlags::Present | PageFlags::User | PageFlags::NoExecute));
+    EXPECT_EQ(1u, lapic_stub_icr_send_count());
+    EXPECT_EQ(ipi_tlb_shootdown_vector(), static_cast<uint8_t>(lapic_stub_last_icr_low()));
 }
 
 TEST(VirtualMemory, AllocatesAndDestroysUserSlot)

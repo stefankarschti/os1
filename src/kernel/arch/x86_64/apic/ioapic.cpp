@@ -12,6 +12,7 @@
 
 #include "arch/x86_64/apic/ioapic.hpp"
 
+#include "arch/x86_64/cpu/cpu.hpp"
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
@@ -156,8 +157,10 @@ bool ioapic_enable_gsi(uint32_t gsi, uint8_t vector, uint16_t flags)
         return false;
     }
 
-    ioapic_write(REG_TABLE + 2 * intin, INT_LOGICAL | INT_LOWEST | mode_bits | vector);
-    ioapic_write(REG_TABLE + 2 * intin + 1, 0xff << 24);
+    const uint32_t destination =
+        (nullptr != g_cpu_boot) ? (static_cast<uint32_t>(g_cpu_boot->id) << 24) : 0;
+    ioapic_write(REG_TABLE + 2 * intin, INT_FIXED | mode_bits | vector);
+    ioapic_write(REG_TABLE + 2 * intin + 1, destination);
     return true;
 }
 

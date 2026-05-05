@@ -6,6 +6,7 @@
 
 #include <span>
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "arch/x86_64/apic/ioapic.hpp"
 #include "arch/x86_64/apic/lapic.hpp"
 #include "arch/x86_64/apic/pic.hpp"
@@ -37,6 +38,7 @@
 #include "proc/thread.hpp"
 #include "proc/user_program.hpp"
 #include "sched/idle.hpp"
+#include "sched/scheduler.hpp"
 #include "util/align.hpp"
 #include "util/memory.h"
 
@@ -61,6 +63,19 @@ constexpr uint8_t kPitSchedulerVector = static_cast<uint8_t>(T_IRQ0 + IRQ_TIMER)
 constexpr DeviceId kPitTimerOwner{DeviceBus::Platform, 0};
 constexpr DeviceId kKeyboardOwner{DeviceBus::Platform, 1};
 constexpr DeviceId kLapicTimerOwner{DeviceBus::Platform, 2};
+
+[[noreturn]] void finish_kernel_thread(int exit_status)
+{
+    mark_current_thread_dying(exit_status);
+    if(Thread* next = schedule_next(false); nullptr != next)
+    {
+        start_multi_task(next);
+    }
+    for(;;)
+    {
+        asm volatile("hlt" : : : "memory");
+    }
+}
 
 uint64_t gcd_u64(uint64_t left, uint64_t right)
 {
@@ -101,6 +116,56 @@ bool divide_product_rounded(uint64_t left, uint64_t right, uint64_t denominator,
     }
 
     result = (product + (denominator / 2u)) / denominator;
+    return true;
+}
+
+bool create_idle_threads_for_discovered_cpus(Process* kernel_process)
+{
+    for(cpu* c = g_cpu_boot; nullptr != c; c = c->next)
+    {
+        if(nullptr == create_idle_thread_for_cpu(kernel_process, c, kernel_idle_thread, page_frames))
+        {
+            debug("cpu: idle thread creation failed for cpu ")(c->id)();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool spawn_kernel_smp_ping_threads(Process* kernel_process)
+{
+    if(nullptr == kernel_process)
+    {
+        return false;
+    }
+
+    size_t booted_ap_count = 0;
+    for(cpu* c = g_cpu_boot; nullptr != c; c = c->next)
+    {
+        if((c != g_cpu_boot) && (0u != c->booted))
+        {
+            ++booted_ap_count;
+        }
+    }
+
+    for(size_t index = 0; index < booted_ap_count; ++index)
+    {
+        if(nullptr == create_kernel_thread(kernel_process, [] {
+               cpu* local_cpu = cpu_cur();
+               const uint64_t ping_count = ++local_cpu->kernel_thread_ping_count;
+               kernel_event::record(OS1_KERNEL_EVENT_KERNEL_THREAD_PING,
+                                    OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                                    local_cpu->id,
+                                    ping_count,
+                                    reinterpret_cast<uint64_t>(local_cpu),
+                                    0);
+               finish_kernel_thread(0);
+           }, page_frames))
+        {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -213,17 +278,23 @@ bool calibrate_lapic_timer_from_hpet(uint32_t target_hz, uint32_t& initial_count
     return true;
 }
 
-bool initialize_scheduler_timer()
+// BSP-only preparation: calibrate the LAPIC, allocate the vector, and pick a
+// source. Does not arm the local timer — that is per-CPU work issued separately
+// after AP bring-up (BSP) and from enter_ap_idle_thread (APs).
+bool prepare_scheduler_timer()
 {
     timer_source_set_scheduler(SchedulerTimerSource::Pit);
+    timer_source_set_lapic_calibration(0, 0, kSchedulerTimerFrequencyHz);
+    timer_source_set_ap_timer_enabled(true);
 
     uint32_t lapic_initial_count = 0;
     if(calibrate_lapic_timer_from_hpet(kSchedulerTimerFrequencyHz, lapic_initial_count))
     {
         uint8_t lapic_vector = 0;
-        if(platform_allocate_local_apic_irq_route(kLapicTimerOwner, T_LTIMER, lapic_vector) &&
-           lapic_timer_start_periodic(lapic_vector, lapic_initial_count))
+        if(platform_allocate_local_apic_irq_route(kLapicTimerOwner, T_LTIMER, lapic_vector))
         {
+            timer_source_set_lapic_calibration(
+                lapic_vector, lapic_initial_count, kSchedulerTimerFrequencyHz);
             timer_source_set_scheduler(SchedulerTimerSource::Lapic);
             kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
                                  OS1_KERNEL_EVENT_FLAG_SUCCESS,
@@ -237,10 +308,6 @@ bool initialize_scheduler_timer()
         }
 
         lapic_timer_mask();
-        if(0u != lapic_vector)
-        {
-            (void)platform_release_irq_route(lapic_vector);
-        }
     }
 
     if(ismp && !platform_route_isa_irq(kPitTimerOwner, IRQ_TIMER, kPitSchedulerVector))
@@ -249,28 +316,32 @@ bool initialize_scheduler_timer()
     }
 
     set_timer(kSchedulerTimerFrequencyHz);
+    timer_source_set_ap_timer_enabled(false);
     kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
-                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                         OS1_KERNEL_EVENT_FLAG_SUCCESS |
+                             OS1_KERNEL_EVENT_TIMER_SOURCE_AP_TICKS_DISABLED,
                          OS1_KERNEL_EVENT_TIMER_SOURCE_PIT,
                          kPitSchedulerVector,
                          kSchedulerTimerFrequencyHz,
                          0);
-    debug("timer: PIT fallback")();
+    debug("timer: PIT fallback (AP ticks disabled)")();
     return true;
 }
 
 [[noreturn]] void finish_boot_sequence_thread(int exit_status)
 {
-    mark_current_thread_dying(exit_status);
-    for(;;)
-    {
-        asm volatile("hlt" : : : "memory");
-    }
+    finish_kernel_thread(exit_status);
 }
 
 [[noreturn]] void kernel_boot_sequence_thread()
 {
     if(!run_virtio_blk_threaded_smoke())
+    {
+        finish_boot_sequence_thread(1);
+    }
+
+    if(!spawn_kernel_smp_ping_threads((nullptr != current_thread()) ? current_thread()->process
+                                                                  : nullptr))
     {
         finish_boot_sequence_thread(1);
     }
@@ -398,6 +469,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     // `cpu_cur()` reads the self-pointer through GS, so rebind it before the
     // first direct-map `cpu_init()` reloads descriptor state.
     g_cpu_boot->self = g_cpu_boot;
+    wrmsr(0xC0000100, (uint64_t)g_cpu_boot);
     wrmsr(0xC0000101, (uint64_t)g_cpu_boot);
     g_cpu_boot->tss.rsp0 = 0;
     cpu_init();
@@ -412,7 +484,6 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     pic_init();
     ioapic_init();
     lapic_init();
-    cpu_boot_others(g_kernel_root_cr3);
 
     g_text_display = select_text_display(*g_boot_info);
 
@@ -496,11 +567,17 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
+    if(!ipi_initialize())
+    {
+        debug("IPI initialization failed")();
+        return;
+    }
 
     memset(&g_boot_irq_thread, 0, sizeof(g_boot_irq_thread));
     g_boot_irq_thread.state = ThreadState::Running;
     g_boot_irq_thread.address_space_cr3 = g_kernel_root_cr3;
     g_boot_irq_thread.kernel_stack_top = read_rsp();
+    cpu_cur()->irq_stack_thread = &g_boot_irq_thread;
     set_current_thread(&g_boot_irq_thread);
 
     const uint8_t kernel_fault_vectors[] = {T_DIVIDE, T_DEBUG, T_NMI,    T_BRKPT,  T_OFLOW,
@@ -540,7 +617,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
-    if(nullptr == create_kernel_thread(kernel_process, kernel_idle_thread, page_frames))
+    if(!create_idle_threads_for_discovered_cpus(kernel_process))
     {
         return;
     }
@@ -551,12 +628,30 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
         return;
     }
 
-    kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
     debug("start multitasking")();
-    if(!initialize_scheduler_timer())
+    // Calibrate and choose the source on the BSP first; APs read the cached
+    // calibration when they start their own LAPIC timer in enter_ap_idle_thread.
+    // Arming the BSP's own timer is deferred until after AP bring-up so that a
+    // tick during cpu_boot_others does not yank the BSP into the boot-sequence
+    // thread before the APs have started.
+    if(!prepare_scheduler_timer())
     {
         return;
     }
+
+    cpu_boot_others(g_kernel_root_cr3);
+
+    if(SchedulerTimerSource::Lapic == timer_source_scheduler())
+    {
+        if(!cpu_start_local_apic_timer())
+        {
+            debug("timer: BSP lapic timer start failed")();
+            return;
+        }
+    }
+
+    kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
+    set_current_thread(boot_sequence_thread);
     enter_first_thread(boot_sequence_thread, boot_sequence_thread->kernel_stack_top);
     halt_forever();
 }

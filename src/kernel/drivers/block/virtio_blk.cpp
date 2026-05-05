@@ -105,10 +105,11 @@ BlockDevice g_virtio_blk_device{};
 
 void virtio_blk_fail_immediately(BlockRequest& request, BlockRequestStatus status)
 {
-    request.completed = true;
+    completion_reset(request.completion);
     request.status = status;
     request.bytes_transferred = 0;
     request.driver_context = nullptr;
+    (void)completion_signal(request.completion);
 }
 
 bool virtio_blk_allocate_request_buffers(PageFrameContainer& frames, VirtioBlkState& state)
@@ -265,13 +266,13 @@ bool virtio_blk_wait_for_boot_completion(VirtioBlkState& state, BlockRequest& re
 
     for(uint32_t spin = 0; spin < 10000000u; ++spin)
     {
-        if(request.completed)
+        if(completion_done(request.completion))
         {
             return true;
         }
 
         virtio_blk_drain_used(state);
-        if(request.completed)
+        if(completion_done(request.completion))
         {
             return true;
         }
@@ -336,7 +337,7 @@ bool virtio_blk_submit_request(BlockDevice& device, BlockRequest& request)
                          static_cast<uint64_t>(request.operation),
                          request.sector_count);
 
-    request.completed = false;
+    completion_reset(request.completion);
     request.status = BlockRequestStatus::Pending;
     request.bytes_transferred = 0;
     request.driver_context = slot;
@@ -402,8 +403,9 @@ bool virtio_blk_submit_request(BlockDevice& device, BlockRequest& request)
 
 bool virtio_blk_flush(BlockDevice&, BlockRequest& request)
 {
-    request.completed = true;
     request.status = BlockRequestStatus::Invalid;
+    completion_reset(request.completion);
+    (void)completion_signal(request.completion);
     return false;
 }
 

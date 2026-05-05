@@ -69,29 +69,25 @@ void block_request_complete(BlockRequest& request,
 {
     request.status = status;
     request.bytes_transferred = bytes_transferred;
-    asm volatile("" : : : "memory");
-    request.completed = true;
-    asm volatile("" : : : "memory");
-    wake_block_io_waiters(reinterpret_cast<uint64_t>(&request.completed));
+    (void)completion_signal(request.completion);
 }
 
 bool block_request_wait(BlockRequest& request)
 {
-    const uint64_t completion_flag = reinterpret_cast<uint64_t>(&request.completed);
-    while(!request.completed)
+    while(!completion_done(request.completion))
     {
         if(can_sleep_current_thread())
         {
             Thread* thread = current_thread();
             if((ThreadState::Blocked != thread->state) ||
                (ThreadWaitReason::BlockIo != thread->wait.reason) ||
-               (completion_flag != thread->wait.block_io.completion_flag))
+               (&request.completion != thread->wait.block_io.completion))
             {
-                block_current_thread_on_block_io(completion_flag);
+                block_current_thread_on_block_io(&request.completion);
             }
         }
 
-        if(!request.completed)
+        if(!completion_done(request.completion))
         {
             relax_block_wait();
         }

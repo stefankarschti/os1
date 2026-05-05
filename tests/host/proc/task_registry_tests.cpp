@@ -1,8 +1,11 @@
 #include "proc/process.hpp"
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/kmem.hpp"
+#include "mm/virtual_memory.hpp"
 #include "proc/thread.hpp"
+#include "support/lapic_stub.hpp"
 #include "support/physical_memory.hpp"
 
 #include <gtest/gtest.h>
@@ -101,9 +104,9 @@ TEST(TaskRegistry, ThreadsGrowPastLegacyLimitAndReapCleanly)
     ASSERT_EQ(threads.size(), count);
     ASSERT_EQ(threads.front(), idle_thread());
     EXPECT_EQ(threads.size(), runnable_thread_count());
-    ASSERT_LT(1u, threads.size());
-    EXPECT_EQ(threads[1], next_runnable_thread(threads[0]));
-    EXPECT_EQ(threads[1], next_runnable_thread(threads.back()));
+    ASSERT_LT(2u, threads.size());
+    EXPECT_EQ(threads[1], next_runnable_thread(nullptr));
+    EXPECT_EQ(threads[2], next_runnable_thread(nullptr));
 
     for(Thread* thread : threads)
     {
@@ -155,4 +158,27 @@ TEST(TaskRegistry, ZombieProcessSurvivesThreadReapUntilWaitpidCanCollectIt)
     EXPECT_TRUE(reap_process(child, frames));
     EXPECT_TRUE(reap_process(parent, frames));
     EXPECT_EQ(nullptr, first_process());
+}
+
+TEST(TaskRegistry, ReapingUserProcessTriggersTlbShootdown)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    ASSERT_TRUE(init_tasks(frames));
+    ASSERT_TRUE(ipi_initialize());
+    lapic_stub_reset();
+
+    VirtualMemory vm(frames);
+    ASSERT_TRUE(vm.allocate_and_map(kUserImageBase,
+                                    1,
+                                    PageFlags::Present | PageFlags::User | PageFlags::Write));
+
+    Process* process = create_user_process("worker", vm.root());
+    ASSERT_NE(nullptr, process);
+
+    EXPECT_TRUE(reap_process(process, frames));
+    EXPECT_EQ(1u, lapic_stub_icr_send_count());
+    EXPECT_EQ(ipi_tlb_shootdown_vector(), static_cast<uint8_t>(lapic_stub_last_icr_low()));
 }

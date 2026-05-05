@@ -100,6 +100,8 @@ def parse_args():
     parser.add_argument("--timeout", type=float, required=True, help="Wall-clock ceiling in seconds.")
     parser.add_argument("--settle-after-markers", type=float, default=0.0,
                         help="Extra time to keep streaming after all required markers are seen.")
+    parser.add_argument("--send-delay", type=float, default=0.0,
+                        help="Optional delay in seconds before writing a matched --send-after payload.")
     parser.add_argument("--marker", action="append", default=[],
                         help="Required marker substring (repeatable, order-independent).")
     parser.add_argument("--reject-marker", action="append", default=[],
@@ -208,6 +210,8 @@ def main():
                                 or (event.marker in normalized_match_buffer)
                             ):
                                 try:
+                                    if args.send_delay > 0.0:
+                                        time.sleep(args.send_delay)
                                     proc.stdin.write(event.text)
                                     proc.stdin.flush()
                                 except BrokenPipeError:

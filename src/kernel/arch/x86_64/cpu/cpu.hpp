@@ -48,6 +48,16 @@ struct Tss64
     uint16_t io_bitmap_base;
 } __attribute__((packed));
 
+struct RunQueue
+{
+    constexpr RunQueue() : lock("cpu-runq") {}
+
+    Spinlock lock;
+    Thread* head = nullptr;
+    Thread* tail = nullptr;
+    size_t length = 0;
+};
+
 struct cpu
 {
     cpu* self;
@@ -55,6 +65,19 @@ struct cpu
     TrapFrame interrupt_frame;
     uint64_t gdt[CPU_GDT_NDESC];
     Tss64 tss;
+    Thread* idle_thread;
+    RunQueue runq;
+    size_t last_recorded_runq_depth;
+    uint64_t timer_ticks;
+    uint64_t reschedule_pending;
+    Thread* irq_stack_thread;
+    uint64_t enqueue_count;
+    uint64_t dequeue_count;
+    uint64_t idle_ticks;
+    uint64_t kernel_thread_ping_count;
+    uint64_t migrate_in;
+    uint64_t migrate_out;
+    uint64_t balance_idle_ticks;
     cpu* next;
     uint8_t id;
     volatile uint32_t booted;
@@ -71,6 +94,7 @@ CPU_STATIC_ASSERT(current_thread_offset, offsetof(cpu, current_thread) == 8);
 CPU_STATIC_ASSERT(interrupt_frame_offset, offsetof(cpu, interrupt_frame) == 16);
 CPU_STATIC_ASSERT(tss_offset, offsetof(cpu, tss) == 248);
 CPU_STATIC_ASSERT(tss_rsp0_offset, offsetof(cpu, tss) + offsetof(Tss64, rsp0) == 252);
+CPU_STATIC_ASSERT(kstackhi_offset, offsetof(cpu, kstackhi) == 4096);
 
 #undef CPU_STATIC_ASSERT
 
@@ -129,6 +153,8 @@ static inline int cpu_on_boot()
 
 // initialize the current CPU's GDT, TSS, and GS base.
 void cpu_init(void);
+// Load the global kernel IDT on the current CPU.
+void cpu_load_idt(void);
 // Initialize the prefix fields of a cpu record before the embedded stack area.
 void cpu_initialize_record(cpu* c);
 // allocate a CPU record plus kernel stack from physical pages.

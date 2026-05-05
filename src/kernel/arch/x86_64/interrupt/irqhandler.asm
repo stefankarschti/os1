@@ -22,6 +22,14 @@ trap_entry_common:
 	mov rax, [gs:CPU_CURRENT_THREAD]
 	test rax, rax
 	jz .cpu_frame
+
+	mov rdx, [rsp + 40]
+	test dl, 3
+	jnz .thread_frame
+	cmp byte [rax + THREAD_USER_MODE], 0
+	jne .cpu_frame
+
+.thread_frame:
 	lea rax, [rax + THREAD_FRAME]
 	jmp .save_frame
 

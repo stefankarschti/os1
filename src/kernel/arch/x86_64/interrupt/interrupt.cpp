@@ -168,9 +168,14 @@ bool Interrupts::initialize()
     set_vector_handler(T_LERROR, lapic_error_vector_handler, nullptr);
     irq_vector_allocator_reset();
 
-    lidt(IDT, 256 * sizeof(IDTDescriptor));
+    load();
     asm volatile("sti");
     return true;
+}
+
+void Interrupts::load()
+{
+    lidt(IDT, 256 * sizeof(IDTDescriptor));
 }
 
 void Interrupts::set_vector_handler(uint8_t vector, InterruptHandler pFunction, void* data)

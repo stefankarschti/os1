@@ -4,7 +4,13 @@
 
 #include <stddef.h>
 
+#include "sync/smp.hpp"
+
+struct WaitQueue;
+
 constexpr size_t kConsoleInputMaxLineBytes = 128;
+
+extern Spinlock g_console_input_lock;
 
 // Reset input queues and current line state.
 void console_input_initialize();
@@ -16,3 +22,5 @@ void console_input_poll_serial();
 bool console_input_has_line();
 // Pop the oldest complete line into `buffer`.
 bool console_input_pop_line(char* buffer, size_t buffer_size, size_t& line_length);
+// Return the wait queue used by blocking console-read syscalls.
+WaitQueue& console_input_read_wait_queue();

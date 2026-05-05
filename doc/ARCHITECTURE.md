@@ -23,6 +23,8 @@ This document is the current-state source of truth for `os1`. It describes what 
 - a modern `virtio-net` path with ARP-level smoke coverage
 - an xHCI USB path with HID boot-keyboard input
 - a freestanding `C++20` kernel core with narrow assembly boundaries
+- per-CPU run queues, reschedule / TLB-shootdown IPIs, and load-balanced SMP scheduling
+- `WaitQueue` / `Completion` primitives wired through block-I/O, child-exit, and console-read waits
 - a higher-half shared kernel image plus a kernel-owned direct map
 - a source tree split by major responsibility: `arch/x86_64`, `core`, `handoff`, `mm`, `proc`, `sched`, `syscall`, `console`, `drivers`, `platform`, `storage`, `fs`, `vfs`, `security`, `debug`, `util`, and `linker`
 - protected ring-3 user programs loaded from an initrd
@@ -30,7 +32,7 @@ This document is the current-state source of truth for `os1`. It describes what 
 - structured read-only observability snapshots and kernel event records exposed through a shared UAPI
 - initrd-backed `spawn` / `waitpid` / `exec` process control for user commands
 - a terminal model that can render either through VGA text mode or a framebuffer text backend
-- serial-driven smoke coverage and interactive serial run targets for both the UEFI and BIOS paths
+- serial-driven smoke coverage and interactive serial run targets for both the UEFI and BIOS paths, including dedicated SMP observe / balance smokes
 
 Milestone status:
 
@@ -168,6 +170,7 @@ Current kernel folders:
 | [../src/kernel/mm/](../src/kernel/mm) | Physical page allocation, page-table management, direct-map-backed kernel small-object allocation, DMA buffer ownership, user-copy validation, and boot-critical mapping/reservation helpers. | `page_frame.*`, `virtual_memory.*`, `kmem.*`, `dma.*`, `user_copy.*`, `boot_mapping.*`, `boot_reserve.*` |
 | [../src/kernel/proc/](../src/kernel/proc) | Process and thread object lifecycle, dynamic process/thread registry ownership, thread frame setup, deferred reaping, and initrd-backed user-program loading. | `process.*`, `thread.*`, `thread_layout.inc`, `reaper.cpp`, `user_program.*` |
 | [../src/kernel/sched/](../src/kernel/sched) | Scheduling policy, runnable selection, scheduler handoff, and idle-thread behavior. | `scheduler.*`, `thread_queue.cpp`, `idle.*` |
+| [../src/kernel/sync/](../src/kernel/sync) | Cross-subsystem synchronization primitives: atomics, BSP/SMP helper vocabulary, wait queues, and completions used by blocking paths. | `atomic.hpp`, `smp.*`, `wait_queue.*` |
 | [../src/kernel/syscall/](../src/kernel/syscall) | User/kernel ABI numbers, register-level dispatch, and individual syscall bodies. | `abi.hpp`, `dispatch.hpp`, `process.hpp`, `console_read.hpp`, `wait.hpp`, `observe.hpp`; syscall numbers live in [../src/uapi/os1/syscall_numbers.h](../src/uapi/os1/syscall_numbers.h) |
 | [../src/kernel/console/](../src/kernel/console) | Logical terminals, console byte streams, serial/keyboard line input, and terminal switching policy. | `terminal.*`, `console.*`, `console_input.*`, `terminal_switcher.*`, `pty/README.md` |
 | [../src/kernel/drivers/](../src/kernel/drivers) | Device-specific hardware drivers plus the minimal bus/virtio helper layers. Driver folders must not own platform-wide discovery policy. | `bus/`, `virtio/`, `block/virtio_blk.*`, `net/virtio_net.*`, `usb/xhci.*`, `display/text_display.*`, `input/ps2_keyboard.*`, `timer/pit.*` |
@@ -232,7 +235,7 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 |  platform_discover: ACPI discovery --> PCIe ECAM enumeration                 |
 |                     | CPUs, IOAPIC, LAPIC, IRQ overrides, BAR sizing          |
 |                                                                             |
-|  PIC+IOAPIC+LAPIC  --> cpu_boot_others --> APs in cpu_idle_loop (cli;hlt)   |
+|  PIC+IOAPIC+LAPIC  --> cpu_boot_others --> AP idle threads + LAPIC timers   |
 |                                                                             |
 |  Terminals[12]  -->  Display backend: VgaText | FramebufferText | serial    |
 |  console_input:  PS/2 scancodes + serial RX ---> pending line buffer        |
@@ -242,9 +245,11 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
 |                   v Driver binding + resource ownership                     |
 |                   v interrupt-driven BlockDevice + read/write smoke         |
 |                                                                             |
-|  scheduler timer (HPET-calibrated LAPIC, PIT fallback) + keyboard IRQ       |
+|  per-CPU run queues + idle threads + periodic load balancer                 |
+|  scheduler timer (HPET-calibrated LAPIC, PIT fallback) + resched/TLB IPIs  |
+|  WaitQueue/Completion wakeups for block I/O, child-exit, console-read      |
 |                                                                             |
-|  kmem-backed Process/Thread registries + idle + round-robin scheduler       |
+|  kmem-backed Process/Thread registries + remote wakeups + round-robin       |
 |                                                                             |
 |  initrd (cpio newc) --> ELF64 load /bin/init --> exec /bin/sh               |
 +--------------------------------+----------------+---------------------------+
@@ -257,7 +262,10 @@ The diagram below is the end-to-end picture of a running `os1` system: the two b
                          |                                 |
                          |  /bin/init -> /bin/sh           |
                          |  /bin/yield  /bin/fault         |
-                         |  /bin/copycheck  /bin/ascii    |
+                         |  /bin/balanceworker            |
+                         |  /bin/busyyield /bin/smpcheck  |
+                         |  /bin/balancecheck             |
+                         |  /bin/copycheck /bin/ascii     |
                          |                                 |
                          |  syscalls:  write, read, exit,  |
                          |    yield, getpid, observe,      |
@@ -273,6 +281,7 @@ Key invariants visible in the diagram:
 - Two boot frontends, one `BootInfo` at a well-known low-memory address, one `kernel_main` entry.
 - The kernel never reads Limine-virtual pointers; everything is translated to physical before the kernel sees it.
 - ACPI drives both CPU topology (MADT) and PCIe windows (MCFG) on both boot paths.
+- APs join the live runtime through pre-created idle threads, per-CPU LAPIC timer ticks, and reschedule / TLB-shootdown IPIs rather than parking in `cli; hlt`.
 - User space reaches the kernel through the x86_64 `SYSCALL` MSR entry path and reads kernel state through one UAPI header.
 
 ## Boot And Runtime Workflow
@@ -314,27 +323,32 @@ The shared entry runs one deterministic sequence:
 7. `kvm.activate()` switches CR3 to the kernel root; `g_kernel_root_cr3` records it; the page-frame allocator and bootstrap CPU state are then rebound through the direct map, `kmem_init(page_frames)` initializes the direct-map-backed small-object allocator, and steady-state CPU descriptor state is reloaded.
 8. `platform_discover(*g_boot_info, kvm)` parses ACPI, normalizes topology,
    maps interrupt-controller MMIO, and enumerates PCIe functions.
-9. `pic_init`, `ioapic_init`, `lapic_init`, `cpu_boot_others(g_kernel_root_cr3)`
-   bring up the 8259 in masked mode, program the IOAPIC, activate the LAPIC, and
-   start APs. APs land in `cpu_idle_loop()` (`cli; hlt`).
+9. `pic_init`, `ioapic_init`, and `lapic_init` bring up the 8259 in masked mode,
+   program the IOAPIC, activate the LAPIC, and select the active text-display
+   backend.
 10. 12 terminals are allocated, the display backend is selected from
-    `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints
-    `[kernel64] hello`.
-11. IDT initialization installs external interrupt stubs, resets the dynamic
-    vector allocator, and registers exception handlers.
+  `BootInfo.source` + framebuffer pixel format, and `active_terminal` prints
+  `[kernel64] hello`.
+11. `interrupts.initialize()` installs the IDT, resets the dynamic vector
+  allocator, and registers exception handlers; `ipi_initialize()` then
+  allocates the reschedule and TLB-shootdown vectors.
 12. `platform_probe_devices(kvm)` registers the static PCI drivers, probes PCI
-    devices, binds `virtio-blk`, claims BAR/DMA/IRQ resources, enables
-    MSI-X/MSI/INTx as available, and runs the read/write block smoke.
+  devices, binds `virtio-blk`, `virtio-net`, and xHCI as available, claims
+  BAR/DMA/IRQ resources, enables MSI-X/MSI/INTx as available, and runs the
+  read/write block smoke.
 13. The keyboard and console-input subsystems are initialized, and ISA IRQs for
-    timer and keyboard are routed through the IOAPIC when SMP is active.
+  timer and keyboard are routed through the IOAPIC when SMP is active.
 14. `init_tasks()` initializes kmem-backed process/thread registries, creates the
-    kernel process, creates the idle thread, and creates the boot-sequence thread.
-15. The boot-sequence thread runs after scheduler entry; it performs the threaded
-    block smoke, loads `/bin/init` from the initrd, marks the first user thread
-    ready, and exits. `/bin/init` replaces itself with `/bin/sh` through `exec`.
-16. `initialize_scheduler_timer()` chooses the HPET-calibrated LAPIC periodic
-    timer when available and falls back to PIT; `enter_first_thread(...)` enters
-    the boot-sequence kernel thread via the scheduler restore path.
+  kernel process, pre-creates one idle thread per discovered CPU, and creates
+  the boot-sequence thread.
+15. `prepare_scheduler_timer()` chooses the HPET-calibrated LAPIC periodic timer
+  when available and falls back to PIT. `cpu_boot_others(...)` then starts APs;
+  each AP loads the shared IDT, enters its pre-created idle thread, starts the
+  local LAPIC timer when enabled, and records AP-online / AP-tick events.
+16. `enter_first_thread(...)` enters the boot-sequence kernel thread. That thread
+  runs the threaded block smoke, spawns the kernel SMP ping threads, loads
+  `/bin/init` from the initrd, marks the first user thread ready, and exits.
+  `/bin/init` replaces itself with `/bin/sh` through `exec`.
 
 ### Phase 4 — ACPI, PCIe, driver binding, and storage probe
 
@@ -864,8 +878,9 @@ Current observe kinds include:
 - bound devices (driver name, device id, lifecycle state)
 - claimed resources (PCI BAR claims and DMA buffer ownership)
 - IRQ routes (vector, kind, owner, source)
+- kernel small-object allocator snapshot
 
-The event ring currently stores 256 overwrite-on-full records with monotonic sequence numbers and direct `pid` / `tid` fields. Current event types cover traps, scheduler transitions, IRQs, block I/O, PCI binds, user-copy failures, smoke markers used by the observe smokes, the chosen scheduler timer source (PIT vs LAPIC), and NIC RX completions.
+The event ring currently stores 256 overwrite-on-full records with monotonic sequence numbers and direct `pid` / `tid` fields. Current event types cover traps, scheduler transitions, IRQs, block I/O, PCI binds, user-copy failures, smoke markers used by the observe smokes, the chosen scheduler timer source (PIT vs LAPIC), `kmem` corruption, NIC RX completions, AP-online / AP-tick events, reschedule / TLB-shootdown IPIs, kernel-thread ping markers, thread migration, and run-queue depth changes.
 
 `/bin/sh events` is a snapshot command. Continuous streaming and `Ctrl-C` cancellation are intentionally deferred until the console/process layer has nonblocking input, cancellation, or signal-like infrastructure.
 
@@ -881,9 +896,11 @@ The old `Task` model has been replaced by:
 - `Process`
 - `Thread`
 
-Milestone 2 still keeps one thread per process, but the scheduler runs `Thread` objects, not processes. The tables are fixed-capacity in this milestone and are allocated from page frames rather than from hard-coded low memory.
+Process and thread records are now kmem-backed dynamic registries, not fixed-capacity boot-time tables. Milestone 2 userland still presents one thread per process, but the scheduler runs `Thread` objects, not processes, and the kernel already uses multiple kernel threads internally.
 
-Scheduling is simple round-robin. The BSP also has a kernel idle thread. When all user work is gone, the system falls back to that idle thread instead of panicking.
+Scheduling is intentionally simple in policy but no longer single-CPU in shape: each discovered CPU owns a FIFO run queue and a pre-created idle thread; new user threads choose the least-loaded CPU; new kernel threads round-robin across schedulable CPUs; remote enqueue uses a reschedule IPI; and a periodic load balancer migrates ready threads between CPUs with a cooldown. Blocking paths use `WaitQueue` / `Completion` rather than registry walks for block I/O, child-exit waits, and console reads.
+
+There is still no priority or nice model, no user-visible affinity control, and no AP-targeted device IRQ steering yet.
 
 ### User Address Spaces
 
@@ -905,6 +922,10 @@ Current user programs:
 - `/bin/init` — minimal init process that `exec`s `/bin/sh`
 - `/bin/sh` — the ring-3 shell built from [`src/user/programs/sh.cpp`](../src/user/programs/sh.cpp)
 - `/bin/yield` — cooperative yield probe built from [`src/user/programs/yield.cpp`](../src/user/programs/yield.cpp)
+- `/bin/balanceworker` — busy worker used by the SMP balance smoke, built from [`src/user/programs/balanceworker.cpp`](../src/user/programs/balanceworker.cpp)
+- `/bin/busyyield` — mixed busy/yield probe used by SMP observability smokes, built from [`src/user/programs/busyyield.cpp`](../src/user/programs/busyyield.cpp)
+- `/bin/balancecheck` — user-visible run-queue balance verifier built from [`src/user/programs/balancecheck.cpp`](../src/user/programs/balancecheck.cpp)
+- `/bin/smpcheck` — observe-driven SMP state verifier built from [`src/user/programs/smpcheck.cpp`](../src/user/programs/smpcheck.cpp)
 - `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.cpp`](../src/user/programs/fault.cpp)
 - `/bin/copycheck` — negative syscall-copy regression probe built from [`src/user/programs/copycheck.cpp`](../src/user/programs/copycheck.cpp)
 - `/bin/ascii` — ASCII table probe built from [`src/user/programs/ascii.cpp`](../src/user/programs/ascii.cpp) to visually verify 8x16 font rendering on the framebuffer text backend. Intended for human operator inspection only; deliberately not asserted by any automated smoke because its purpose is glyph-shape verification on a real display, which the headless serial-driven smoke matrix cannot validate.
@@ -955,7 +976,7 @@ The kernel now:
 
 On the default `q35` targets, both boot paths now discover four CPUs from ACPI and successfully bring up the APs.
 
-APs still enter `cpu_idle_loop()`, an explicit interrupt-disabled `cli; hlt` loop, after their local initialization. Full multi-CPU user scheduling is still a later milestone.
+The runtime now boots APs into pre-created idle threads with IF=1, installs the shared IDT on each AP, starts per-CPU LAPIC timers when the LAPIC source is active, uses per-CPU run queues plus reschedule IPIs, and periodically load-balances runnable threads. Device interrupt affinity is still intentionally conservative: ISA IRQs remain BSP-routed, and PCI device IRQs are not yet steered to specific APs.
 
 ## Test And CI Architecture
 
@@ -963,12 +984,12 @@ The test ladder is now:
 
 1. Host GoogleTest unit tests for parser, ABI, memory-policy, and page-table logic.
 2. Build-time layout contract scripts for boot image and Limine shim invariants.
-3. QEMU UEFI and BIOS CTest smokes for boot, platform discovery, shell, observe, spawn, and exec behavior.
+3. QEMU UEFI and BIOS CTest smokes for boot, platform discovery, shell, observe, SMP balance, spawn, and exec behavior.
 4. Manual QEMU debug runs through the `run*` targets.
 
 The host unit tests live under `tests/host/` as a separate CMake project. They intentionally do not include the root `CMakeLists.txt`, because the root project is a freestanding `x86_64-elf` build and should continue to reject a hosted compiler.
 
-The current SMP synchronization contract is documented in [SMP Synchronization Contract - 2026-04-29](2026-04-29-smp-synchronization-contract.md). APs are still parked, so several global owners are explicitly marked `OS1_BSP_ONLY` in source until real locks or CPU-local ownership replace that assumption.
+The current SMP synchronization contract is documented in [SMP Synchronization Contract - 2026-04-29](2026-04-29-smp-synchronization-contract.md). The live runtime now uses those locks for per-CPU run queues, wait queues, console input, and process/thread registries; AP-targeted device IRQ steering and a named public page-frame lock are the next alignment gaps.
 
 ### Local Targets
 
@@ -982,11 +1003,13 @@ The main CMake targets are:
 - `run_bios_serial`
 - `smoke`
 - `smoke_observe`
+- `smoke_balance`
 - `smoke_spawn`
 - `smoke_exec`
 - `smoke_xhci`
 - `smoke_bios`
 - `smoke_observe_bios`
+- `smoke_balance_bios`
 - `smoke_spawn_bios`
 - `smoke_exec_bios`
 - `smoke_all`
@@ -1001,7 +1024,7 @@ and run the full smoke matrix.
 
 ### Host Unit Tests
 
-The host unit test harness uses the vendored GoogleTest submodule at `third_party/googletest`. It compiles with the platform C++ compiler. Rather than reimplementing kernel logic, the harness pulls real kernel sources into a `os1_host_support` library under `OS1_HOST_TEST=1`; tests therefore track the kernel as it changes. Current coverage includes:
+The host unit test harness uses the vendored GoogleTest submodule at `third_party/googletest`. It compiles with the platform C++ compiler. Rather than reimplementing kernel logic, the harness pulls real kernel sources into a `os1_host_support` library under `OS1_HOST_TEST=1`; tests therefore track the kernel as it changes. Current coverage includes the newer `wait_queue`, run-queue, load-balancer, timer-source, CPU-record, and atomic test slices alongside the older parser / ABI / platform coverage. The current source-backed coverage list includes:
 
 - `src/common/elf/elf64.hpp`
 - `src/common/freestanding/string.hpp`
@@ -1030,6 +1053,9 @@ The host unit test harness uses the vendored GoogleTest submodule at `third_part
 - `src/kernel/platform/pci_msi.cpp`
 - `src/kernel/platform/power.cpp`
 - `src/kernel/proc/user_elf.cpp`
+- `src/kernel/sched/scheduler.cpp`
+- `src/kernel/sched/thread_queue.cpp`
+- `src/kernel/sync/wait_queue.cpp`
 - `src/kernel/util/align.hpp`
 - `src/kernel/util/fixed_string.hpp`
 - `src/uapi/os1/observe.h`
@@ -1046,15 +1072,17 @@ The host support layer under `tests/host/support/` provides serial-debug stubs, 
 
 ### Smoke Tests
 
-`CTest` now registers a nine-test shell matrix:
+`CTest` now registers an eleven-test shell matrix:
 
 - `os1_smoke`
 - `os1_smoke_observe`
+- `os1_smoke_balance`
 - `os1_smoke_spawn`
 - `os1_smoke_exec`
 - `os1_smoke_xhci` (UEFI only; BIOS does not boot Limine UEFI)
 - `os1_smoke_bios`
 - `os1_smoke_observe_bios`
+- `os1_smoke_balance_bios`
 - `os1_smoke_spawn_bios`
 - `os1_smoke_exec_bios`
 
@@ -1070,10 +1098,11 @@ The baseline smoke tests cover the common boot and shell transcript on each fron
 - initrd discovery and first user-process startup
 - stable shell built-ins such as `help`, `echo`, and `pid`
 
-The dedicated observe, spawn, exec, and xHCI smokes then exercise the operator-facing behavior that Milestone 5 and the 2026-04-30 platform pass added:
+The dedicated observe, balance, spawn, exec, and xHCI smokes then exercise the operator-facing behavior that Milestone 5, the 2026-04-30 platform pass, and the 2026-05-05 SMP enablement round added:
 
 - structured `sys` / `ps` / `cpu` / `pci` / `initrd` / `events` / `devices` / `resources` / `irqs` output
 - the kernel event ring's smoke-marker, scheduler-timer-source, and device-binding records
+- observable AP-online / AP-tick / migration behavior and user-visible run-queue deltas
 - child-process launch, user-fault containment, and prompt recovery
 - in-place `exec` replacement without the old shell prompt returning
 - xHCI controller bring-up, root-port enumeration, HID boot keyboard configuration, and USB key reports feeding the same console-input path used by PS/2
@@ -1089,7 +1118,7 @@ GitHub Actions runs on `ubuntu-24.04` and does all of the following on every pus
 - configure the project
 - build the default modern artifact
 - explicitly build the BIOS compatibility artifact
-- run the full nine-test shell smoke matrix (including the UEFI-only xHCI smoke) through `ctest`
+- run the full eleven-test shell smoke matrix (including the UEFI-only xHCI smoke) through `ctest`
 
 The same single CI job name is kept for local `act` compatibility.
 
@@ -1112,12 +1141,12 @@ Major constraints that remain:
 - the kernel small-object allocator at [src/kernel/mm/kmem.cpp](../src/kernel/mm/kmem.cpp) is active infrastructure (builtin caches at 16/32/64/128/256/512/1024 bytes, named caches via `kmem_cache_create`, large-allocation page-run path, debug-build poisoning + redzones + leak dump, `OS1_OBSERVE_KMEM` snapshot kind, `kmem` shell built-in, smoke marker `kmem complete`). Current consumers include the process/thread registries, ARP cache, device-binding registry, PCI BAR claim registry, DMA allocation registry, and IRQ route registry. The next allocator growth is VFS/file/network resource lifetime, not first-use validation
 - hot-remove exists as a driver/resource lifecycle path, but there are no PCIe
   or ACPI hotplug event sources yet
-- APs come up through ACPI-derived bring-up but park in `cpu_idle_loop()`; the synchronization vocabulary exists and several registries use locks, but memory-management, process, scheduler, and interrupt ownership are not yet ready for AP scheduling
+- APs come up through ACPI-derived bring-up, install the shared IDT, enter per-CPU idle threads, take per-CPU LAPIC timer ticks, and participate in per-CPU scheduling; device IRQ steering is still BSP-first and the page-frame allocator's named public lock identity is still a follow-up
 - the `virtio-net` driver works but there is no IP/UDP/TCP/ICMP/ARP/DHCP/DNS layer above it
 - xHCI brings up HID boot keyboards but does not yet handle USB hubs, mice past recognition, or USB mass storage
 - NVMe and AHCI are still follow-on work
 
-The next major work is therefore not another boot or shell bring-up refactor. With the 2026-04-30 driver/device/platform pass landed (`virtio-net`, HPET-calibrated LAPIC scheduler tick, MSI-X-driven block I/O, and the minimal AML interpreter are all in code and exercised by smokes), the active growth fronts are storage above the block driver, the network protocol stack above `virtio-net`, and a richer filesystem-backed userland on top of the current platform and operator shell base:
+The next major work is therefore not another boot or shell bring-up refactor. With the 2026-04-30 driver/device/platform pass and the 2026-05-05 SMP enablement round both landed (`virtio-net`, HPET-calibrated LAPIC scheduling, MSI-X-driven block I/O, the minimal AML interpreter, per-CPU run queues, `WaitQueue` / `Completion`, and balance smokes are all in code and exercised by tests), the active growth fronts are storage above the block driver, the network protocol stack above `virtio-net`, and a richer filesystem-backed userland on top of the current platform and operator shell base:
 
 - decide the native object/handle vs POSIX-FD stance before adding a per-process descriptor table; this gates VFS shape, sockets shape, device-handle shape, and the eventual POSIX shim direction (see drafts under [os-api-draft/](os-api-draft/): [native_object_kernel_contract.md](os-api-draft/native_object_kernel_contract.md), [object_oriented_vfs_spec.md](os-api-draft/object_oriented_vfs_spec.md), [elf_interface_spec.md](os-api-draft/elf_interface_spec.md), [os1-shell-language-first-draft.md](os-api-draft/os1-shell-language-first-draft.md))
 - add `argv`/`envp` handoff in the initrd-backed loader so the shell can pass arguments and a real `init` can evolve apart from `/bin/sh`
@@ -1127,7 +1156,7 @@ The next major work is therefore not another boot or shell bring-up refactor. Wi
 - a small multiuser/permissions foundation (uid/gid, file ownership, credentials field on `Process`) so Milestone F can meaningfully run SSH
 - the IPv4/UDP/TCP/ARP/ICMP protocol stack on top of `virtio-net`, followed by DHCP and DNS once persistent configuration storage exists
 - USB hub class, mouse routing past recognition, and USB mass storage as the next USB tier
-- per-CPU IRQ steering and the first AP running real kernel work (the synchronization vocabulary already exists in [src/kernel/sync/smp.hpp](../src/kernel/sync/smp.hpp))
+- per-CPU device IRQ steering plus lock-order / policy follow-through on top of the operational SMP runtime (the synchronization vocabulary already exists in [src/kernel/sync/smp.hpp](../src/kernel/sync/smp.hpp))
 - broader ACPI coverage beyond the current minimal AML subset when new hardware requires it
 
 At this point the architecture is intentionally in a good place for that work: the boot path is modernized, the kernel entry contract is shared, ACPI/PCIe discovery is in place, MSI-X is the default device interrupt path, drivers bind through owned resources with a hot-remove skeleton, the kernel event ring carries cross-subsystem events, and both modern and legacy boot paths remain continuously testable on the same `q35` virtual platform.

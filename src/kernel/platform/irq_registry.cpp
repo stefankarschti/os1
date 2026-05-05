@@ -30,26 +30,7 @@ struct IrqRouteRegistry
 
 OS1_BSP_ONLY IrqRouteRegistry g_irq_route_registry{};
 
-class IrqRouteGuard
-{
-public:
-    explicit IrqRouteGuard(Spinlock& lock) : irq_guard_(), lock_(lock)
-    {
-        lock_.lock();
-    }
-
-    IrqRouteGuard(const IrqRouteGuard&) = delete;
-    IrqRouteGuard& operator=(const IrqRouteGuard&) = delete;
-
-    ~IrqRouteGuard()
-    {
-        lock_.unlock();
-    }
-
-private:
-    IrqGuard irq_guard_;
-    Spinlock& lock_;
-};
+using IrqRouteGuard = IrqSpinGuard<Spinlock>;
 
 [[nodiscard]] bool device_id_equal(DeviceId left, DeviceId right)
 {

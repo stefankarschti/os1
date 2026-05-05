@@ -28,26 +28,7 @@ struct DmaAllocationRegistry
 
 OS1_BSP_ONLY DmaAllocationRegistry g_dma_allocation_registry{};
 
-class DmaAllocationGuard
-{
-public:
-    explicit DmaAllocationGuard(Spinlock& lock) : irq_guard_(), lock_(lock)
-    {
-        lock_.lock();
-    }
-
-    DmaAllocationGuard(const DmaAllocationGuard&) = delete;
-    DmaAllocationGuard& operator=(const DmaAllocationGuard&) = delete;
-
-    ~DmaAllocationGuard()
-    {
-        lock_.unlock();
-    }
-
-private:
-    IrqGuard irq_guard_;
-    Spinlock& lock_;
-};
+using DmaAllocationGuard = IrqSpinGuard<Spinlock>;
 
 [[nodiscard]] uint32_t bytes_to_pages(size_t size_bytes)
 {

@@ -8,26 +8,7 @@
 
 namespace
 {
-class ArpCacheGuard
-{
-public:
-    explicit ArpCacheGuard(Spinlock& lock) : irq_guard_(), lock_(lock)
-    {
-        lock_.lock();
-    }
-
-    ArpCacheGuard(const ArpCacheGuard&) = delete;
-    ArpCacheGuard& operator=(const ArpCacheGuard&) = delete;
-
-    ~ArpCacheGuard()
-    {
-        lock_.unlock();
-    }
-
-private:
-    IrqGuard irq_guard_;
-    Spinlock& lock_;
-};
+using ArpCacheGuard = IrqSpinGuard<Spinlock>;
 
 [[nodiscard]] bool ipv4_equal(const uint8_t lhs[4], const uint8_t rhs[4])
 {

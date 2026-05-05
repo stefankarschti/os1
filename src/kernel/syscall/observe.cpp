@@ -3,6 +3,7 @@
 #include <os1/observe.h>
 
 #include "arch/x86_64/cpu/cpu.hpp"
+#include "core/kernel_state.hpp"
 #include "debug/event_ring.hpp"
 #include "drivers/bus/device.hpp"
 #include "drivers/bus/resource.hpp"
@@ -20,6 +21,7 @@ namespace
 {
 [[nodiscard]] size_t count_active_processes()
 {
+    IrqSpinGuard guard(g_process_table_lock);
     size_t count = 0;
     for(Process* process = first_process(); nullptr != process; process = next_process(process))
     {
@@ -213,8 +215,11 @@ long sys_observe_system(const ObserveContext& context,
     record.boot_source = context.boot_info ? static_cast<uint32_t>(context.boot_info->source) : 0;
     record.console_kind = observe_console_kind(context.text_display);
     record.tick_count = context.timer_ticks;
-    record.total_pages = context.frames ? context.frames->page_count() : 0;
-    record.free_pages = context.frames ? context.frames->free_page_count() : 0;
+    {
+        IrqSpinGuard guard(g_page_frames_lock);
+        record.total_pages = context.frames ? context.frames->page_count() : 0;
+        record.free_pages = context.frames ? context.frames->free_page_count() : 0;
+    }
     record.process_count = static_cast<uint32_t>(count_active_processes());
     record.runnable_thread_count = static_cast<uint32_t>(runnable_thread_count());
     record.cpu_count = static_cast<uint32_t>(ncpu);
@@ -238,11 +243,15 @@ long sys_observe_processes(const ObserveContext& context,
                            size_t length)
 {
     uint32_t record_count = 0;
-    for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
     {
-        if((ThreadState::Free != entry->state) && (nullptr != entry->process))
+        IrqSpinGuard process_guard(g_process_table_lock);
+        IrqSpinGuard thread_guard(g_thread_registry_lock);
+        for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
         {
-            ++record_count;
+            if((ThreadState::Free != entry->state) && (nullptr != entry->process))
+            {
+                ++record_count;
+            }
         }
     }
 
@@ -261,6 +270,8 @@ long sys_observe_processes(const ObserveContext& context,
         return -1;
     }
 
+    IrqSpinGuard process_guard(g_process_table_lock);
+    IrqSpinGuard thread_guard(g_thread_registry_lock);
     for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
     {
         if((ThreadState::Free == entry->state) || (nullptr == entry->process))
@@ -328,6 +339,14 @@ long sys_observe_cpus(const ObserveContext& context,
             record.current_pid = entry->current_thread->process->pid;
             record.current_tid = entry->current_thread->tid;
         }
+        {
+            IrqSpinGuard guard(entry->runq.lock);
+            record.runq_depth = static_cast<uint32_t>(entry->runq.length);
+        }
+        record.timer_ticks = entry->timer_ticks;
+        record.idle_ticks = entry->idle_ticks;
+        record.migrate_in = entry->migrate_in;
+        record.migrate_out = entry->migrate_out;
         if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
         {
             return -1;

@@ -18,8 +18,9 @@
 // Kernel-wide interrupt descriptor table and IRQ callback registry.
 extern Interrupts interrupts;
 
-// BSP-only for now: physical page allocator used by VM, process, syscall, and driver code.
-OS1_BSP_ONLY extern PageFrameContainer page_frames;
+// Physical page allocator used by VM, process, syscall, and driver code.
+OS1_LOCKED_BY(g_page_frames_lock) extern PageFrameContainer page_frames;
+extern Spinlock g_page_frames_lock;
 
 // PS/2 keyboard device instance wired to the shared interrupt table.
 extern Keyboard keyboard;
@@ -38,7 +39,7 @@ extern uint64_t g_kernel_root_cr3;
 // Becomes true once the kernel has activated a CR3 that includes the direct map.
 extern bool g_kernel_direct_map_ready;
 
-// Monotonic PIT tick counter surfaced through the observe syscall.
+// Monotonic scheduler tick counter surfaced through the observe syscall.
 extern uint64_t g_timer_ticks;
 
 // Selected text output backend for terminal presentation and observability.

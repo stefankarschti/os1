@@ -7,11 +7,14 @@
 #include "arch/x86_64/cpu/io_port.hpp"
 #include "console/terminal.hpp"
 #include "debug/debug.hpp"
+#include "sync/wait_queue.hpp"
 #include "sync/smp.hpp"
 #include "util/ctype.hpp"
 #include "util/memory.h"
 
 OS1_BSP_ONLY extern Terminal* active_terminal;
+
+Spinlock g_console_input_lock{"console-input"};
 
 namespace
 {
@@ -20,15 +23,16 @@ constexpr uint16_t kSerialLineStatusPort = kSerialPortBase + 5;
 constexpr uint8_t kSerialDataReady = 0x01;
 constexpr size_t kConsoleInputCompletedLineCapacity = 8;
 
-// BSP-only for now: serial and keyboard input are consumed by the BSP console
-// path while APs remain parked.
-OS1_BSP_ONLY char g_pending_line[kConsoleInputMaxLineBytes]{};
-OS1_BSP_ONLY size_t g_pending_length = 0;
-OS1_BSP_ONLY char g_completed_lines[kConsoleInputCompletedLineCapacity][kConsoleInputMaxLineBytes]{};
-OS1_BSP_ONLY size_t g_completed_lengths[kConsoleInputCompletedLineCapacity]{};
-OS1_BSP_ONLY size_t g_completed_head = 0;
-OS1_BSP_ONLY size_t g_completed_tail = 0;
-OS1_BSP_ONLY size_t g_completed_count = 0;
+// Serial and keyboard input are consumed on the BSP, while blocked readers may
+// be running on any CPU.
+OS1_LOCKED_BY(g_console_input_lock) char g_pending_line[kConsoleInputMaxLineBytes]{};
+OS1_LOCKED_BY(g_console_input_lock) size_t g_pending_length = 0;
+OS1_LOCKED_BY(g_console_input_lock) char g_completed_lines[kConsoleInputCompletedLineCapacity][kConsoleInputMaxLineBytes]{};
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_lengths[kConsoleInputCompletedLineCapacity]{};
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_head = 0;
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_tail = 0;
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_count = 0;
+WaitQueue g_console_read_waiters{"console-read"};
 
 void echo_byte(char c)
 {
@@ -114,6 +118,7 @@ void handle_input_char(char ascii)
 void console_input_initialize()
 {
     KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     memset(g_pending_line, 0, sizeof(g_pending_line));
     memset(g_completed_lines, 0, sizeof(g_completed_lines));
     memset(g_completed_lengths, 0, sizeof(g_completed_lengths));
@@ -121,17 +126,22 @@ void console_input_initialize()
     g_completed_head = 0;
     g_completed_tail = 0;
     g_completed_count = 0;
+    g_console_read_waiters.lock.reset("console-read");
+    g_console_read_waiters.head = nullptr;
+    g_console_read_waiters.name = "console-read";
 }
 
 void console_input_on_keyboard_char(char ascii)
 {
     KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     handle_input_char(ascii);
 }
 
 void console_input_poll_serial()
 {
     KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     while((inb(kSerialLineStatusPort) & kSerialDataReady) != 0)
     {
         handle_input_char((char)inb(kSerialPortBase));
@@ -140,13 +150,13 @@ void console_input_poll_serial()
 
 bool console_input_has_line()
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     return g_completed_count > 0;
 }
 
 bool console_input_pop_line(char* buffer, size_t buffer_size, size_t& line_length)
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     line_length = 0;
     if((nullptr == buffer) || (0 == buffer_size) || (0 == g_completed_count))
     {
@@ -166,4 +176,9 @@ bool console_input_pop_line(char* buffer, size_t buffer_size, size_t& line_lengt
     --g_completed_count;
     line_length = next_length;
     return true;
+}
+
+WaitQueue& console_input_read_wait_queue()
+{
+    return g_console_read_waiters;
 }

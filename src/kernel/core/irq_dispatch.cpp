@@ -1,7 +1,9 @@
 // Generic IRQ flow around the current legacy PIC/APIC hybrid routing.
 #include "core/irq_dispatch.hpp"
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "arch/x86_64/apic/lapic.hpp"
+#include "arch/x86_64/cpu/cpu.hpp"
 #include "arch/x86_64/cpu/io_port.hpp"
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "console/console_input.hpp"
@@ -10,10 +12,14 @@
 #include "debug/event_ring.hpp"
 #include "proc/thread.hpp"
 #include "sched/scheduler.hpp"
+#include "sync/atomic.hpp"
 #include "syscall/console_read.hpp"
 
 namespace
 {
+// Rate-limit AP_TICK event emission to once per second per CPU at 1 kHz.
+constexpr uint64_t kApTickEventInterval = 1000;
+
 void acknowledge_irq_vector(uint8_t vector)
 {
     lapic_eoi();
@@ -28,6 +34,27 @@ void acknowledge_irq_vector(uint8_t vector)
         outb(0xA0, 0x20);
     }
 }
+
+void account_scheduler_tick()
+{
+    cpu* c = cpu_cur();
+    const uint64_t local_ticks = ++c->timer_ticks;
+    (void)atomic_fetch_add(&g_timer_ticks, static_cast<uint64_t>(1));
+    if(current_thread() == idle_thread())
+    {
+        ++c->idle_ticks;
+    }
+
+    if(!cpu_on_boot() && ((1u == local_ticks) || (0u == (local_ticks % kApTickEventInterval))))
+    {
+        kernel_event::record(OS1_KERNEL_EVENT_AP_TICK,
+                             OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                             c->id,
+                             local_ticks,
+                             0,
+                             0);
+    }
+}
 }  // namespace
 
 Thread* handle_irq(TrapFrame* frame)
@@ -35,7 +62,9 @@ Thread* handle_irq(TrapFrame* frame)
     const uint8_t vector = static_cast<uint8_t>(frame->vector);
     const int irq = legacy_irq_from_vector(vector);
     const bool scheduler_tick = timer_vector_is_scheduler_tick(vector);
-    if(!scheduler_tick)
+    const bool reschedule_ipi = ipi_is_reschedule_vector(vector);
+    const bool tlb_shootdown_ipi = ipi_is_tlb_shootdown_vector(vector);
+    if(!scheduler_tick && !reschedule_ipi && !tlb_shootdown_ipi)
     {
         kernel_event::record(OS1_KERNEL_EVENT_IRQ,
                              0,
@@ -46,26 +75,54 @@ Thread* handle_irq(TrapFrame* frame)
     }
     if(scheduler_tick)
     {
-        console_input_poll_serial();
-        ++g_timer_ticks;
+        account_scheduler_tick();
+        scheduler_handle_timer_tick();
+        if(cpu_on_boot())
+        {
+            console_input_poll_serial();
+        }
     }
     dispatch_interrupt_vector(vector);
+    if(reschedule_ipi)
+    {
+        cpu_cur()->reschedule_pending = 1;
+        kernel_event::record(OS1_KERNEL_EVENT_IPI_RESCHED,
+                             OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                             0,
+                             cpu_cur()->id,
+                             vector,
+                             0);
+    }
+    else if(tlb_shootdown_ipi)
+    {
+        ipi_handle_tlb_shootdown();
+    }
 
     acknowledge_irq_vector(vector);
-    wake_console_readers(page_frames);
+    if(cpu_on_boot())
+    {
+        wake_console_readers(page_frames);
+    }
 
     if(nullptr == current_thread())
     {
         return nullptr;
     }
 
-    if(scheduler_tick)
+    if(scheduler_tick || reschedule_ipi)
     {
+        if(!trap_frame_is_user(*frame) && current_thread()->user_mode)
+        {
+            return current_thread();
+        }
         return schedule_next(true);
     }
 
-    reap_dead_threads(page_frames);
-    if((current_thread() == idle_thread()) && (nullptr != first_runnable_user_thread()))
+    if(cpu_on_boot())
+    {
+        reap_dead_threads(page_frames);
+    }
+    if((current_thread() == idle_thread()) && (0u != cpu_run_queue_length(cpu_cur())))
     {
         return schedule_next(true);
     }
