@@ -16,21 +16,6 @@ KernelEventRing g_event_ring;
 #if !defined(OS1_HOST_TEST)
 Spinlock g_event_ring_lock("event_ring");
 
-[[nodiscard]] uint64_t save_and_disable_interrupts()
-{
-    uint64_t rflags = 0;
-    asm volatile("pushfq; popq %0; cli" : "=r"(rflags) : : "memory");
-    return rflags;
-}
-
-void restore_interrupts(uint64_t rflags)
-{
-    if(0 != (rflags & (1ull << 9)))
-    {
-        asm volatile("sti" ::: "memory");
-    }
-}
-
 [[nodiscard]] uint32_t current_cpu_id()
 {
     return (nullptr != g_cpu_boot) ? static_cast<uint32_t>(cpu_cur()->id) : 0;
@@ -131,8 +116,7 @@ void record(uint32_t type,
     uint64_t pid = 0;
     uint64_t tid = 0;
 
-    const uint64_t rflags = save_and_disable_interrupts();
-    g_event_ring_lock.lock();
+    IrqSpinGuard guard(g_event_ring_lock);
     Thread* thread = safe_current_thread();
     if(nullptr != thread)
     {
@@ -144,8 +128,6 @@ void record(uint32_t type,
     }
     g_event_ring.append(
         g_timer_ticks, type, flags, current_cpu_id(), pid, tid, arg0, arg1, arg2, arg3);
-    g_event_ring_lock.unlock();
-    restore_interrupts(rflags);
 #endif
 }
 
@@ -161,12 +143,9 @@ void record_subject(uint32_t type,
 #if defined(OS1_HOST_TEST)
     g_event_ring.append(0, type, flags, 0, pid, tid, arg0, arg1, arg2, arg3);
 #else
-    const uint64_t rflags = save_and_disable_interrupts();
-    g_event_ring_lock.lock();
+    IrqSpinGuard guard(g_event_ring_lock);
     g_event_ring.append(
         g_timer_ticks, type, flags, current_cpu_id(), pid, tid, arg0, arg1, arg2, arg3);
-    g_event_ring_lock.unlock();
-    restore_interrupts(rflags);
 #endif
 }
 
@@ -175,11 +154,8 @@ uint32_t snapshot(Os1ObserveEventRecord* records, uint32_t max_records)
 #if defined(OS1_HOST_TEST)
     return g_event_ring.snapshot(records, max_records);
 #else
-    const uint64_t rflags = save_and_disable_interrupts();
-    g_event_ring_lock.lock();
+    IrqSpinGuard guard(g_event_ring_lock);
     const uint32_t count = g_event_ring.snapshot(records, max_records);
-    g_event_ring_lock.unlock();
-    restore_interrupts(rflags);
     return count;
 #endif
 }

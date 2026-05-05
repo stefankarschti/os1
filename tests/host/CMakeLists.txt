@@ -89,6 +89,7 @@ add_executable(os1_host_tests
   common/freestanding_string_tests.cpp
   fs/cpio_newc_tests.cpp
   handoff/boot_info_tests.cpp
+  kernel/atomic_tests.cpp
   kernel/acpi_hpet_tests.cpp
   kernel/acpi_aml_tests.cpp
   kernel/utility_tests.cpp
@@ -100,6 +101,7 @@ add_executable(os1_host_tests
   kernel/pci_capability_tests.cpp
   kernel/pci_msi_tests.cpp
   kernel/pci_resource_tests.cpp
+  kernel/wait_queue_tests.cpp
   kernel/arp_cache_tests.cpp
   kernel/hid_keyboard_tests.cpp
   kernel/xhci_controller_tests.cpp

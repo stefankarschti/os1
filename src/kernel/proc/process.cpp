@@ -15,6 +15,12 @@
 namespace
 {
 constexpr char kProcessCacheName[] = "process";
+}  // namespace
+
+OS1_BSP_ONLY Spinlock g_process_table_lock{"process-table"};
+
+namespace
+{
 
 // BSP-only for now: PID allocation and process table ownership are serialized
 // by the parked-AP execution model, not by a real process-registry lock.

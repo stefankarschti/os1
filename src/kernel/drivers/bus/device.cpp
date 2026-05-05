@@ -27,26 +27,7 @@ struct DeviceBindingRegistry
 
 OS1_BSP_ONLY DeviceBindingRegistry g_device_binding_registry{};
 
-class DeviceBindingGuard
-{
-public:
-    explicit DeviceBindingGuard(Spinlock& lock) : irq_guard_(), lock_(lock)
-    {
-        lock_.lock();
-    }
-
-    DeviceBindingGuard(const DeviceBindingGuard&) = delete;
-    DeviceBindingGuard& operator=(const DeviceBindingGuard&) = delete;
-
-    ~DeviceBindingGuard()
-    {
-        lock_.unlock();
-    }
-
-private:
-    IrqGuard irq_guard_;
-    Spinlock& lock_;
-};
+using DeviceBindingGuard = IrqSpinGuard<Spinlock>;
 
 [[nodiscard]] bool device_id_equal(DeviceId left, DeviceId right)
 {

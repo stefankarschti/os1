@@ -15,6 +15,12 @@ namespace
 constexpr char kThreadCacheName[] = "thread";
 
 extern "C" void kernel_thread_start();
+}  // namespace
+
+OS1_BSP_ONLY Spinlock g_thread_registry_lock{"thread-registry"};
+
+namespace
+{
 
 // BSP-only for now: TID allocation, idle-thread publication, and thread registry
 // mutation have no SMP lock until APs leave the parked idle loop.

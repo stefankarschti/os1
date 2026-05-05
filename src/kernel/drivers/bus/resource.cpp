@@ -27,26 +27,7 @@ struct PciBarClaimRegistry
 
 OS1_BSP_ONLY PciBarClaimRegistry g_pci_bar_claim_registry{};
 
-class PciBarClaimGuard
-{
-public:
-    explicit PciBarClaimGuard(Spinlock& lock) : irq_guard_(), lock_(lock)
-    {
-        lock_.lock();
-    }
-
-    PciBarClaimGuard(const PciBarClaimGuard&) = delete;
-    PciBarClaimGuard& operator=(const PciBarClaimGuard&) = delete;
-
-    ~PciBarClaimGuard()
-    {
-        lock_.unlock();
-    }
-
-private:
-    IrqGuard irq_guard_;
-    Spinlock& lock_;
-};
+using PciBarClaimGuard = IrqSpinGuard<Spinlock>;
 
 [[nodiscard]] bool device_id_equal(DeviceId left, DeviceId right)
 {

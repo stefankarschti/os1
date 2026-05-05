@@ -165,26 +165,7 @@ struct LargeAllocationHeader
 
 static_assert(sizeof(LargeAllocationHeader) < kPageSize);
 
-class CacheLockGuard
-{
-public:
-    explicit CacheLockGuard(Spinlock& lock) : irq_guard_(), lock_(lock)
-    {
-        lock_.lock();
-    }
-
-    CacheLockGuard(const CacheLockGuard&) = delete;
-    CacheLockGuard& operator=(const CacheLockGuard&) = delete;
-
-    ~CacheLockGuard()
-    {
-        lock_.unlock();
-    }
-
-private:
-    IrqGuard irq_guard_;
-    Spinlock& lock_;
-};
+using CacheLockGuard = IrqSpinGuard<Spinlock>;
 
 constexpr uint16_t cache_alignment_for_size(uint16_t object_size)
 {

@@ -4,6 +4,7 @@
 
 Interrupts interrupts;
 OS1_BSP_ONLY PageFrameContainer page_frames;
+OS1_BSP_ONLY Spinlock g_page_frames_lock{"page-frames"};
 Keyboard keyboard(interrupts);
 
 // BSP-only for now: terminal state is mutated only by the BSP console/input path.

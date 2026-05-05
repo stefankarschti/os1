@@ -11,6 +11,8 @@
 #include "proc/process.hpp"
 #include "sync/smp.hpp"
 
+OS1_BSP_ONLY extern Spinlock g_thread_registry_lock;
+
 constexpr uint16_t kKernelCodeSegment = 0x08;
 constexpr uint16_t kKernelDataSegment = 0x10;
 constexpr uint16_t kUserDataSegment = 0x1B;
@@ -78,6 +80,7 @@ struct Thread
     TrapFrame frame{};
     ThreadWaitState wait{};
     Thread* registry_next = nullptr;
+    Thread* wait_link = nullptr;
 };
 
 #define THREAD_STATIC_ASSERT(name, expr) typedef char thread_static_assert_##name[(expr) ? 1 : -1]

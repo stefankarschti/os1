@@ -10,6 +10,8 @@
 
 class PageFrameContainer;
 
+OS1_BSP_ONLY extern Spinlock g_process_table_lock;
+
 // Process lifecycle state as observed by wait/reap and observe syscalls.
 enum class ProcessState : uint32_t
 {

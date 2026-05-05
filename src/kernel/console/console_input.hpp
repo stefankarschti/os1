@@ -4,7 +4,11 @@
 
 #include <stddef.h>
 
+#include "sync/smp.hpp"
+
 constexpr size_t kConsoleInputMaxLineBytes = 128;
+
+OS1_BSP_ONLY extern Spinlock g_console_input_lock;
 
 // Reset input queues and current line state.
 void console_input_initialize();

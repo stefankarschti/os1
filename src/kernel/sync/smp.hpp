@@ -143,3 +143,38 @@ private:
     uint64_t saved_rflags_;
     bool restore_interrupts_;
 };
+
+template <typename Lock = Spinlock>
+class IrqSpinGuard
+{
+public:
+    explicit IrqSpinGuard(Lock& lock) : irq_guard_(), lock_(lock)
+    {
+        lock_.lock();
+    }
+
+    IrqSpinGuard(const IrqSpinGuard&) = delete;
+    IrqSpinGuard& operator=(const IrqSpinGuard&) = delete;
+
+    ~IrqSpinGuard()
+    {
+        if(locked_)
+        {
+            lock_.unlock();
+        }
+    }
+
+    void unlock()
+    {
+        if(locked_)
+        {
+            lock_.unlock();
+            locked_ = false;
+        }
+    }
+
+private:
+    IrqGuard irq_guard_;
+    Lock& lock_;
+    bool locked_ = true;
+};

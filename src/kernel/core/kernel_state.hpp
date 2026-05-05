@@ -20,6 +20,7 @@ extern Interrupts interrupts;
 
 // BSP-only for now: physical page allocator used by VM, process, syscall, and driver code.
 OS1_BSP_ONLY extern PageFrameContainer page_frames;
+OS1_BSP_ONLY extern Spinlock g_page_frames_lock;
 
 // PS/2 keyboard device instance wired to the shared interrupt table.
 extern Keyboard keyboard;

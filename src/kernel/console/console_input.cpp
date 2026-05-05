@@ -13,6 +13,8 @@
 
 OS1_BSP_ONLY extern Terminal* active_terminal;
 
+OS1_BSP_ONLY Spinlock g_console_input_lock{"console-input"};
+
 namespace
 {
 constexpr uint16_t kSerialPortBase = 0x3F8;
