@@ -101,9 +101,9 @@ TEST(TaskRegistry, ThreadsGrowPastLegacyLimitAndReapCleanly)
     ASSERT_EQ(threads.size(), count);
     ASSERT_EQ(threads.front(), idle_thread());
     EXPECT_EQ(threads.size(), runnable_thread_count());
-    ASSERT_LT(1u, threads.size());
-    EXPECT_EQ(threads[1], next_runnable_thread(threads[0]));
-    EXPECT_EQ(threads[1], next_runnable_thread(threads.back()));
+    ASSERT_LT(2u, threads.size());
+    EXPECT_EQ(threads[1], next_runnable_thread(nullptr));
+    EXPECT_EQ(threads[2], next_runnable_thread(nullptr));
 
     for(Thread* thread : threads)
     {

@@ -3,6 +3,7 @@
 // CPU-local current-thread publication.
 #include "proc/thread.hpp"
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
@@ -12,6 +13,117 @@
 
 namespace
 {
+[[nodiscard]] cpu* select_target_cpu(Thread* thread, cpu* target)
+{
+    if(nullptr != target)
+    {
+        return target;
+    }
+    if((nullptr != thread) && (nullptr != thread->scheduler_cpu))
+    {
+        return thread->scheduler_cpu;
+    }
+    return cpu_cur();
+}
+
+void run_queue_append_locked(cpu* owner, Thread* thread)
+{
+    if((nullptr == owner) || (nullptr == thread) || (nullptr != thread->run_queue_cpu))
+    {
+        return;
+    }
+
+    thread->next = nullptr;
+    if(nullptr != owner->runq.tail)
+    {
+        owner->runq.tail->next = thread;
+    }
+    else
+    {
+        owner->runq.head = thread;
+    }
+    owner->runq.tail = thread;
+    thread->run_queue_cpu = owner;
+    ++owner->runq.length;
+    ++owner->enqueue_count;
+}
+
+void run_queue_remove_locked(cpu* owner, Thread* thread)
+{
+    if((nullptr == owner) || (nullptr == thread))
+    {
+        return;
+    }
+
+    Thread* previous = nullptr;
+    for(Thread* candidate = owner->runq.head; nullptr != candidate; candidate = candidate->next)
+    {
+        if(candidate != thread)
+        {
+            previous = candidate;
+            continue;
+        }
+
+        Thread* next = candidate->next;
+        if(nullptr != previous)
+        {
+            previous->next = next;
+        }
+        else
+        {
+            owner->runq.head = next;
+        }
+        if(owner->runq.tail == candidate)
+        {
+            owner->runq.tail = previous;
+        }
+        candidate->next = nullptr;
+        candidate->run_queue_cpu = nullptr;
+        if(0u != owner->runq.length)
+        {
+            --owner->runq.length;
+        }
+        ++owner->dequeue_count;
+        return;
+    }
+}
+
+void dequeue_thread_if_queued(Thread* thread)
+{
+    if((nullptr == thread) || (nullptr == thread->run_queue_cpu))
+    {
+        return;
+    }
+
+    cpu* owner = thread->run_queue_cpu;
+    IrqSpinGuard guard(owner->runq.lock);
+    run_queue_remove_locked(owner, thread);
+}
+
+bool enqueue_thread_on_cpu(Thread* thread, cpu* target)
+{
+    if(nullptr == thread)
+    {
+        return false;
+    }
+
+    thread->scheduler_cpu = target;
+    if((nullptr == target) || (thread == idle_thread_for_cpu(target)))
+    {
+        thread->run_queue_cpu = nullptr;
+        thread->next = nullptr;
+        return false;
+    }
+    if(nullptr != thread->run_queue_cpu)
+    {
+        return false;
+    }
+
+    IrqSpinGuard guard(target->runq.lock);
+    run_queue_append_locked(target, thread);
+    return true;
+}
+
 constexpr char kThreadCacheName[] = "thread";
 
 extern "C" void kernel_thread_start();
@@ -211,30 +323,7 @@ Thread* next_thread(const Thread* thread)
 
 void relink_runnable_threads()
 {
-    KASSERT_ON_BSP();
-
-    Thread* first = nullptr;
-    Thread* last = nullptr;
-    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
-    {
-        thread->next = nullptr;
-        if((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state))
-        {
-            if(nullptr == first)
-            {
-                first = thread;
-            }
-            if(last)
-            {
-                last->next = thread;
-            }
-            last = thread;
-        }
-    }
-    if(last)
-    {
-        last->next = first;
-    }
+    // Phase 4 moves ready-thread ownership to per-CPU run queues.
 }
 
 void clear_thread(Thread* thread)
@@ -244,6 +333,7 @@ void clear_thread(Thread* thread)
         return;
     }
 
+    dequeue_thread_if_queued(thread);
     for(cpu* c = g_cpu_boot; nullptr != c; c = c->next)
     {
         if(thread == c->idle_thread)
@@ -265,13 +355,14 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
     }
 
     cpu* owner = cpu_cur();
+    thread->scheduler_cpu = owner;
     if((nullptr != owner) && (nullptr == owner->idle_thread))
     {
         publish_idle_thread(owner, thread);
     }
 
     link_thread(thread);
-    relink_runnable_threads();
+    (void)enqueue_thread_on_cpu(thread, owner);
     return thread;
 }
 
@@ -296,6 +387,7 @@ Thread* create_idle_thread_for_cpu(Process* process,
         return nullptr;
     }
 
+    thread->scheduler_cpu = owner;
     publish_idle_thread(owner, thread);
     if(owner != cpu_cur())
     {
@@ -305,10 +397,6 @@ Thread* create_idle_thread_for_cpu(Process* process,
     }
 
     link_thread(thread);
-    if(ThreadState::Ready == thread->state)
-    {
-        relink_runnable_threads();
-    }
     return thread;
 }
 
@@ -347,6 +435,7 @@ Thread* create_user_thread(Process* process,
     thread->address_space_cr3 = process->address_space.cr3;
     thread->kernel_stack_base = stack_base;
     thread->kernel_stack_top = stack_top;
+    thread->scheduler_cpu = cpu_cur();
     thread->exit_status = 0;
     thread->frame = {};
     thread->frame.rip = user_rip;
@@ -358,7 +447,7 @@ Thread* create_user_thread(Process* process,
     link_thread(thread);
     if(start_ready)
     {
-        relink_runnable_threads();
+        (void)enqueue_thread_on_cpu(thread, thread->scheduler_cpu);
     }
     return thread;
 }
@@ -380,9 +469,12 @@ Thread* idle_thread_for_cpu(const cpu* owner)
 
 void set_current_thread(Thread* thread)
 {
+    dequeue_thread_if_queued(thread);
     cpu_cur()->current_thread = thread;
     if(thread)
     {
+        thread->scheduler_cpu = cpu_cur();
+        thread->run_queue_cpu = nullptr;
         thread->state = ThreadState::Running;
         if(thread->process)
         {
@@ -392,23 +484,27 @@ void set_current_thread(Thread* thread)
     }
 }
 
-void mark_thread_ready(Thread* thread)
+void mark_thread_ready(Thread* thread, cpu* target)
 {
-    KASSERT_ON_BSP();
     if((nullptr != thread) && (ThreadState::Dying != thread->state) &&
        (ThreadState::Free != thread->state))
     {
+        cpu* target_cpu = select_target_cpu(thread, target);
         thread->state = ThreadState::Ready;
         if(thread->process && (ProcessState::Dying != thread->process->state))
         {
             thread->process->state = ProcessState::Ready;
+        }
+        const bool enqueued = enqueue_thread_on_cpu(thread, target_cpu);
+        if(enqueued && (target_cpu != cpu_cur()))
+        {
+            (void)ipi_send_reschedule(target_cpu);
         }
     }
 }
 
 static void block_current_thread(ThreadWaitState wait)
 {
-    KASSERT_ON_BSP();
     Thread* thread = current_thread();
     if((nullptr == thread) || (ThreadState::Dying == thread->state) ||
        (ThreadState::Free == thread->state))
@@ -422,7 +518,6 @@ static void block_current_thread(ThreadWaitState wait)
     {
         thread->process->state = ProcessState::Ready;
     }
-    relink_runnable_threads();
 }
 
 void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length)
@@ -467,9 +562,8 @@ void clear_thread_wait(Thread* thread)
     thread->wait = ThreadWaitState{};
 }
 
-void wake_blocked_thread(Thread* thread)
+void wake_blocked_thread(Thread* thread, cpu* target)
 {
-    KASSERT_ON_BSP();
     if(nullptr == thread)
     {
         return;
@@ -486,7 +580,7 @@ void wake_blocked_thread(Thread* thread)
         return;
     }
 
-    mark_thread_ready(thread);
+    mark_thread_ready(thread, target);
 }
 
 Thread* first_blocked_thread(ThreadWaitReason reason)
@@ -523,7 +617,6 @@ void wake_block_io_waiters(uint64_t completion_flag)
 
 void mark_current_thread_dying(int exit_status)
 {
-    KASSERT_ON_BSP();
     Thread* thread = current_thread();
     if(nullptr == thread)
     {
@@ -539,5 +632,4 @@ void mark_current_thread_dying(int exit_status)
         thread->process->state =
             thread->process->parent ? ProcessState::Zombie : ProcessState::Dying;
     }
-    relink_runnable_threads();
 }

@@ -1,6 +1,7 @@
 // Generic IRQ flow around the current legacy PIC/APIC hybrid routing.
 #include "core/irq_dispatch.hpp"
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "arch/x86_64/apic/lapic.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "arch/x86_64/cpu/io_port.hpp"
@@ -39,6 +40,10 @@ void account_scheduler_tick()
     cpu* c = cpu_cur();
     const uint64_t local_ticks = ++c->timer_ticks;
     (void)atomic_fetch_add(&g_timer_ticks, static_cast<uint64_t>(1));
+    if(current_thread() == idle_thread())
+    {
+        ++c->idle_ticks;
+    }
 
     if(!cpu_on_boot() && (0u == (local_ticks % kApTickEventInterval)))
     {
@@ -57,7 +62,8 @@ Thread* handle_irq(TrapFrame* frame)
     const uint8_t vector = static_cast<uint8_t>(frame->vector);
     const int irq = legacy_irq_from_vector(vector);
     const bool scheduler_tick = timer_vector_is_scheduler_tick(vector);
-    if(!scheduler_tick)
+    const bool reschedule_ipi = ipi_is_reschedule_vector(vector);
+    if(!scheduler_tick && !reschedule_ipi)
     {
         kernel_event::record(OS1_KERNEL_EVENT_IRQ,
                              0,
@@ -75,26 +81,38 @@ Thread* handle_irq(TrapFrame* frame)
         }
     }
     dispatch_interrupt_vector(vector);
+    if(reschedule_ipi)
+    {
+        cpu_cur()->reschedule_pending = 1;
+        kernel_event::record(OS1_KERNEL_EVENT_IPI_RESCHED,
+                             OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                             0,
+                             cpu_cur()->id,
+                             vector,
+                             0);
+    }
 
     acknowledge_irq_vector(vector);
-    if(!cpu_on_boot())
+    if(cpu_on_boot())
     {
-        return current_thread();
+        wake_console_readers(page_frames);
     }
-    wake_console_readers(page_frames);
 
     if(nullptr == current_thread())
     {
         return nullptr;
     }
 
-    if(scheduler_tick)
+    if(scheduler_tick || reschedule_ipi)
     {
         return schedule_next(true);
     }
 
-    reap_dead_threads(page_frames);
-    if((current_thread() == idle_thread()) && (nullptr != first_runnable_user_thread()))
+    if(cpu_on_boot())
+    {
+        reap_dead_threads(page_frames);
+    }
+    if((current_thread() == idle_thread()) && (0u != cpu_run_queue_length(cpu_cur())))
     {
         return schedule_next(true);
     }

@@ -33,66 +33,41 @@ namespace
 {
     return has_runnable_state(thread) && !is_idle_thread_for_another_cpu(thread);
 }
+
+Thread* dequeue_ready_thread(cpu* owner)
+{
+    if(nullptr == owner)
+    {
+        return nullptr;
+    }
+
+    IrqSpinGuard guard(owner->runq.lock);
+    Thread* thread = owner->runq.head;
+    if(nullptr == thread)
+    {
+        return nullptr;
+    }
+
+    owner->runq.head = thread->next;
+    if(nullptr == owner->runq.head)
+    {
+        owner->runq.tail = nullptr;
+    }
+    thread->next = nullptr;
+    thread->run_queue_cpu = nullptr;
+    if(0u != owner->runq.length)
+    {
+        --owner->runq.length;
+    }
+    ++owner->dequeue_count;
+    return thread;
+}
 }  // namespace
 
 Thread* next_runnable_thread(Thread* after)
 {
-    relink_runnable_threads();
-
-    Thread* start = first_thread();
-    if(nullptr != after)
-    {
-        for(Thread* candidate = first_thread(); nullptr != candidate; candidate = next_thread(candidate))
-        {
-            if(candidate != after)
-            {
-                continue;
-            }
-
-            start = (nullptr != candidate->registry_next) ? candidate->registry_next : first_thread();
-            break;
-        }
-    }
-
-    Thread* idle_candidate = nullptr;
-    for(Thread* candidate = start; nullptr != candidate; candidate = next_thread(candidate))
-    {
-        if(!schedulable_on_current_cpu(candidate))
-        {
-            continue;
-        }
-        if(candidate == idle_thread())
-        {
-            if(nullptr == idle_candidate)
-            {
-                idle_candidate = candidate;
-            }
-            continue;
-        }
-        return candidate;
-    }
-
-    if(start != first_thread())
-    {
-        for(Thread* candidate = first_thread(); candidate != start; candidate = next_thread(candidate))
-        {
-            if(!schedulable_on_current_cpu(candidate))
-            {
-                continue;
-            }
-            if(candidate == idle_thread())
-            {
-                if(nullptr == idle_candidate)
-                {
-                    idle_candidate = candidate;
-                }
-                continue;
-            }
-            return candidate;
-        }
-    }
-
-    return idle_candidate;
+    (void)after;
+    return dequeue_ready_thread(cpu_cur());
 }
 
 size_t runnable_thread_count(void)
@@ -106,6 +81,11 @@ size_t runnable_thread_count(void)
         }
     }
     return count;
+}
+
+size_t cpu_run_queue_length(const cpu* owner)
+{
+    return (nullptr != owner) ? owner->runq.length : 0u;
 }
 
 Thread* first_runnable_user_thread(void)

@@ -6,6 +6,7 @@
 
 #include <span>
 
+#include "arch/x86_64/apic/ipi.hpp"
 #include "arch/x86_64/apic/ioapic.hpp"
 #include "arch/x86_64/apic/lapic.hpp"
 #include "arch/x86_64/apic/pic.hpp"
@@ -513,6 +514,11 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
+    if(!ipi_initialize())
+    {
+        debug("IPI initialization failed")();
+        return;
+    }
 
     memset(&g_boot_irq_thread, 0, sizeof(g_boot_irq_thread));
     g_boot_irq_thread.state = ThreadState::Running;
@@ -592,6 +598,7 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     }
 
     kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
+    set_current_thread(boot_sequence_thread);
     enter_first_thread(boot_sequence_thread, boot_sequence_thread->kernel_stack_top);
     halt_forever();
 }

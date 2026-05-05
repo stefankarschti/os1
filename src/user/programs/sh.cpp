@@ -353,6 +353,8 @@ const char* event_type_name(uint32_t type)
             return "ap-online";
         case OS1_KERNEL_EVENT_AP_TICK:
             return "ap-tick";
+        case OS1_KERNEL_EVENT_IPI_RESCHED:
+            return "ipi-resched";
         default:
             return "unknown";
     }

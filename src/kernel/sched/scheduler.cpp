@@ -1,6 +1,7 @@
 // Round-robin scheduler handoff wrapper around the current task-table API.
 #include "sched/scheduler.hpp"
 
+#include "arch/x86_64/cpu/cpu.hpp"
 #include "core/kernel_state.hpp"
 #include "debug/event_ring.hpp"
 #include "proc/thread.hpp"
@@ -21,18 +22,32 @@ namespace
 
 Thread* schedule_next(bool keep_current)
 {
-    reap_dead_threads(page_frames);
-    wake_child_waiters(page_frames);
-    Thread* current = current_thread();
-    if(keep_current && current && (ThreadState::Running == current->state))
+    if(cpu_on_boot())
     {
-        mark_thread_ready(current);
+        reap_dead_threads(page_frames);
+        wake_child_waiters(page_frames);
+    }
+    Thread* current = current_thread();
+    cpu* local_cpu = cpu_cur();
+    if(keep_current && current && (current != idle_thread()) &&
+       (ThreadState::Running == current->state))
+    {
+        mark_thread_ready(current, local_cpu);
     }
 
+    local_cpu->reschedule_pending = 0;
     Thread* next = next_runnable_thread(current);
     if(nullptr == next)
     {
-        next = idle_thread();
+        next = local_cpu->idle_thread;
+    }
+    if(nullptr != next)
+    {
+        next->state = ThreadState::Running;
+        if((nullptr != next->process) && (ProcessState::Dying != next->process->state))
+        {
+            next->process->state = ProcessState::Running;
+        }
     }
     if(next != current)
     {

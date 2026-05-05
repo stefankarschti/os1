@@ -83,6 +83,8 @@ struct Thread
     ThreadWaitState wait{};
     Thread* registry_next = nullptr;
     Thread* wait_link = nullptr;
+    cpu* scheduler_cpu = nullptr;
+    cpu* run_queue_cpu = nullptr;
 };
 
 #define THREAD_STATIC_ASSERT(name, expr) typedef char thread_static_assert_##name[(expr) ? 1 : -1]
@@ -124,7 +126,7 @@ void relink_runnable_threads();
 // Bind the current CPU to `thread`.
 void set_current_thread(Thread* thread);
 // Mark a thread ready and update its owning process state if needed.
-void mark_thread_ready(Thread* thread);
+void mark_thread_ready(Thread* thread, cpu* target = nullptr);
 // Block the current thread until console input can complete a read.
 void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length);
 // Block the current thread until the selected child can be reaped.
@@ -135,7 +137,7 @@ void block_current_thread_on_block_io(uint64_t completion_flag);
 void clear_thread_wait(Thread* thread);
 // Wake a blocked thread, preserving the currently running thread state when the
 // wake happens from an interrupt on that same thread.
-void wake_blocked_thread(Thread* thread);
+void wake_blocked_thread(Thread* thread, cpu* target = nullptr);
 // Return the first thread blocked on a wait reason.
 Thread* first_blocked_thread(ThreadWaitReason reason);
 // Wake any thread blocked on a matching block-I/O completion flag.
@@ -148,6 +150,8 @@ void clear_thread(Thread* thread);
 void reap_dead_threads(PageFrameContainer& frames);
 // Count threads currently eligible to run.
 size_t runnable_thread_count(void);
+// Return the number of ready threads queued on `owner`.
+size_t cpu_run_queue_length(const cpu* owner);
 // Return the first runnable user thread, if any.
 Thread* first_runnable_user_thread(void);
 

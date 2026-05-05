@@ -3,5 +3,11 @@
 
 #include <stdint.h>
 
+struct cpu;
+
+bool ipi_initialize();
 [[nodiscard]] bool ipi_send(uint8_t apic_id, uint8_t vector);
 [[nodiscard]] bool ipi_send_all_but_self(uint8_t vector);
+[[nodiscard]] bool ipi_send_reschedule(const cpu* target);
+[[nodiscard]] uint8_t ipi_reschedule_vector();
+[[nodiscard]] bool ipi_is_reschedule_vector(uint8_t vector);
