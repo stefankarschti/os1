@@ -357,6 +357,12 @@ const char* event_type_name(uint32_t type)
             return "ipi-resched";
         case OS1_KERNEL_EVENT_KERNEL_THREAD_PING:
             return "kernel-thread-ping";
+        case OS1_KERNEL_EVENT_IPI_TLB_SHOOTDOWN:
+            return "ipi-tlb-shootdown";
+        case OS1_KERNEL_EVENT_THREAD_MIGRATE:
+            return "thread-migrate";
+        case OS1_KERNEL_EVENT_RUNQ_DEPTH:
+            return "runq-depth";
         default:
             return "unknown";
     }
@@ -542,7 +548,7 @@ void run_cpu()
         return;
     }
 
-    write_string("cpu slot apic bsp booted pid tid\n");
+    write_string("cpu slot apic bsp booted pid tid runq ticks idle mig_in mig_out\n");
     for(uint32_t i = 0; i < record_count; ++i)
     {
         write_string("cpu ");
@@ -557,6 +563,16 @@ void run_cpu()
         write_unsigned(records[i].current_pid);
         write_char(' ');
         write_unsigned(records[i].current_tid);
+        write_char(' ');
+        write_unsigned(records[i].runq_depth);
+        write_char(' ');
+        write_unsigned(records[i].timer_ticks);
+        write_char(' ');
+        write_unsigned(records[i].idle_ticks);
+        write_char(' ');
+        write_unsigned(records[i].migrate_in);
+        write_char(' ');
+        write_unsigned(records[i].migrate_out);
         write_char('\n');
     }
 }

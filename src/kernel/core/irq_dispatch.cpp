@@ -76,6 +76,7 @@ Thread* handle_irq(TrapFrame* frame)
     if(scheduler_tick)
     {
         account_scheduler_tick();
+        scheduler_handle_timer_tick();
         if(cpu_on_boot())
         {
             console_input_poll_serial();
@@ -110,6 +111,10 @@ Thread* handle_irq(TrapFrame* frame)
 
     if(scheduler_tick || reschedule_ipi)
     {
+        if(!trap_frame_is_user(*frame) && current_thread()->user_mode)
+        {
+            return current_thread();
+        }
         return schedule_next(true);
     }
 

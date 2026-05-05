@@ -6,9 +6,11 @@
 
 namespace
 {
-constexpr char kBusyYieldPath[] = "/bin/busyyield";
+constexpr char kWorkerPath[] = "/bin/balanceworker";
+constexpr uint32_t kWorkerCount = 16;
 constexpr uint32_t kMaxCpuRecords = 8;
-constexpr uint32_t kObserveAttempts = 2048;
+constexpr uint32_t kObserveAttempts = 4096;
+constexpr uint64_t kMinQueuedThreads = 8;
 
 size_t string_length(const char* text)
 {
@@ -44,21 +46,19 @@ void write_unsigned(uint64_t value)
 
 void write_failure(const char* reason)
 {
-    write_string("[user/smpcheck] fail ");
+    write_string("[user/balancecheck] fail ");
     write_string(reason);
     write_string("\n");
 }
 
-void write_success(uint64_t first_pid, uint32_t first_cpu, uint64_t second_pid, uint32_t second_cpu)
+void write_success(uint32_t delta, uint64_t total_runq, uint64_t migrate_total)
 {
-    write_string("[user/smpcheck] observed pids ");
-    write_unsigned(first_pid);
-    write_string("@");
-    write_unsigned(first_cpu);
-    write_string(" and ");
-    write_unsigned(second_pid);
-    write_string("@");
-    write_unsigned(second_cpu);
+    write_string("[user/balancecheck] runq delta=");
+    write_unsigned(delta);
+    write_string(" total=");
+    write_unsigned(total_runq);
+    write_string(" migrate=");
+    write_unsigned(migrate_total);
     write_string("\n");
 }
 
@@ -94,10 +94,7 @@ bool observe_cpus(Os1ObserveCpuRecord*& records, uint32_t& record_count)
     return true;
 }
 
-bool observed_child_pair(uint64_t first_pid,
-                         uint64_t second_pid,
-                         uint32_t& first_cpu,
-                         uint32_t& second_cpu)
+bool observe_balanced_runqs(uint32_t& delta, uint64_t& total_runq, uint64_t& migrate_total)
 {
     Os1ObserveCpuRecord* records = nullptr;
     uint32_t record_count = 0;
@@ -106,52 +103,69 @@ bool observed_child_pair(uint64_t first_pid,
         return false;
     }
 
-    bool saw_first = false;
-    bool saw_second = false;
+    uint32_t min_depth = 0xFFFFFFFFu;
+    uint32_t max_depth = 0;
+    uint32_t booted_cpu_count = 0;
+    total_runq = 0;
+    migrate_total = 0;
     for(uint32_t i = 0; i < record_count; ++i)
     {
-        if(records[i].current_pid == first_pid)
+        if(0u == (records[i].flags & OS1_OBSERVE_CPU_FLAG_BOOTED))
         {
-            saw_first = true;
-            first_cpu = records[i].logical_index;
+            continue;
         }
-        else if(records[i].current_pid == second_pid)
+
+        ++booted_cpu_count;
+        if(records[i].runq_depth < min_depth)
         {
-            saw_second = true;
-            second_cpu = records[i].logical_index;
+            min_depth = records[i].runq_depth;
         }
+        if(records[i].runq_depth > max_depth)
+        {
+            max_depth = records[i].runq_depth;
+        }
+        total_runq += records[i].runq_depth;
+        migrate_total += records[i].migrate_in;
+        migrate_total += records[i].migrate_out;
     }
 
-    return saw_first && saw_second && (first_cpu != second_cpu);
+    if((booted_cpu_count < 2u) || (total_runq < kMinQueuedThreads))
+    {
+        return false;
+    }
+
+    delta = max_depth - min_depth;
+    return delta <= 1u;
 }
 }  // namespace
 
 int main(void)
 {
-    const long first_pid_long = os1::user::spawn(kBusyYieldPath);
-    if(first_pid_long < 0)
+    uint64_t pids[kWorkerCount] = {};
+    uint32_t started = 0;
+    for(; started < kWorkerCount; ++started)
     {
-        write_failure("spawn-first");
-        return 1;
+        const long pid = os1::user::spawn(kWorkerPath);
+        if(pid < 0)
+        {
+            for(uint32_t i = 0; i < started; ++i)
+            {
+                int status = 0;
+                (void)os1::user::waitpid(pids[i], &status);
+            }
+            write_failure("spawn");
+            return 1;
+        }
+        pids[started] = static_cast<uint64_t>(pid);
     }
 
-    const long second_pid_long = os1::user::spawn(kBusyYieldPath);
-    if(second_pid_long < 0)
-    {
-        int first_status = 0;
-        (void)os1::user::waitpid(static_cast<uint64_t>(first_pid_long), &first_status);
-        write_failure("spawn-second");
-        return 1;
-    }
-
-    const uint64_t first_pid = static_cast<uint64_t>(first_pid_long);
-    const uint64_t second_pid = static_cast<uint64_t>(second_pid_long);
-    uint32_t first_cpu = 0;
-    uint32_t second_cpu = 0;
+    uint32_t delta = 0;
+    uint64_t total_runq = 0;
+    uint64_t migrate_total = 0;
     bool observed = false;
     for(uint32_t attempt = 0; attempt < kObserveAttempts; ++attempt)
     {
-        if(observed_child_pair(first_pid, second_pid, first_cpu, second_cpu))
+        if(observe_balanced_runqs(delta, total_runq, migrate_total))
         {
             observed = true;
             break;
@@ -159,22 +173,28 @@ int main(void)
         os1::user::yield();
     }
 
-    int first_status = 0;
-    int second_status = 0;
-    const long waited_first = os1::user::waitpid(first_pid, &first_status);
-    const long waited_second = os1::user::waitpid(second_pid, &second_status);
+    bool waited_ok = true;
+    for(uint32_t i = 0; i < started; ++i)
+    {
+        int status = 0;
+        const long waited = os1::user::waitpid(pids[i], &status);
+        if((waited != static_cast<long>(pids[i])) || (status != 0))
+        {
+            waited_ok = false;
+        }
+    }
+
     if(!observed)
     {
         write_failure("observe");
         return 1;
     }
-    if((waited_first != static_cast<long>(first_pid)) || (first_status != 0) ||
-       (waited_second != static_cast<long>(second_pid)) || (second_status != 0))
+    if(!waited_ok)
     {
         write_failure("wait");
         return 1;
     }
 
-    write_success(first_pid, first_cpu, second_pid, second_cpu);
+    write_success(delta, total_runq, migrate_total);
     return 0;
 }

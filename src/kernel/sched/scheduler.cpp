@@ -9,6 +9,12 @@
 
 namespace
 {
+constexpr uint64_t kBalanceIntervalTicks = 64;
+constexpr uint64_t kIdleBalanceTriggerTicks = 4;
+constexpr uint64_t kMigrationCooldownTicks = 64;
+
+bool g_smp_balancer_enabled = true;
+
 [[nodiscard]] uint64_t thread_pid(const Thread* thread)
 {
     return (thread && thread->process) ? thread->process->pid : 0;
@@ -18,7 +24,280 @@ namespace
 {
     return thread ? thread->tid : 0;
 }
+
+[[nodiscard]] bool cpu_is_schedulable(const cpu* owner)
+{
+    return (nullptr != owner) && ((owner == g_cpu_boot) || (0u != owner->booted));
+}
+
+[[nodiscard]] size_t schedulable_cpu_count()
+{
+    size_t count = 0;
+    for(cpu* owner = g_cpu_boot; nullptr != owner; owner = owner->next)
+    {
+        if(cpu_is_schedulable(owner))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+[[nodiscard]] size_t snapshot_run_queue_length(cpu* owner)
+{
+    if(nullptr == owner)
+    {
+        return 0u;
+    }
+
+    IrqSpinGuard guard(owner->runq.lock);
+    return owner->runq.length;
+}
+
+[[nodiscard]] bool thread_allows_cpu(const Thread* thread, const cpu* owner)
+{
+    if((nullptr == thread) || (nullptr == owner))
+    {
+        return false;
+    }
+    if(owner->id >= 64)
+    {
+        return true;
+    }
+    return 0u != (thread->affinity_mask & (1ull << owner->id));
+}
+
+[[nodiscard]] bool thread_is_migratable(const Thread* thread, const cpu* owner, uint64_t now)
+{
+    if((nullptr == thread) || (ThreadState::Ready != thread->state) || !thread_allows_cpu(thread, owner))
+    {
+        return false;
+    }
+    if(0u == thread->last_migration_tick)
+    {
+        return true;
+    }
+    return (now - thread->last_migration_tick) >= kMigrationCooldownTicks;
+}
+
+Thread* detach_last_migratable_thread_locked(cpu* donor, const cpu* receiver, uint64_t now)
+{
+    if((nullptr == donor) || (nullptr == receiver))
+    {
+        return nullptr;
+    }
+
+    Thread* previous = nullptr;
+    Thread* candidate_previous = nullptr;
+    Thread* candidate = nullptr;
+    for(Thread* thread = donor->runq.head; nullptr != thread; thread = thread->next)
+    {
+        if(thread_is_migratable(thread, receiver, now))
+        {
+            candidate_previous = previous;
+            candidate = thread;
+        }
+        previous = thread;
+    }
+
+    if(nullptr == candidate)
+    {
+        return nullptr;
+    }
+
+    Thread* next = candidate->next;
+    if(nullptr != candidate_previous)
+    {
+        candidate_previous->next = next;
+    }
+    else
+    {
+        donor->runq.head = next;
+    }
+    if(donor->runq.tail == candidate)
+    {
+        donor->runq.tail = candidate_previous;
+    }
+    candidate->next = nullptr;
+    candidate->run_queue_cpu = nullptr;
+    if(0u != donor->runq.length)
+    {
+        --donor->runq.length;
+    }
+    ++donor->dequeue_count;
+    return candidate;
+}
+
+void append_ready_thread_locked(cpu* owner, Thread* thread)
+{
+    if((nullptr == owner) || (nullptr == thread))
+    {
+        return;
+    }
+
+    thread->next = nullptr;
+    if(nullptr != owner->runq.tail)
+    {
+        owner->runq.tail->next = thread;
+    }
+    else
+    {
+        owner->runq.head = thread;
+    }
+    owner->runq.tail = thread;
+    thread->run_queue_cpu = owner;
+    ++owner->runq.length;
+    ++owner->enqueue_count;
+}
+
+void unlock_run_queue_pair(cpu* first, cpu* second)
+{
+    if((nullptr != second) && (second != first))
+    {
+        second->runq.lock.unlock();
+    }
+    if(nullptr != first)
+    {
+        first->runq.lock.unlock();
+    }
+}
+
+void record_run_queue_depth(const cpu* owner, size_t depth)
+{
+    kernel_event::record(OS1_KERNEL_EVENT_RUNQ_DEPTH,
+                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                         (nullptr != owner) ? owner->id : 0,
+                         depth,
+                         0,
+                         0);
+}
 }  // namespace
+
+bool scheduler_balance_cpu(cpu* target_cpu, uint64_t now, bool force)
+{
+    if(!g_smp_balancer_enabled || (nullptr == target_cpu) || !cpu_is_schedulable(target_cpu))
+    {
+        return false;
+    }
+
+    const size_t cpu_count = schedulable_cpu_count();
+    if(cpu_count < 2u)
+    {
+        return false;
+    }
+
+    size_t total_depth = 0;
+    size_t local_depth = 0;
+    size_t donor_depth = 0;
+    cpu* donor = nullptr;
+    for(cpu* owner = g_cpu_boot; nullptr != owner; owner = owner->next)
+    {
+        if(!cpu_is_schedulable(owner))
+        {
+            continue;
+        }
+
+        const size_t depth = snapshot_run_queue_length(owner);
+        total_depth += depth;
+        if(owner == target_cpu)
+        {
+            local_depth = depth;
+            continue;
+        }
+        if(depth > donor_depth)
+        {
+            donor = owner;
+            donor_depth = depth;
+        }
+    }
+
+    record_run_queue_depth(target_cpu, local_depth);
+    if((nullptr == donor) || (0u == donor_depth) || (donor_depth <= (local_depth + 1u)))
+    {
+        return false;
+    }
+
+    const size_t target_depth = (total_depth + cpu_count - 1u) / cpu_count;
+    if(!force && ((local_depth + 1u) >= target_depth))
+    {
+        return false;
+    }
+
+    cpu* first_lock = (target_cpu->id <= donor->id) ? target_cpu : donor;
+    cpu* second_lock = (first_lock == target_cpu) ? donor : target_cpu;
+
+    IrqGuard irq_guard;
+    first_lock->runq.lock.lock();
+    if(second_lock != first_lock)
+    {
+        second_lock->runq.lock.lock();
+    }
+
+    local_depth = target_cpu->runq.length;
+    donor_depth = donor->runq.length;
+    if((0u == donor_depth) || (donor_depth <= (local_depth + 1u)))
+    {
+        unlock_run_queue_pair(first_lock, second_lock);
+        return false;
+    }
+    if(!force && ((local_depth + 1u) >= target_depth))
+    {
+        unlock_run_queue_pair(first_lock, second_lock);
+        return false;
+    }
+
+    Thread* migrated = detach_last_migratable_thread_locked(donor, target_cpu, now);
+    if(nullptr == migrated)
+    {
+        unlock_run_queue_pair(first_lock, second_lock);
+        return false;
+    }
+
+    append_ready_thread_locked(target_cpu, migrated);
+    migrated->scheduler_cpu = target_cpu;
+    migrated->last_migration_tick = now;
+    ++target_cpu->migrate_in;
+    ++donor->migrate_out;
+    kernel_event::record(OS1_KERNEL_EVENT_THREAD_MIGRATE,
+                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                         donor->id,
+                         target_cpu->id,
+                         migrated->tid,
+                         0);
+
+    unlock_run_queue_pair(first_lock, second_lock);
+    return true;
+}
+
+void scheduler_handle_timer_tick()
+{
+    cpu* local_cpu = cpu_cur();
+    if(!g_smp_balancer_enabled || (nullptr == local_cpu))
+    {
+        return;
+    }
+
+    const size_t local_depth = snapshot_run_queue_length(local_cpu);
+    const bool idle_without_work = (current_thread() == idle_thread()) && (0u == local_depth);
+    if(idle_without_work)
+    {
+        ++local_cpu->balance_idle_ticks;
+    }
+    else
+    {
+        local_cpu->balance_idle_ticks = 0;
+    }
+
+    const bool periodic_check = (0u != local_cpu->timer_ticks) &&
+                                (0u == (local_cpu->timer_ticks % kBalanceIntervalTicks));
+    const bool idle_check = idle_without_work &&
+                            (local_cpu->balance_idle_ticks >= kIdleBalanceTriggerTicks) &&
+                            (0u == (local_cpu->balance_idle_ticks % kIdleBalanceTriggerTicks));
+    if(periodic_check || idle_check)
+    {
+        (void)scheduler_balance_cpu(local_cpu, local_cpu->timer_ticks, idle_check);
+    }
+}
 
 Thread* schedule_next(bool keep_current)
 {

@@ -36,6 +36,9 @@ TEST(ObserveAbi, ConstantsAreStable)
     EXPECT_EQ(12, OS1_KERNEL_EVENT_AP_TICK);
     EXPECT_EQ(13, OS1_KERNEL_EVENT_IPI_RESCHED);
     EXPECT_EQ(14, OS1_KERNEL_EVENT_KERNEL_THREAD_PING);
+    EXPECT_EQ(15, OS1_KERNEL_EVENT_IPI_TLB_SHOOTDOWN);
+    EXPECT_EQ(16, OS1_KERNEL_EVENT_THREAD_MIGRATE);
+    EXPECT_EQ(17, OS1_KERNEL_EVENT_RUNQ_DEPTH);
     EXPECT_EQ(1, OS1_KERNEL_EVENT_TIMER_SOURCE_PIT);
     EXPECT_EQ(2, OS1_KERNEL_EVENT_TIMER_SOURCE_LAPIC);
 }
@@ -57,8 +60,11 @@ TEST(ObserveAbi, RecordLayoutsArePacked)
     EXPECT_EQ(68u, sizeof(Os1ObserveProcessRecord));
     EXPECT_EQ(36u, offsetof(Os1ObserveProcessRecord, name));
 
-    EXPECT_EQ(28u, sizeof(Os1ObserveCpuRecord));
+    EXPECT_EQ(64u, sizeof(Os1ObserveCpuRecord));
     EXPECT_EQ(12u, offsetof(Os1ObserveCpuRecord, current_pid));
+    EXPECT_EQ(28u, offsetof(Os1ObserveCpuRecord, runq_depth));
+    EXPECT_EQ(32u, offsetof(Os1ObserveCpuRecord, timer_ticks));
+    EXPECT_EQ(56u, offsetof(Os1ObserveCpuRecord, migrate_out));
 
     EXPECT_EQ(17u, sizeof(Os1ObservePciBar));
     EXPECT_EQ(119u, sizeof(Os1ObservePciRecord));

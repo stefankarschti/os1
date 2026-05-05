@@ -56,7 +56,9 @@ endfunction()
 os1_add_user_cxx_program(sh "${CMAKE_CURRENT_SOURCE_DIR}/programs/sh.cpp" OS1_USER_SH_ELF)
 os1_add_user_cxx_program(init "${CMAKE_CURRENT_SOURCE_DIR}/programs/init.cpp" OS1_USER_INIT_ELF)
 os1_add_user_cxx_program(yield "${CMAKE_CURRENT_SOURCE_DIR}/programs/yield.cpp" OS1_USER_YIELD_ELF)
+os1_add_user_cxx_program(balanceworker "${CMAKE_CURRENT_SOURCE_DIR}/programs/balanceworker.cpp" OS1_USER_BALANCEWORKER_ELF)
 os1_add_user_cxx_program(busyyield "${CMAKE_CURRENT_SOURCE_DIR}/programs/busyyield.cpp" OS1_USER_BUSYYIELD_ELF)
+os1_add_user_cxx_program(balancecheck "${CMAKE_CURRENT_SOURCE_DIR}/programs/balancecheck.cpp" OS1_USER_BALANCECHECK_ELF)
 os1_add_user_cxx_program(fault "${CMAKE_CURRENT_SOURCE_DIR}/programs/fault.cpp" OS1_USER_FAULT_ELF)
 os1_add_user_cxx_program(copycheck "${CMAKE_CURRENT_SOURCE_DIR}/programs/copycheck.cpp" OS1_USER_COPYCHECK_ELF)
 os1_add_user_cxx_program(smpcheck "${CMAKE_CURRENT_SOURCE_DIR}/programs/smpcheck.cpp" OS1_USER_SMPCHECK_ELF)
@@ -69,7 +71,9 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_INIT_ELF}" "${USER_STAGE_DIR}/bin/init"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_SH_ELF}" "${USER_STAGE_DIR}/bin/sh"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_YIELD_ELF}" "${USER_STAGE_DIR}/bin/yield"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_BALANCEWORKER_ELF}" "${USER_STAGE_DIR}/bin/balanceworker"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_BUSYYIELD_ELF}" "${USER_STAGE_DIR}/bin/busyyield"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_BALANCECHECK_ELF}" "${USER_STAGE_DIR}/bin/balancecheck"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_FAULT_ELF}" "${USER_STAGE_DIR}/bin/fault"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_COPYCHECK_ELF}" "${USER_STAGE_DIR}/bin/copycheck"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_SMPCHECK_ELF}" "${USER_STAGE_DIR}/bin/smpcheck"
@@ -85,7 +89,9 @@ add_custom_command(
     "${OS1_USER_INIT_ELF}"
     "${OS1_USER_SH_ELF}"
     "${OS1_USER_YIELD_ELF}"
+    "${OS1_USER_BALANCEWORKER_ELF}"
     "${OS1_USER_BUSYYIELD_ELF}"
+    "${OS1_USER_BALANCECHECK_ELF}"
     "${OS1_USER_FAULT_ELF}"
     "${OS1_USER_COPYCHECK_ELF}"
     "${OS1_USER_SMPCHECK_ELF}"
@@ -97,7 +103,9 @@ add_custom_target(user_programs DEPENDS
   "${OS1_USER_INIT_ELF}"
   "${OS1_USER_SH_ELF}"
   "${OS1_USER_YIELD_ELF}"
+  "${OS1_USER_BALANCEWORKER_ELF}"
   "${OS1_USER_BUSYYIELD_ELF}"
+  "${OS1_USER_BALANCECHECK_ELF}"
   "${OS1_USER_FAULT_ELF}"
   "${OS1_USER_COPYCHECK_ELF}"
   "${OS1_USER_SMPCHECK_ELF}"

@@ -256,7 +256,13 @@ Thread* allocate_thread_record()
     {
         return nullptr;
     }
-    return static_cast<Thread*>(kmem_cache_alloc(g_thread_cache, KmallocFlags::Zero));
+
+    Thread* thread = static_cast<Thread*>(kmem_cache_alloc(g_thread_cache, KmallocFlags::Zero));
+    if(nullptr != thread)
+    {
+        thread->affinity_mask = ~0ull;
+    }
+    return thread;
 }
 
 void link_thread(Thread* thread)

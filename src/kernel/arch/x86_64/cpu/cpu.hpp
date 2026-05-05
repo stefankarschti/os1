@@ -76,6 +76,7 @@ struct cpu
     uint64_t kernel_thread_ping_count;
     uint64_t migrate_in;
     uint64_t migrate_out;
+    uint64_t balance_idle_ticks;
     cpu* next;
     uint8_t id;
     volatile uint32_t booted;

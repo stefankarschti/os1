@@ -38,6 +38,7 @@
 #include "proc/thread.hpp"
 #include "proc/user_program.hpp"
 #include "sched/idle.hpp"
+#include "sched/scheduler.hpp"
 #include "util/align.hpp"
 #include "util/memory.h"
 
@@ -66,6 +67,10 @@ constexpr DeviceId kLapicTimerOwner{DeviceBus::Platform, 2};
 [[noreturn]] void finish_kernel_thread(int exit_status)
 {
     mark_current_thread_dying(exit_status);
+    if(Thread* next = schedule_next(false); nullptr != next)
+    {
+        start_multi_task(next);
+    }
     for(;;)
     {
         asm volatile("hlt" : : : "memory");

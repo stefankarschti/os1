@@ -338,6 +338,14 @@ long sys_observe_cpus(const ObserveContext& context,
             record.current_pid = entry->current_thread->process->pid;
             record.current_tid = entry->current_thread->tid;
         }
+        {
+            IrqSpinGuard guard(entry->runq.lock);
+            record.runq_depth = static_cast<uint32_t>(entry->runq.length);
+        }
+        record.timer_ticks = entry->timer_ticks;
+        record.idle_ticks = entry->idle_ticks;
+        record.migrate_in = entry->migrate_in;
+        record.migrate_out = entry->migrate_out;
         if(!write_observe_record(context, thread, user_buffer, offset, &record, sizeof(record)))
         {
             return -1;

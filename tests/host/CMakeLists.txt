@@ -74,6 +74,7 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/proc/reaper.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/thread.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/user_elf.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/sched/scheduler.cpp"
   "${OS1_REPO_ROOT}/src/kernel/sched/thread_queue.cpp"
   "${OS1_REPO_ROOT}/src/kernel/sync/wait_queue.cpp"
   "${OS1_REPO_ROOT}/src/kernel/syscall/wait.cpp"
@@ -103,6 +104,7 @@ add_executable(os1_host_tests
   kernel/event_ring_tests.cpp
   kernel/irq_route_registry_tests.cpp
   kernel/irq_vector_allocator_tests.cpp
+  kernel/load_balancer_tests.cpp
   kernel/runqueue_tests.cpp
   kernel/timer_source_tests.cpp
   kernel/pci_bus_tests.cpp

@@ -40,6 +40,9 @@ enum
     OS1_KERNEL_EVENT_AP_TICK = 12,
     OS1_KERNEL_EVENT_IPI_RESCHED = 13,
     OS1_KERNEL_EVENT_KERNEL_THREAD_PING = 14,
+    OS1_KERNEL_EVENT_IPI_TLB_SHOOTDOWN = 15,
+    OS1_KERNEL_EVENT_THREAD_MIGRATE = 16,
+    OS1_KERNEL_EVENT_RUNQ_DEPTH = 17,
     OS1_KERNEL_EVENT_FLAG_USER = 1u << 0,
     OS1_KERNEL_EVENT_FLAG_BEGIN = 1u << 1,
     OS1_KERNEL_EVENT_FLAG_SUCCESS = 1u << 2,
@@ -109,6 +112,11 @@ struct Os1ObserveCpuRecord
     uint32_t flags;
     uint64_t current_pid;
     uint64_t current_tid;
+    uint32_t runq_depth;
+    uint64_t timer_ticks;
+    uint64_t idle_ticks;
+    uint64_t migrate_in;
+    uint64_t migrate_out;
 };
 
 struct Os1ObservePciBar

@@ -65,6 +65,8 @@ set(OS1_SMOKE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-bios.log")
 set(OS1_SMOKE_XHCI_LOG "${OS1_ARTIFACT_DIR}/smoke-xhci.log")
 set(OS1_SMOKE_OBSERVE_LOG "${OS1_ARTIFACT_DIR}/smoke-observe.log")
 set(OS1_SMOKE_OBSERVE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-observe-bios.log")
+set(OS1_SMOKE_BALANCE_LOG "${OS1_ARTIFACT_DIR}/smoke-balance.log")
+set(OS1_SMOKE_BALANCE_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-balance-bios.log")
 set(OS1_SMOKE_SPAWN_LOG "${OS1_ARTIFACT_DIR}/smoke-spawn.log")
 set(OS1_SMOKE_SPAWN_BIOS_LOG "${OS1_ARTIFACT_DIR}/smoke-spawn-bios.log")
 set(OS1_SMOKE_EXEC_LOG "${OS1_ARTIFACT_DIR}/smoke-exec.log")
@@ -600,6 +602,10 @@ set(OS1_SHELL_EXEC_INPUT_EVENTS
   "[user/yield] tick 2::echo after-exec\\n"
 )
 
+set(OS1_SHELL_BALANCE_INPUT_EVENTS
+  "shell prompt ready::balancecheck\\n"
+)
+
 set(OS1_EXEC_SMOKE_REJECT_MARKERS
   ${OS1_SMOKE_REJECT_MARKERS}
   "shell exec returned"
@@ -800,6 +806,48 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     VERBATIM
   )
 
+  set(OS1_UEFI_BALANCE_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "boot source: limine"
+    "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
+    "starting first user process"
+    "shell prompt ready"
+    "[user/balancecheck] runq delta="
+    "shell spawn balancecheck ok pid="
+    "idle thread online"
+  )
+
+  add_test(
+    NAME os1_smoke_balance
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DISO_IMAGE=${OS1_ISO_IMAGE}"
+      "-DOVMF_CODE=${OS1_OVMF_CODE}"
+      "-DOVMF_VARS_TEMPLATE=${OS1_OVMF_VARS_TEMPLATE}"
+      "-DLOG_FILE=${OS1_SMOKE_BALANCE_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_UEFI_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_UEFI_BALANCE_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DSERIAL_INPUT_EVENTS=${OS1_SHELL_BALANCE_INPUT_EVENTS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke_balance
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_balance$"
+    DEPENDS os1_image "${OS1_VIRTIO_TEST_DISK}"
+    USES_TERMINAL
+    VERBATIM
+  )
+
   set(OS1_UEFI_SPAWN_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
@@ -894,6 +942,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
 else()
   os1_add_unavailable_target(smoke "smoke target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
   os1_add_unavailable_target(smoke_observe "smoke_observe target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
+  os1_add_unavailable_target(smoke_balance "smoke_balance target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
   os1_add_unavailable_target(smoke_spawn "smoke_spawn target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
   os1_add_unavailable_target(smoke_exec "smoke_exec target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
@@ -1019,6 +1068,46 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     VERBATIM
   )
 
+  set(OS1_BIOS_BALANCE_SMOKE_MARKERS
+    "[kernel64] hello!"
+    "boot source: bios"
+    "virtio-blk smoke ok"
+    "virtio-blk threaded smoke ok"
+    "virtio-net smoke ok"
+    "starting first user process"
+    "shell prompt ready"
+    "[user/balancecheck] runq delta="
+    "shell spawn balancecheck ok pid="
+    "idle thread online"
+  )
+
+  add_test(
+    NAME os1_smoke_balance_bios
+    COMMAND
+      "${CMAKE_COMMAND}"
+      "-DQEMU_EXECUTABLE=${OS1_QEMU_EXECUTABLE}"
+      "-DRAW_IMAGE=${OS1_RAW_IMAGE}"
+      "-DLOG_FILE=${OS1_SMOKE_BALANCE_BIOS_LOG}"
+      "-DSMOKE_TIMEOUT_SECONDS=${OS1_BIOS_SMOKE_TIMEOUT_SECONDS}"
+      "-DSMOKE_SETTLE_AFTER_MARKERS_SECONDS=${OS1_SMOKE_SETTLE_AFTER_MARKERS_SECONDS}"
+      "-DEXPECTED_MARKERS=${OS1_BIOS_BALANCE_SMOKE_MARKERS}"
+      "-DREJECTED_MARKERS=${OS1_SMOKE_REJECT_MARKERS}"
+      "-DSERIAL_INPUT_EVENTS=${OS1_SHELL_BALANCE_INPUT_EVENTS}"
+      "-DVIRTIO_TEST_DISK=${OS1_VIRTIO_TEST_DISK}"
+      "-DPYTHON_EXECUTABLE=${OS1_PYTHON_EXECUTABLE}"
+      "-DSMOKE_RUNNER=${OS1_SMOKE_RUNNER}"
+      -P
+      "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke_test.cmake"
+  )
+
+  add_custom_target(
+    smoke_balance_bios
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke_balance_bios$"
+    DEPENDS os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
+    USES_TERMINAL
+    VERBATIM
+  )
+
   set(OS1_BIOS_SPAWN_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
@@ -1109,6 +1198,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
 else()
   os1_add_unavailable_target(smoke_bios "smoke_bios target unavailable: qemu-system-x86_64 was not found")
   os1_add_unavailable_target(smoke_observe_bios "smoke_observe_bios target unavailable: qemu-system-x86_64 was not found")
+  os1_add_unavailable_target(smoke_balance_bios "smoke_balance_bios target unavailable: qemu-system-x86_64 was not found")
   os1_add_unavailable_target(smoke_spawn_bios "smoke_spawn_bios target unavailable: qemu-system-x86_64 was not found")
   os1_add_unavailable_target(smoke_exec_bios "smoke_exec_bios target unavailable: qemu-system-x86_64 was not found")
 endif()
@@ -1116,7 +1206,7 @@ endif()
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   add_custom_target(
     smoke_all
-    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_observe|_spawn|_exec|_xhci)?(_bios)?$"
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure -R "^os1_smoke(_observe|_balance|_spawn|_exec|_xhci)?(_bios)?$"
     DEPENDS os1_image os1_bios_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM
