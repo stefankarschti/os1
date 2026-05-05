@@ -67,6 +67,7 @@ struct cpu
     Tss64 tss;
     Thread* idle_thread;
     RunQueue runq;
+    size_t last_recorded_runq_depth;
     uint64_t timer_ticks;
     uint64_t reschedule_pending;
     Thread* irq_stack_thread;

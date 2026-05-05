@@ -162,11 +162,20 @@ void unlock_run_queue_pair(cpu* first, cpu* second)
     }
 }
 
-void record_run_queue_depth(const cpu* owner, size_t depth)
+void record_run_queue_depth(cpu* owner, size_t depth)
 {
+    if(nullptr == owner)
+    {
+        return;
+    }
+    if(owner->last_recorded_runq_depth == depth)
+    {
+        return;
+    }
+    owner->last_recorded_runq_depth = depth;
     kernel_event::record(OS1_KERNEL_EVENT_RUNQ_DEPTH,
                          OS1_KERNEL_EVENT_FLAG_SUCCESS,
-                         (nullptr != owner) ? owner->id : 0,
+                         owner->id,
                          depth,
                          0,
                          0);

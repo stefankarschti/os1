@@ -877,6 +877,7 @@ void run_events()
         write_hex(records[i].arg3, 1);
         write_char('\n');
     }
+    write_string("events complete\n");
 }
 
 void run_unknown(const char* command)

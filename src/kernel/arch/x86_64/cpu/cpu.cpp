@@ -111,6 +111,7 @@ void initialize_cpu_record_prefix(cpu* c)
     c->runq.head = nullptr;
     c->runq.tail = nullptr;
     c->runq.length = 0;
+    c->last_recorded_runq_depth = static_cast<size_t>(-1);
     c->magic = CPU_MAGIC;
 }
 }  // namespace
