@@ -72,6 +72,7 @@ Thread* next_runnable_thread(Thread* after)
 
 size_t runnable_thread_count(void)
 {
+    IrqSpinGuard guard(g_thread_registry_lock);
     size_t count = 0;
     for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
@@ -90,6 +91,7 @@ size_t cpu_run_queue_length(const cpu* owner)
 
 Thread* first_runnable_user_thread(void)
 {
+    IrqSpinGuard guard(g_thread_registry_lock);
     for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
         if(thread->user_mode &&

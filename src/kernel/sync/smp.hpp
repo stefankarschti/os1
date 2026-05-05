@@ -10,6 +10,10 @@
 // a lock and must be replaced or removed when the state becomes SMP-safe.
 #define OS1_BSP_ONLY [[maybe_unused]]
 
+// Marker for globals whose mutation is serialized by `name`. This is
+// documentation-only and intentionally easy to grep during SMP conversions.
+#define OS1_LOCKED_BY(name) [[maybe_unused]]
+
 #if defined(OS1_HOST_TEST)
 #define KASSERT_ON_BSP() \
     do                   \

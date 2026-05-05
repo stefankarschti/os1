@@ -8,6 +8,7 @@
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/kmem.hpp"
+#include "sync/wait_queue.hpp"
 #include "sync/smp.hpp"
 #include "util/memory.h"
 
@@ -129,17 +130,32 @@ constexpr char kThreadCacheName[] = "thread";
 extern "C" void kernel_thread_start();
 }  // namespace
 
-OS1_BSP_ONLY Spinlock g_thread_registry_lock{"thread-registry"};
+Spinlock g_thread_registry_lock{"thread-registry"};
 
 namespace
 {
 
 // BSP-only for now: TID allocation, idle-thread publication, and thread registry
 // mutation have no SMP lock until APs leave the parked idle loop.
-OS1_BSP_ONLY uint64_t g_next_tid = 1;
-OS1_BSP_ONLY KmemCache* g_thread_cache = nullptr;
-OS1_BSP_ONLY Thread* g_thread_head = nullptr;
-OS1_BSP_ONLY Thread* g_thread_tail = nullptr;
+OS1_LOCKED_BY(g_thread_registry_lock) uint64_t g_next_tid = 1;
+OS1_LOCKED_BY(g_thread_registry_lock) KmemCache* g_thread_cache = nullptr;
+OS1_LOCKED_BY(g_thread_registry_lock) Thread* g_thread_head = nullptr;
+OS1_LOCKED_BY(g_thread_registry_lock) Thread* g_thread_tail = nullptr;
+
+void set_process_state(Thread* thread, ProcessState state)
+{
+    if((nullptr == thread) || (nullptr == thread->process) ||
+       (ProcessState::Dying == thread->process->state))
+    {
+        return;
+    }
+
+    IrqSpinGuard guard(g_process_table_lock);
+    if(ProcessState::Dying != thread->process->state)
+    {
+        thread->process->state = state;
+    }
+}
 
 Thread* allocate_thread_record()
 {
@@ -246,7 +262,10 @@ Thread* allocate_kernel_thread(Process* process, void (*entry)(void), PageFrameC
     memset(stack_memory, 0, kKernelThreadStackPages * kPageSize);
     const uint64_t stack_top = (uint64_t)(stack_memory + kKernelThreadStackPages * kPageSize);
 
-    thread->tid = g_next_tid++;
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        thread->tid = g_next_tid++;
+    }
     thread->process = process;
     thread->state = ThreadState::Ready;
     thread->user_mode = false;
@@ -341,13 +360,15 @@ void clear_thread(Thread* thread)
             c->idle_thread = nullptr;
         }
     }
-    unlink_thread(thread);
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        unlink_thread(thread);
+    }
     release_thread_record(thread);
 }
 
 Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameContainer& frames)
 {
-    KASSERT_ON_BSP();
     Thread* thread = allocate_kernel_thread(process, entry, frames);
     if(nullptr == thread)
     {
@@ -361,7 +382,10 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
         publish_idle_thread(owner, thread);
     }
 
-    link_thread(thread);
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        link_thread(thread);
+    }
     (void)enqueue_thread_on_cpu(thread, owner);
     return thread;
 }
@@ -371,7 +395,6 @@ Thread* create_idle_thread_for_cpu(Process* process,
                                    void (*entry)(void),
                                    PageFrameContainer& frames)
 {
-    KASSERT_ON_BSP();
     if(nullptr == owner)
     {
         return nullptr;
@@ -396,7 +419,10 @@ Thread* create_idle_thread_for_cpu(Process* process,
         thread->state = ThreadState::Blocked;
     }
 
-    link_thread(thread);
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        link_thread(thread);
+    }
     return thread;
 }
 
@@ -406,7 +432,6 @@ Thread* create_user_thread(Process* process,
                            PageFrameContainer& frames,
                            bool start_ready)
 {
-    KASSERT_ON_BSP();
     if(nullptr == process)
     {
         return nullptr;
@@ -428,7 +453,10 @@ Thread* create_user_thread(Process* process,
     memset(stack_memory, 0, kKernelThreadStackPages * kPageSize);
     const uint64_t stack_top = (uint64_t)(stack_memory + kKernelThreadStackPages * kPageSize);
 
-    thread->tid = g_next_tid++;
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        thread->tid = g_next_tid++;
+    }
     thread->process = process;
     thread->state = start_ready ? ThreadState::Ready : ThreadState::Blocked;
     thread->user_mode = true;
@@ -444,7 +472,10 @@ Thread* create_user_thread(Process* process,
     thread->frame.rsp = user_rsp;
     thread->frame.ss = kUserDataSegment;
 
-    link_thread(thread);
+    {
+        IrqSpinGuard guard(g_thread_registry_lock);
+        link_thread(thread);
+    }
     if(start_ready)
     {
         (void)enqueue_thread_on_cpu(thread, thread->scheduler_cpu);
@@ -476,10 +507,7 @@ void set_current_thread(Thread* thread)
         thread->scheduler_cpu = cpu_cur();
         thread->run_queue_cpu = nullptr;
         thread->state = ThreadState::Running;
-        if(thread->process)
-        {
-            thread->process->state = ProcessState::Running;
-        }
+        set_process_state(thread, ProcessState::Running);
         cpu_set_kernel_stack(thread->kernel_stack_top);
     }
 }
@@ -491,10 +519,7 @@ void mark_thread_ready(Thread* thread, cpu* target)
     {
         cpu* target_cpu = select_target_cpu(thread, target);
         thread->state = ThreadState::Ready;
-        if(thread->process && (ProcessState::Dying != thread->process->state))
-        {
-            thread->process->state = ProcessState::Ready;
-        }
+        set_process_state(thread, ProcessState::Ready);
         const bool enqueued = enqueue_thread_on_cpu(thread, target_cpu);
         if(enqueued && (target_cpu != cpu_cur()))
         {
@@ -503,13 +528,33 @@ void mark_thread_ready(Thread* thread, cpu* target)
     }
 }
 
-static void block_current_thread(ThreadWaitState wait)
+static bool block_current_thread(ThreadWaitState wait, WaitQueue* queue = nullptr)
 {
     Thread* thread = current_thread();
     if((nullptr == thread) || (ThreadState::Dying == thread->state) ||
        (ThreadState::Free == thread->state))
     {
-        return;
+        return false;
+    }
+
+    IrqSpinGuard process_guard(g_process_table_lock);
+    if(nullptr != queue)
+    {
+        IrqSpinGuard queue_guard(queue->lock);
+        if((ThreadWaitReason::BlockIo == wait.reason) && (nullptr != wait.block_io.completion) &&
+           completion_done(*wait.block_io.completion))
+        {
+            return false;
+        }
+
+        thread->wait = wait;
+        thread->state = ThreadState::Blocked;
+        if(thread->process && (ProcessState::Dying != thread->process->state))
+        {
+            thread->process->state = ProcessState::Ready;
+        }
+        wait_queue_enqueue_locked(*queue, thread);
+        return true;
     }
 
     thread->wait = wait;
@@ -518,6 +563,7 @@ static void block_current_thread(ThreadWaitState wait)
     {
         thread->process->state = ProcessState::Ready;
     }
+    return true;
 }
 
 void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length)
@@ -528,7 +574,7 @@ void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length)
         .user_buffer = user_buffer,
         .length = length,
     };
-    block_current_thread(wait);
+    (void)block_current_thread(wait);
 }
 
 void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid)
@@ -539,17 +585,28 @@ void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t p
         .user_status_pointer = user_status_pointer,
         .pid = pid,
     };
-    block_current_thread(wait);
+    Thread* thread = current_thread();
+    Process* process = (nullptr != thread) ? thread->process : nullptr;
+    if(nullptr == process)
+    {
+        return;
+    }
+    (void)block_current_thread(wait, &process->child_exit_waiters);
 }
 
-void block_current_thread_on_block_io(uint64_t completion_flag)
+void block_current_thread_on_block_io(Completion* completion)
 {
+    if(nullptr == completion)
+    {
+        return;
+    }
+
     ThreadWaitState wait{};
     wait.reason = ThreadWaitReason::BlockIo;
     wait.block_io = BlockIoWaitState{
-        .completion_flag = completion_flag,
+        .completion = completion,
     };
-    block_current_thread(wait);
+    (void)block_current_thread(wait, &completion->waiters);
 }
 
 void clear_thread_wait(Thread* thread)
@@ -573,10 +630,7 @@ void wake_blocked_thread(Thread* thread, cpu* target)
     if(thread == current_thread())
     {
         thread->state = ThreadState::Running;
-        if(thread->process && (ProcessState::Dying != thread->process->state))
-        {
-            thread->process->state = ProcessState::Running;
-        }
+        set_process_state(thread, ProcessState::Running);
         return;
     }
 
@@ -585,6 +639,7 @@ void wake_blocked_thread(Thread* thread, cpu* target)
 
 Thread* first_blocked_thread(ThreadWaitReason reason)
 {
+    IrqSpinGuard guard(g_thread_registry_lock);
     for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
         if((ThreadState::Blocked == thread->state) && (reason == thread->wait.reason))
@@ -595,24 +650,14 @@ Thread* first_blocked_thread(ThreadWaitReason reason)
     return nullptr;
 }
 
-void wake_block_io_waiters(uint64_t completion_flag)
+void wake_block_io_waiters(Completion* completion)
 {
-    if(0 == completion_flag)
+    if(nullptr == completion)
     {
         return;
     }
 
-    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
-    {
-        if((ThreadState::Blocked != thread->state) ||
-           (ThreadWaitReason::BlockIo != thread->wait.reason) ||
-           (completion_flag != thread->wait.block_io.completion_flag))
-        {
-            continue;
-        }
-
-        wake_blocked_thread(thread);
-    }
+    (void)wait_queue_wake_all(completion->waiters);
 }
 
 void mark_current_thread_dying(int exit_status)
@@ -628,6 +673,7 @@ void mark_current_thread_dying(int exit_status)
     clear_thread_wait(thread);
     if(thread->process)
     {
+        IrqSpinGuard guard(g_process_table_lock);
         thread->process->exit_status = exit_status;
         thread->process->state =
             thread->process->parent ? ProcessState::Zombie : ProcessState::Dying;

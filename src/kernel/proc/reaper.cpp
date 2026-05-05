@@ -3,17 +3,29 @@
 // re-enters the kernel.
 #include "handoff/memory_layout.h"
 #include "proc/thread.hpp"
+#include "syscall/wait.hpp"
 
 void reap_dead_threads(PageFrameContainer& frames)
 {
     Thread* active = current_thread();
-    for(Thread* thread = first_thread(); nullptr != thread;)
+    for(;;)
     {
-        Thread* next = next_thread(thread);
-        if((thread == active) || (ThreadState::Dying != thread->state))
+        Thread* thread = nullptr;
         {
-            thread = next;
-            continue;
+            IrqSpinGuard guard(g_thread_registry_lock);
+            for(Thread* candidate = first_thread(); nullptr != candidate; candidate = next_thread(candidate))
+            {
+                if((candidate != active) && (ThreadState::Dying == candidate->state))
+                {
+                    thread = candidate;
+                    break;
+                }
+            }
+        }
+
+        if(nullptr == thread)
+        {
+            break;
         }
 
         // Thread teardown is deferred until some *other* thread enters the kernel.
@@ -31,14 +43,12 @@ void reap_dead_threads(PageFrameContainer& frames)
         {
             if(ProcessState::Zombie == owner->state)
             {
-                thread = next;
+                wake_child_waiters(frames, owner->parent);
                 continue;
             }
 
             reap_process(owner, frames);
         }
-
-        thread = next;
     }
 
     relink_runnable_threads();

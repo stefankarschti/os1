@@ -112,6 +112,7 @@ set(KERNEL_SYSCALL_SOURCES
 
 set(KERNEL_SYNC_SOURCES
   sync/smp.cpp
+  sync/wait_queue.cpp
 )
 
 set(KERNEL_DEBUG_SOURCES

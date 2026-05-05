@@ -38,6 +38,7 @@ add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/
 add_library(os1_host_support
   support/cpu_stubs.cpp
   support/debug_stub.cpp
+  support/kernel_state_stub.cpp
   support/lapic_stub.cpp
   support/memory_stubs.cpp
   support/physical_memory.cpp
@@ -58,6 +59,7 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/mm/kmem.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/page_frame.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/dma.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/mm/user_copy.cpp"
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi_aml.cpp"
@@ -73,6 +75,8 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/proc/thread.cpp"
   "${OS1_REPO_ROOT}/src/kernel/proc/user_elf.cpp"
   "${OS1_REPO_ROOT}/src/kernel/sched/thread_queue.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/sync/wait_queue.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/syscall/wait.cpp"
 )
 target_compile_definitions(os1_host_support PUBLIC OS1_HOST_TEST=1)
 if(OS1_KMEM_DEBUG)

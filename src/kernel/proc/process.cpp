@@ -17,18 +17,18 @@ namespace
 constexpr char kProcessCacheName[] = "process";
 }  // namespace
 
-OS1_BSP_ONLY Spinlock g_process_table_lock{"process-table"};
+Spinlock g_process_table_lock{"process-table"};
 
 namespace
 {
 
 // BSP-only for now: PID allocation and process table ownership are serialized
 // by the parked-AP execution model, not by a real process-registry lock.
-OS1_BSP_ONLY uint64_t g_next_pid = 1;
-OS1_BSP_ONLY Process* g_kernel_process = nullptr;
-OS1_BSP_ONLY KmemCache* g_process_cache = nullptr;
-OS1_BSP_ONLY Process* g_process_head = nullptr;
-OS1_BSP_ONLY Process* g_process_tail = nullptr;
+OS1_LOCKED_BY(g_process_table_lock) uint64_t g_next_pid = 1;
+OS1_LOCKED_BY(g_process_table_lock) Process* g_kernel_process = nullptr;
+OS1_LOCKED_BY(g_process_table_lock) KmemCache* g_process_cache = nullptr;
+OS1_LOCKED_BY(g_process_table_lock) Process* g_process_head = nullptr;
+OS1_LOCKED_BY(g_process_table_lock) Process* g_process_tail = nullptr;
 
 Process* allocate_process_record()
 {
@@ -36,7 +36,15 @@ Process* allocate_process_record()
     {
         return nullptr;
     }
-    return static_cast<Process*>(kmem_cache_alloc(g_process_cache, KmallocFlags::Zero));
+
+    Process* process = static_cast<Process*>(kmem_cache_alloc(g_process_cache, KmallocFlags::Zero));
+    if(nullptr != process)
+    {
+        process->child_exit_waiters.lock.reset("process-child-exit");
+        process->child_exit_waiters.head = nullptr;
+        process->child_exit_waiters.name = "process-child-exit";
+    }
+    return process;
 }
 
 void link_process(Process* process)
@@ -112,7 +120,7 @@ void orphan_children(Process* process)
         return;
     }
 
-    for(Process* candidate = first_process(); nullptr != candidate; candidate = next_process(candidate))
+    for(Process* candidate = g_process_head; nullptr != candidate; candidate = candidate->registry_next)
     {
         if(candidate->parent == process)
         {
@@ -172,13 +180,13 @@ Process* next_process(const Process* process)
 
 Process* create_kernel_process(uint64_t kernel_cr3)
 {
-    KASSERT_ON_BSP();
     Process* process = allocate_process_record();
     if(nullptr == process)
     {
         return nullptr;
     }
 
+    IrqSpinGuard guard(g_process_table_lock);
     process->pid = g_next_pid++;
     process->state = ProcessState::Ready;
     process->address_space.cr3 = kernel_cr3;
@@ -191,13 +199,13 @@ Process* create_kernel_process(uint64_t kernel_cr3)
 
 Process* create_user_process(const char* name, uint64_t cr3)
 {
-    KASSERT_ON_BSP();
     Process* process = allocate_process_record();
     if(nullptr == process)
     {
         return nullptr;
     }
 
+    IrqSpinGuard guard(g_process_table_lock);
     process->pid = g_next_pid++;
     process->state = ProcessState::Ready;
     process->address_space.cr3 = cr3;
@@ -214,6 +222,7 @@ bool process_has_threads(Process* process)
         return false;
     }
 
+    IrqSpinGuard guard(g_thread_registry_lock);
     for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
         if((thread->process == process) && (ThreadState::Free != thread->state))
@@ -226,24 +235,47 @@ bool process_has_threads(Process* process)
 
 bool reap_process(Process* process, PageFrameContainer& frames)
 {
-    KASSERT_ON_BSP();
-    if((nullptr == process) || process_has_threads(process))
+    if(nullptr == process)
     {
         return false;
     }
 
-    if((process != g_kernel_process) && (process->address_space.cr3 != 0))
+    uint64_t cr3_to_destroy = 0;
+    bool keep_kernel_process = false;
     {
-        VirtualMemory vm(frames, process->address_space.cr3);
+        IrqSpinGuard process_guard(g_process_table_lock);
+        {
+            IrqSpinGuard thread_guard(g_thread_registry_lock);
+            for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
+            {
+                if((thread->process == process) && (ThreadState::Free != thread->state))
+                {
+                    return false;
+                }
+            }
+        }
+
+        if((process != g_kernel_process) && (process->address_space.cr3 != 0))
+        {
+            cr3_to_destroy = process->address_space.cr3;
+            process->address_space.cr3 = 0;
+        }
+        orphan_children(process);
+        if(process == g_kernel_process)
+        {
+            g_kernel_process = nullptr;
+            keep_kernel_process = true;
+        }
+        unlink_process(process);
+    }
+
+    if((0 != cr3_to_destroy) && !keep_kernel_process)
+    {
+        VirtualMemory vm(frames, cr3_to_destroy);
         vm.destroy_user_slot(kUserPml4Index);
-        frames.free(process->address_space.cr3);
+        frames.free(cr3_to_destroy);
     }
-    orphan_children(process);
-    if(process == g_kernel_process)
-    {
-        g_kernel_process = nullptr;
-    }
-    unlink_process(process);
+
     release_process_record(process);
     return true;
 }

@@ -25,7 +25,6 @@ Thread* schedule_next(bool keep_current)
     if(cpu_on_boot())
     {
         reap_dead_threads(page_frames);
-        wake_child_waiters(page_frames);
     }
     Thread* current = current_thread();
     cpu* local_cpu = cpu_cur();

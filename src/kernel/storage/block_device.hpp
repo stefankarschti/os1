@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "sync/wait_queue.hpp"
+
 enum class BlockOperation : uint8_t
 {
     Read = 0,
@@ -27,7 +29,7 @@ struct BlockRequest
     uint64_t sector = 0;
     void* buffer = nullptr;
     uint32_t sector_count = 0;
-    volatile bool completed = false;
+    Completion completion{"block-request"};
     volatile BlockRequestStatus status = BlockRequestStatus::Pending;
     uint32_t bytes_transferred = 0;
     void* driver_context = nullptr;
@@ -52,7 +54,7 @@ struct BlockDevice
 
 inline bool block_request_succeeded(const BlockRequest& request)
 {
-    return request.completed && (BlockRequestStatus::Success == request.status);
+    return completion_done(request.completion) && (BlockRequestStatus::Success == request.status);
 }
 
 void block_request_complete(BlockRequest& request,

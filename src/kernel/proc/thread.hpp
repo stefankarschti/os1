@@ -12,8 +12,9 @@
 #include "sync/smp.hpp"
 
 struct cpu;
+struct Completion;
 
-OS1_BSP_ONLY extern Spinlock g_thread_registry_lock;
+extern Spinlock g_thread_registry_lock;
 
 constexpr uint16_t kKernelCodeSegment = 0x08;
 constexpr uint16_t kKernelDataSegment = 0x10;
@@ -51,7 +52,7 @@ struct ChildExitWaitState
 
 struct BlockIoWaitState
 {
-    uint64_t completion_flag = 0;
+    Completion* completion = nullptr;
 };
 
 struct ThreadWaitState
@@ -132,7 +133,7 @@ void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length)
 // Block the current thread until the selected child can be reaped.
 void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid);
 // Block the current thread until a block-I/O completion flag is signaled.
-void block_current_thread_on_block_io(uint64_t completion_flag);
+void block_current_thread_on_block_io(Completion* completion);
 // clear a thread's wait metadata after the wait has completed.
 void clear_thread_wait(Thread* thread);
 // Wake a blocked thread, preserving the currently running thread state when the
@@ -141,7 +142,7 @@ void wake_blocked_thread(Thread* thread, cpu* target = nullptr);
 // Return the first thread blocked on a wait reason.
 Thread* first_blocked_thread(ThreadWaitReason reason);
 // Wake any thread blocked on a matching block-I/O completion flag.
-void wake_block_io_waiters(uint64_t completion_flag);
+void wake_block_io_waiters(Completion* completion);
 // Mark the current thread dying and publish its process exit status.
 void mark_current_thread_dying(int exit_status);
 // Reclaim a thread record after its stack and owner state have been torn down.

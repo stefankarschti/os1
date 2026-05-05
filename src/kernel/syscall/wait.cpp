@@ -4,7 +4,7 @@
 
 namespace
 {
-Process* find_child_process(Process* parent, uint64_t pid, bool zombie_only)
+Process* find_child_process_locked(Process* parent, uint64_t pid, bool zombie_only)
 {
     if(nullptr == parent)
     {
@@ -13,7 +13,8 @@ Process* find_child_process(Process* parent, uint64_t pid, bool zombie_only)
 
     for(Process* candidate = first_process(); nullptr != candidate; candidate = next_process(candidate))
     {
-        if((candidate->parent != parent) || (ProcessState::Free == candidate->state))
+        if((candidate->parent != parent) || (ProcessState::Free == candidate->state) ||
+           (ProcessState::Dying == candidate->state))
         {
             continue;
         }
@@ -29,7 +30,7 @@ Process* find_child_process(Process* parent, uint64_t pid, bool zombie_only)
     return nullptr;
 }
 
-bool process_has_any_threads(const Process* process)
+bool process_has_any_threads_locked(const Process* process)
 {
     if(nullptr == process)
     {
@@ -59,22 +60,35 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
         return true;
     }
 
-    Process* child = find_child_process(thread->process, pid, true);
-    if(nullptr != child)
+    Process* child = nullptr;
+    uint64_t child_pid = 0;
+    int exit_status = 0;
     {
-        if(process_has_any_threads(child))
+        IrqSpinGuard process_guard(g_process_table_lock);
+        child = find_child_process_locked(thread->process, pid, true);
         {
-            return false;
+            IrqSpinGuard thread_guard(g_thread_registry_lock);
+            if((nullptr != child) && process_has_any_threads_locked(child))
+            {
+                return false;
+            }
         }
 
-        const int exit_status = child->exit_status;
+        if(nullptr != child)
+        {
+            child_pid = child->pid;
+            exit_status = child->exit_status;
+        }
+    }
+    if(nullptr != child)
+    {
         if((0 != user_status_pointer) &&
            !copy_to_user(frames, thread, user_status_pointer, &exit_status, sizeof(exit_status)))
         {
             return true;
         }
 
-        result = static_cast<long>(child->pid);
+        result = static_cast<long>(child_pid);
         if(!reap_process(child, frames))
         {
             result = -1;
@@ -82,9 +96,12 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
         return true;
     }
 
-    if(nullptr != find_child_process(thread->process, pid, false))
     {
-        return false;
+        IrqSpinGuard process_guard(g_process_table_lock);
+        if(nullptr != find_child_process_locked(thread->process, pid, false))
+        {
+            return false;
+        }
     }
 
     return true;
@@ -92,25 +109,57 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
 
 void wake_child_waiters(PageFrameContainer& frames)
 {
-    for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
+    (void)frames;
+}
+
+void wake_child_waiters(PageFrameContainer& frames, Process* parent)
+{
+    if(nullptr == parent)
     {
-        if((ThreadState::Blocked != thread->state) ||
-           (ThreadWaitReason::ChildExit != thread->wait.reason))
-        {
-            continue;
-        }
+        return;
+    }
+
+    Thread* pending = wait_queue_dequeue_all(parent->child_exit_waiters);
+    Thread* still_waiting_head = nullptr;
+    Thread* still_waiting_tail = nullptr;
+    while(nullptr != pending)
+    {
+        Thread* thread = pending;
+        pending = pending->wait_link;
+        thread->wait_link = nullptr;
 
         long result = -1;
-        if(!try_complete_wait_pid(frames,
-                                  thread,
-                                  thread->wait.child_exit.pid,
-                                  thread->wait.child_exit.user_status_pointer,
-                                  result))
+        if(try_complete_wait_pid(frames,
+                                 thread,
+                                 thread->wait.child_exit.pid,
+                                 thread->wait.child_exit.user_status_pointer,
+                                 result))
         {
+            thread->frame.rax = static_cast<uint64_t>(result);
+            wake_blocked_thread(thread);
             continue;
         }
 
-        thread->frame.rax = static_cast<uint64_t>(result);
-        wake_blocked_thread(thread);
+        if(nullptr == still_waiting_head)
+        {
+            still_waiting_head = thread;
+        }
+        else
+        {
+            still_waiting_tail->wait_link = thread;
+        }
+        still_waiting_tail = thread;
+    }
+
+    if(nullptr != still_waiting_head)
+    {
+        IrqSpinGuard guard(parent->child_exit_waiters.lock);
+        for(Thread* thread = still_waiting_head; nullptr != thread;)
+        {
+            Thread* next = thread->wait_link;
+            thread->wait_link = nullptr;
+            wait_queue_enqueue_locked(parent->child_exit_waiters, thread);
+            thread = next;
+        }
     }
 }

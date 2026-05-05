@@ -2,6 +2,7 @@
 // bitmap; later subsystems allocate physical pages through this single owner.
 #include "mm/page_frame.hpp"
 
+#include "core/kernel_state.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "sync/smp.hpp"
@@ -217,7 +218,7 @@ void PageFrameContainer::enable_direct_map_access()
 
 bool PageFrameContainer::allocate(uint64_t& address)
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_page_frames_lock);
     // check for successful initialization
     if(!initialized_)
         return false;
@@ -262,7 +263,7 @@ bool PageFrameContainer::allocate(uint64_t& address)
 
 bool PageFrameContainer::allocate(uint64_t& address, unsigned count)
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_page_frames_lock);
     // check for successful initialization
     if(!initialized_)
         return false;
@@ -301,7 +302,7 @@ bool PageFrameContainer::allocate(uint64_t& address, unsigned count)
 
 bool PageFrameContainer::free(uint64_t address)
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_page_frames_lock);
     if(!initialized_)
         return false;
     // check address align
@@ -332,7 +333,7 @@ bool PageFrameContainer::free(uint64_t address)
 
 bool PageFrameContainer::reserve_range(uint64_t address, uint64_t length)
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_page_frames_lock);
     if(!initialized_ || (0 == length))
     {
         return false;

@@ -13,7 +13,7 @@
 
 OS1_BSP_ONLY extern Terminal* active_terminal;
 
-OS1_BSP_ONLY Spinlock g_console_input_lock{"console-input"};
+Spinlock g_console_input_lock{"console-input"};
 
 namespace
 {
@@ -24,13 +24,13 @@ constexpr size_t kConsoleInputCompletedLineCapacity = 8;
 
 // BSP-only for now: serial and keyboard input are consumed by the BSP console
 // path while APs remain parked.
-OS1_BSP_ONLY char g_pending_line[kConsoleInputMaxLineBytes]{};
-OS1_BSP_ONLY size_t g_pending_length = 0;
-OS1_BSP_ONLY char g_completed_lines[kConsoleInputCompletedLineCapacity][kConsoleInputMaxLineBytes]{};
-OS1_BSP_ONLY size_t g_completed_lengths[kConsoleInputCompletedLineCapacity]{};
-OS1_BSP_ONLY size_t g_completed_head = 0;
-OS1_BSP_ONLY size_t g_completed_tail = 0;
-OS1_BSP_ONLY size_t g_completed_count = 0;
+OS1_LOCKED_BY(g_console_input_lock) char g_pending_line[kConsoleInputMaxLineBytes]{};
+OS1_LOCKED_BY(g_console_input_lock) size_t g_pending_length = 0;
+OS1_LOCKED_BY(g_console_input_lock) char g_completed_lines[kConsoleInputCompletedLineCapacity][kConsoleInputMaxLineBytes]{};
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_lengths[kConsoleInputCompletedLineCapacity]{};
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_head = 0;
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_tail = 0;
+OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_count = 0;
 
 void echo_byte(char c)
 {
@@ -116,6 +116,7 @@ void handle_input_char(char ascii)
 void console_input_initialize()
 {
     KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     memset(g_pending_line, 0, sizeof(g_pending_line));
     memset(g_completed_lines, 0, sizeof(g_completed_lines));
     memset(g_completed_lengths, 0, sizeof(g_completed_lengths));
@@ -128,12 +129,14 @@ void console_input_initialize()
 void console_input_on_keyboard_char(char ascii)
 {
     KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     handle_input_char(ascii);
 }
 
 void console_input_poll_serial()
 {
     KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     while((inb(kSerialLineStatusPort) & kSerialDataReady) != 0)
     {
         handle_input_char((char)inb(kSerialPortBase));
@@ -142,13 +145,13 @@ void console_input_poll_serial()
 
 bool console_input_has_line()
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     return g_completed_count > 0;
 }
 
 bool console_input_pop_line(char* buffer, size_t buffer_size, size_t& line_length)
 {
-    KASSERT_ON_BSP();
+    IrqSpinGuard guard(g_console_input_lock);
     line_length = 0;
     if((nullptr == buffer) || (0 == buffer_size) || (0 == g_completed_count))
     {
