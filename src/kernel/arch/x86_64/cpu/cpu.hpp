@@ -150,6 +150,8 @@ static inline int cpu_on_boot()
 
 // initialize the current CPU's GDT, TSS, and GS base.
 void cpu_init(void);
+// Load the global kernel IDT on the current CPU.
+void cpu_load_idt(void);
 // Initialize the prefix fields of a cpu record before the embedded stack area.
 void cpu_initialize_record(cpu* c);
 // allocate a CPU record plus kernel stack from physical pages.

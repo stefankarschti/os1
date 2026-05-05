@@ -2,6 +2,7 @@
 #include "core/irq_dispatch.hpp"
 
 #include "arch/x86_64/apic/lapic.hpp"
+#include "arch/x86_64/cpu/cpu.hpp"
 #include "arch/x86_64/cpu/io_port.hpp"
 #include "arch/x86_64/interrupt/interrupt.hpp"
 #include "console/console_input.hpp"
@@ -44,7 +45,7 @@ Thread* handle_irq(TrapFrame* frame)
                              g_timer_ticks,
                              0);
     }
-    if(scheduler_tick)
+    if(scheduler_tick && cpu_on_boot())
     {
         console_input_poll_serial();
         ++g_timer_ticks;
@@ -52,6 +53,10 @@ Thread* handle_irq(TrapFrame* frame)
     dispatch_interrupt_vector(vector);
 
     acknowledge_irq_vector(vector);
+    if(!cpu_on_boot())
+    {
+        return current_thread();
+    }
     wake_console_readers(page_frames);
 
     if(nullptr == current_thread())

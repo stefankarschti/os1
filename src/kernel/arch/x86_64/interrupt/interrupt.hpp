@@ -61,6 +61,8 @@ class Interrupts
 public:
     // Build the IDT and install exception/IRQ stubs.
     bool initialize();
+    // Load this IDT on the current CPU. The BSP builds it once; APs only load it.
+    void load();
     // Register a device IRQ callback for one interrupt vector.
     void set_vector_handler(uint8_t vector, InterruptHandler pFunction, void* data);
     // Register a device IRQ callback for a legacy IRQ number.

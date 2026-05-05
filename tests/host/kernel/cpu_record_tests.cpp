@@ -104,3 +104,34 @@ TEST(CpuRecord, RunQueueStartsEmptyOnConstructedRecords)
     EXPECT_EQ(0u, record.runq.length);
     EXPECT_FALSE(record.runq.lock.locked());
 }
+
+TEST(CpuRecord, BspSchedulerIgnoresIdleThreadsOwnedByOtherCpus)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    cpu ap_cpu{};
+    ap_cpu.self = &ap_cpu;
+    ap_cpu.id = 1;
+    ap_cpu.magic = CPU_MAGIC;
+
+    HostCpuScope cpu_scope(&ap_cpu);
+    ASSERT_TRUE(init_tasks(frames));
+    Process* kernel_process = create_kernel_process(0);
+    ASSERT_NE(nullptr, kernel_process);
+
+    Thread* bsp_idle = create_idle_thread_for_cpu(kernel_process, g_cpu_boot, idle_entry, frames);
+    Thread* ap_idle = create_idle_thread_for_cpu(kernel_process, &ap_cpu, idle_entry, frames);
+    Thread* worker = create_kernel_thread(kernel_process, idle_entry, frames);
+
+    ASSERT_NE(nullptr, bsp_idle);
+    ASSERT_NE(nullptr, ap_idle);
+    ASSERT_NE(nullptr, worker);
+
+    ap_idle->state = ThreadState::Running;
+    g_cpu_host_current = g_cpu_boot;
+
+    EXPECT_EQ(worker, next_runnable_thread(nullptr));
+    EXPECT_EQ(2u, runnable_thread_count());
+}

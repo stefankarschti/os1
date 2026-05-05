@@ -578,13 +578,13 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "shell prompt ready::sys\\n"
   "sys boot=::ps\\n"
   "pid tid pstate tstate mode cr3 name::cpu\\n"
-  "cpu slot apic bsp booted pid tid::pci\\n"
+  "cpu slot apic bsp booted pid tid::events\\n"
+  "event smoke-marker seq=::pci\\n"
   "pci 00:03.0 1af4:1042::initrd\\n"
   "initrd complete::devices\\n"
   "device bus id state pci driver::irqs\\n"
   "irq vector kind owner source gsi flags::resources\\n"
   "resources complete::kmem\\n"
-  "kmem complete::events\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -761,6 +761,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "kmem complete"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
+    "event ap-online seq="
     "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"
@@ -978,6 +979,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "kmem complete"
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
+    "event ap-online seq="
     "event timer-source-lapic seq="
     "event smoke-marker seq="
     "idle thread online"

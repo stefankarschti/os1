@@ -349,6 +349,8 @@ const char* event_type_name(uint32_t type)
             return "net-rx";
         case OS1_KERNEL_EVENT_KMEM_CORRUPTION:
             return "kmem-corruption";
+        case OS1_KERNEL_EVENT_AP_ONLINE:
+            return "ap-online";
         default:
             return "unknown";
     }

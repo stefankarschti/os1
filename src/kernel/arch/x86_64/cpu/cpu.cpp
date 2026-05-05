@@ -4,6 +4,8 @@
 #include "arch/x86_64/apic/lapic.hpp"
 #include "arch/x86_64/cpu/syscall.hpp"
 #include "arch/x86_64/cpu/x86.hpp"
+#include "core/kernel_state.hpp"
+#include "debug/event_ring.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/page_frame.hpp"
 #include "util/memory.h"  // IWYU pragma: keep
@@ -15,9 +17,7 @@ constexpr uint64_t kApBootWaitSpinLimit = 100000000;
 
 [[noreturn]] void cpu_idle_loop()
 {
-    // Secondary CPUs are online in M2, but BSP-only scheduling keeps them out of
-    // the live thread runtime for now. They remain in an interrupt-disabled idle
-    // loop until later milestones give them a full scheduler path and final IDT.
+    // Fallback only: Phase 2 APs should enter their pre-created idle thread.
     for(;;)
     {
         asm volatile("cli");
@@ -47,6 +47,31 @@ void clear_ap_startup_idt()
     {
         idt[index] = 0;
     }
+}
+
+[[noreturn]] void enter_ap_idle_thread()
+{
+    Thread* idle = cpu_cur()->idle_thread;
+    if(nullptr == idle)
+    {
+        debug("cpu ")(cpu_cur()->id)(" missing idle thread")();
+        cpu_idle_loop();
+    }
+
+    idle->state = ThreadState::Running;
+    if((nullptr != idle->process) && (ProcessState::Dying != idle->process->state))
+    {
+        idle->process->state = ProcessState::Running;
+    }
+    kernel_event::record(OS1_KERNEL_EVENT_AP_ONLINE,
+                         OS1_KERNEL_EVENT_FLAG_SUCCESS,
+                         cpu_cur()->id,
+                         reinterpret_cast<uint64_t>(cpu_cur()),
+                         reinterpret_cast<uint64_t>(idle),
+                         0);
+    xchg(&cpu_cur()->booted, 1);
+    enter_first_thread(idle, idle->kernel_stack_top);
+    cpu_idle_loop();
 }
 
 void set_tss_descriptor(cpu* c)
@@ -130,11 +155,17 @@ void cpu_init()
 	    :
 	    : [code] "i"(CPU_GDT_KCODE)
 	    : "rax", "memory");
+	wrmsr(0xC0000100, (uint64_t)c);
 	wrmsr(0xC0000101, (uint64_t)c);
 
     asm volatile("lldt %%ax" ::"a"(0));
     ltr(CPU_GDT_TSS);
     cpu_enable_syscall_entry();
+}
+
+void cpu_load_idt()
+{
+    interrupts.load();
 }
 
 extern PageFrameContainer page_frames;
@@ -167,10 +198,14 @@ void init()
     {
         debug("CPU ")(cpu_cur()->id)(" is alive at 0x")((uint64_t)cpu_cur(), 16)();
         cpu_init();
+        if(nullptr != lapic)
+        {
+            cpu_cur()->id = static_cast<uint8_t>(lapic[ID] >> 24);
+        }
         debug("cpu init worked!")();
-        ioapic_init();
         lapic_init();
-        xchg(&cpu_cur()->booted, 1);
+        cpu_load_idt();
+        enter_ap_idle_thread();
     }
 
     cpu_idle_loop();

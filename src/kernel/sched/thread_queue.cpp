@@ -1,14 +1,43 @@
 // Simple runnable selection in thread-registry order. This file owns scheduler
 // policy; object lifetime remains in proc/thread.cpp and proc/reaper.cpp.
+#include "arch/x86_64/cpu/cpu.hpp"
 #include "proc/thread.hpp"
+
+namespace
+{
+[[nodiscard]] bool has_runnable_state(const Thread* thread)
+{
+    return (nullptr != thread) &&
+           ((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state));
+}
+
+[[nodiscard]] bool is_idle_thread_for_another_cpu(const Thread* thread)
+{
+    if(nullptr == thread)
+    {
+        return false;
+    }
+
+    const cpu* current = cpu_cur();
+    for(cpu* owner = g_cpu_boot; nullptr != owner; owner = owner->next)
+    {
+        if(owner->idle_thread == thread)
+        {
+            return owner != current;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool schedulable_on_current_cpu(const Thread* thread)
+{
+    return has_runnable_state(thread) && !is_idle_thread_for_another_cpu(thread);
+}
+}  // namespace
 
 Thread* next_runnable_thread(Thread* after)
 {
     relink_runnable_threads();
-    auto is_runnable = [](const Thread* thread) -> bool {
-        return (nullptr != thread) &&
-               ((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state));
-    };
 
     Thread* start = first_thread();
     if(nullptr != after)
@@ -28,7 +57,7 @@ Thread* next_runnable_thread(Thread* after)
     Thread* idle_candidate = nullptr;
     for(Thread* candidate = start; nullptr != candidate; candidate = next_thread(candidate))
     {
-        if(!is_runnable(candidate))
+        if(!schedulable_on_current_cpu(candidate))
         {
             continue;
         }
@@ -47,7 +76,7 @@ Thread* next_runnable_thread(Thread* after)
     {
         for(Thread* candidate = first_thread(); candidate != start; candidate = next_thread(candidate))
         {
-            if(!is_runnable(candidate))
+            if(!schedulable_on_current_cpu(candidate))
             {
                 continue;
             }
@@ -71,7 +100,7 @@ size_t runnable_thread_count(void)
     size_t count = 0;
     for(Thread* thread = first_thread(); nullptr != thread; thread = next_thread(thread))
     {
-        if((ThreadState::Ready == thread->state) || (ThreadState::Running == thread->state))
+        if(schedulable_on_current_cpu(thread))
         {
             ++count;
         }
