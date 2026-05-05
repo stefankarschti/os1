@@ -3,6 +3,11 @@
 Source checked against [2026-05-05-phased-smp-enablement.md](2026-05-05-phased-smp-enablement.md)
 using the recommended per-CPU run-queue/load-balancer option.
 
+> Status update: all findings in this post-implementation review were addressed
+> by the follow-up work called out in [2026-05-05-review-2.md](2026-05-05-review-2.md).
+> Keep this file as the historical punch-list that drove commit `61bbb4f` and
+> the subsequent documentation refresh.
+
 ## Findings
 
 1. **BIOS balance smoke is not deterministic.**

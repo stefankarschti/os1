@@ -7,6 +7,12 @@
 > SMP scheduling with basic load balancing. Each phase is defined so it can be merged,
 > smoke-tested, and rolled back independently.
 
+> Status update: this plan has been implemented in source. Keep it as the
+> historical implementation plan for the 2026-05-05 SMP landing; for the
+> post-landing assessment and the remaining follow-up work, see
+> [2026-05-05-review-2.md](2026-05-05-review-2.md) and
+> [2026-05-05-smp-enablement-review.md](2026-05-05-smp-enablement-review.md).
+
 ## 1. Current state
 
 ### 1.1 What SMP groundwork already exists

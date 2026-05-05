@@ -8,7 +8,7 @@ The list is curated rather than exhaustive. It favors primary sources first: off
 
 If you are working on the codebase today, these are the highest-value references to open first:
 
-- [Intel 64 and IA-32 Architectures Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html): The primary x86 and x86_64 reference for privilege levels, page tables, interrupts, APIC behavior, CPUID, system instructions, and memory ordering.
+- [Intel 64 and IA-32 Architectures Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html): The primary x86 and x86_64 reference for privilege levels, page tables, interrupts, APIC and IPI behavior, CPUID, system instructions, and memory ordering.
 - [Unified Extensible Firmware Interface Specifications](https://uefi.org/specifications): The main reference for the modern boot path, firmware services, memory maps, GOP, boot services handoff, and UEFI runtime concepts.
 - [ACPI Specification 6.5](https://uefi.org/specs/ACPI/6.5/): The primary reference for MADT, MCFG, HPET, SRAT, and the platform-description tables needed for modern x86 bring-up.
 - [System V AMD64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI): The ABI reference for calling convention, stack alignment, register preservation, ELF relocations, and user-kernel interface boundaries on `x86_64`.
@@ -41,7 +41,7 @@ If you are working on the codebase today, these are the highest-value references
 
 ## Memory Management, Interrupts, Timing, And SMP
 
-- [Intel 64 and IA-32 Architectures Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html): The main x86 reference for paging structures, IDT entries, exception delivery, AP startup, APIC timer behavior, and cache/TLB semantics.
+- [Intel 64 and IA-32 Architectures Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html): The main x86 reference for paging structures, IDT entries, exception delivery, AP startup, APIC timer behavior, IPI delivery, TLB shootdown mechanics, and cache/TLB semantics.
 - [AMD64 Architecture Programmer's Manual, Volume 2: System Programming](https://www.amd.com/system/files/TechDocs/24593.pdf): Useful for vendor-confirming long-mode paging, exception behavior, MSRs, and memory-management corner cases.
 - [ACPI Specification 6.5](https://uefi.org/specs/ACPI/6.5/): Important for MADT CPU enumeration, interrupt-source overrides, and HPET discovery.
 - [IA-PC HPET (High Precision Event Timers) Specification 1.0a](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/software-developers-hpet-spec-1-0a.pdf): The normative HPET reference for the capabilities/configuration/main-counter registers used to calibrate the LAPIC scheduler tick in `src/kernel/platform/hpet.cpp` and `src/kernel/core/kernel_main.cpp`.
@@ -96,7 +96,7 @@ If you are working on the codebase today, these are the highest-value references
 - [ECMA-48 Control Functions for Coded Character Sets](https://ecma-international.org/publications-and-standards/standards/ecma-48/): The canonical public reference for ANSI escape/control sequences, cursor movement, SGR attributes, and terminal control conventions.
 - [The Open Group Base Specifications Issue 7, 2018 edition](https://pubs.opengroup.org/onlinepubs/9699919799/): Normative reference for `termios`, terminal devices, session control, signals, and pseudo-terminal behavior.
 - [The Unicode Standard](https://www.unicode.org/versions/latest/): The right reference once the system grows beyond ASCII-only text rendering and input handling.
-- [USB HID class resources](https://www.usb.org/hid): Official HID references for future keyboard, mouse, and other human-interface device work once USB input arrives.
+- [USB HID class resources](https://www.usb.org/hid): Official HID references for the in-tree boot-keyboard path and future mouse and other human-interface device work.
 
 ## Security, Identity, Permissions, And Randomness
 
