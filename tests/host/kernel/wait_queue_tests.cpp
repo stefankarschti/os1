@@ -1,6 +1,7 @@
 #include "sync/wait_queue.hpp"
 
 #include "arch/x86_64/cpu/cpu.hpp"
+#include "console/console_input.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/kmem.hpp"
 #include "proc/thread.hpp"
@@ -195,4 +196,28 @@ TEST(WaitQueue, WakeAllPreservesFifoOrder)
     EXPECT_EQ(first, next_runnable_thread(nullptr));
     EXPECT_EQ(second, next_runnable_thread(nullptr));
     EXPECT_EQ(third, next_runnable_thread(nullptr));
+}
+
+TEST(WaitQueue, ConsoleReadBlocksOnConsoleOwnedQueue)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    ASSERT_TRUE(init_tasks(frames));
+    console_input_initialize();
+
+    Process* process = create_user_process("reader", 0);
+    ASSERT_NE(nullptr, process);
+    Thread* reader = create_user_thread(process, 0x1000, 0x2000, frames, true);
+    ASSERT_NE(nullptr, reader);
+
+    set_current_thread(reader);
+    block_current_thread_on_console_read(0x8000400000ull, 16);
+
+    EXPECT_EQ(ThreadState::Blocked, reader->state);
+    EXPECT_EQ(ThreadWaitReason::ConsoleRead, reader->wait.reason);
+    EXPECT_EQ(1u, wait_queue_count(console_input_read_wait_queue()));
+    EXPECT_EQ(reader, wait_queue_dequeue(console_input_read_wait_queue()));
+    set_current_thread(nullptr);
 }

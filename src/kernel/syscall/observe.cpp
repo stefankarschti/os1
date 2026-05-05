@@ -244,7 +244,8 @@ long sys_observe_processes(const ObserveContext& context,
 {
     uint32_t record_count = 0;
     {
-        IrqSpinGuard guard(g_thread_registry_lock);
+        IrqSpinGuard process_guard(g_process_table_lock);
+        IrqSpinGuard thread_guard(g_thread_registry_lock);
         for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
         {
             if((ThreadState::Free != entry->state) && (nullptr != entry->process))
@@ -269,8 +270,8 @@ long sys_observe_processes(const ObserveContext& context,
         return -1;
     }
 
-    IrqSpinGuard thread_guard(g_thread_registry_lock);
     IrqSpinGuard process_guard(g_process_table_lock);
+    IrqSpinGuard thread_guard(g_thread_registry_lock);
     for(Thread* entry = first_thread(); nullptr != entry; entry = next_thread(entry))
     {
         if((ThreadState::Free == entry->state) || (nullptr == entry->process))

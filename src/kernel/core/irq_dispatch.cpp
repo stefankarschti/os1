@@ -45,7 +45,7 @@ void account_scheduler_tick()
         ++c->idle_ticks;
     }
 
-    if(!cpu_on_boot() && (0u == (local_ticks % kApTickEventInterval)))
+    if(!cpu_on_boot() && ((1u == local_ticks) || (0u == (local_ticks % kApTickEventInterval))))
     {
         kernel_event::record(OS1_KERNEL_EVENT_AP_TICK,
                              OS1_KERNEL_EVENT_FLAG_SUCCESS,

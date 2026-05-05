@@ -7,6 +7,7 @@
 #include "arch/x86_64/cpu/io_port.hpp"
 #include "console/terminal.hpp"
 #include "debug/debug.hpp"
+#include "sync/wait_queue.hpp"
 #include "sync/smp.hpp"
 #include "util/ctype.hpp"
 #include "util/memory.h"
@@ -22,8 +23,8 @@ constexpr uint16_t kSerialLineStatusPort = kSerialPortBase + 5;
 constexpr uint8_t kSerialDataReady = 0x01;
 constexpr size_t kConsoleInputCompletedLineCapacity = 8;
 
-// BSP-only for now: serial and keyboard input are consumed by the BSP console
-// path while APs remain parked.
+// Serial and keyboard input are consumed on the BSP, while blocked readers may
+// be running on any CPU.
 OS1_LOCKED_BY(g_console_input_lock) char g_pending_line[kConsoleInputMaxLineBytes]{};
 OS1_LOCKED_BY(g_console_input_lock) size_t g_pending_length = 0;
 OS1_LOCKED_BY(g_console_input_lock) char g_completed_lines[kConsoleInputCompletedLineCapacity][kConsoleInputMaxLineBytes]{};
@@ -31,6 +32,7 @@ OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_lengths[kConsoleInputComp
 OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_head = 0;
 OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_tail = 0;
 OS1_LOCKED_BY(g_console_input_lock) size_t g_completed_count = 0;
+WaitQueue g_console_read_waiters{"console-read"};
 
 void echo_byte(char c)
 {
@@ -124,6 +126,9 @@ void console_input_initialize()
     g_completed_head = 0;
     g_completed_tail = 0;
     g_completed_count = 0;
+    g_console_read_waiters.lock.reset("console-read");
+    g_console_read_waiters.head = nullptr;
+    g_console_read_waiters.name = "console-read";
 }
 
 void console_input_on_keyboard_char(char ascii)
@@ -171,4 +176,9 @@ bool console_input_pop_line(char* buffer, size_t buffer_size, size_t& line_lengt
     --g_completed_count;
     line_length = next_length;
     return true;
+}
+
+WaitQueue& console_input_read_wait_queue()
+{
+    return g_console_read_waiters;
 }

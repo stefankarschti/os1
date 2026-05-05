@@ -22,8 +22,8 @@ Spinlock g_process_table_lock{"process-table"};
 namespace
 {
 
-// BSP-only for now: PID allocation and process table ownership are serialized
-// by the parked-AP execution model, not by a real process-registry lock.
+// PID allocation and process table ownership are serialized by
+// g_process_table_lock.
 OS1_LOCKED_BY(g_process_table_lock) uint64_t g_next_pid = 1;
 OS1_LOCKED_BY(g_process_table_lock) Process* g_kernel_process = nullptr;
 OS1_LOCKED_BY(g_process_table_lock) KmemCache* g_process_cache = nullptr;

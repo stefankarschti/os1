@@ -5,6 +5,7 @@
 
 #include "arch/x86_64/apic/ipi.hpp"
 #include "arch/x86_64/cpu/cpu.hpp"
+#include "console/console_input.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/kmem.hpp"
@@ -210,8 +211,8 @@ Spinlock g_thread_registry_lock{"thread-registry"};
 namespace
 {
 
-// BSP-only for now: TID allocation, idle-thread publication, and thread registry
-// mutation have no SMP lock until APs leave the parked idle loop.
+// TID allocation, idle-thread publication, and thread registry mutation are
+// serialized by g_thread_registry_lock.
 OS1_LOCKED_BY(g_thread_registry_lock) uint64_t g_next_tid = 1;
 OS1_LOCKED_BY(g_thread_registry_lock) KmemCache* g_thread_cache = nullptr;
 OS1_LOCKED_BY(g_thread_registry_lock) Thread* g_thread_head = nullptr;
@@ -681,7 +682,7 @@ void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length)
         .user_buffer = user_buffer,
         .length = length,
     };
-    (void)block_current_thread(wait);
+    (void)block_current_thread(wait, &console_input_read_wait_queue());
 }
 
 void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid)

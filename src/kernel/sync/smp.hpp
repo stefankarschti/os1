@@ -1,6 +1,5 @@
-// SMP synchronization contract. APs are online but parked today, so the shared
-// state annotations below make the current BSP-only assumptions explicit before
-// the scheduler grows multi-CPU execution.
+// SMP synchronization contract. The annotations below document remaining
+// ownership constraints; they do not replace locks for shared runtime state.
 #pragma once
 
 #include <stdint.h>

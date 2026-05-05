@@ -37,6 +37,7 @@ add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/
 
 add_library(os1_host_support
   support/cpu_stubs.cpp
+  support/console_input_stub.cpp
   support/debug_stub.cpp
   support/kernel_state_stub.cpp
   support/lapic_stub.cpp
