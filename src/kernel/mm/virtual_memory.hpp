@@ -48,6 +48,11 @@ public:
                       uint64_t physical_address,
                       uint64_t num_pages,
                       PageFlags flags);
+    // Map existing physical memory with 2 MiB leaves for early large ranges.
+    bool map_physical_2m(uint64_t virtual_address,
+                         uint64_t physical_address,
+                         uint64_t num_pages,
+                         PageFlags flags);
     // allocate physical pages, zero them, and map them into a virtual range.
     bool allocate_and_map(uint64_t virtual_address,
                           uint64_t num_pages,

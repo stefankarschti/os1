@@ -176,15 +176,6 @@ long_mode:
     mov fs, ax
     mov gs, ax
     mov ss, ax
-
-    ; Display "64 bit"
-    mov rdi, 0xB8000              
- 
-    mov rax, 0x1F621F201F341F36
-    mov [rdi],rax
- 
-    mov eax, 0x1F741F69
-    mov [rdi + 8], eax
  
 	jmp loader_main64
 

@@ -43,23 +43,47 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
         return false;
     }
 
+    debug("acpi: namespace load start")();
     if(!acpi_namespace_load(kernel_vm,
                             g_platform.acpi_definition_blocks,
-                            g_platform.acpi_definition_block_count) ||
-       !acpi_build_device_info(g_platform.acpi_devices,
+                            g_platform.acpi_definition_block_count))
+    {
+        debug("acpi: namespace load failed err=")(acpi_namespace_last_error())(" obj=")(
+            acpi_namespace_last_object())();
+        return false;
+    }
+
+    debug("acpi: namespace load ready")();
+    debug("acpi: device info build start")();
+    if(!acpi_build_device_info(g_platform.acpi_devices,
                                g_platform.acpi_device_count,
                                g_platform.acpi_pci_routes,
                                g_platform.acpi_pci_route_count))
     {
+        debug("acpi: device info build failed err=")(acpi_namespace_last_error())(" obj=")(
+            acpi_namespace_last_object())();
         return false;
     }
+    debug("acpi: device info build ready devices=")(g_platform.acpi_device_count)(" routes=")(
+        g_platform.acpi_pci_route_count)();
 
+    // Some legacy BIOS machines advertise HPET in ACPI but wedge as soon as
+    // the kernel maps or probes the MMIO block. Keep discovery for visibility,
+    // but disable runtime HPET use on the BIOS boot path and fall back to PIT.
+    if((BootSource::BiosLegacy == boot_info.source) && g_platform.hpet.present)
+    {
+        debug("hpet: disabled on bios boot path")();
+        g_platform.hpet = {};
+    }
+
+    debug("platform: lapic mmio map")();
     if(!map_mmio_range(kernel_vm, g_platform.lapic_base, kPageSize))
     {
         return false;
     }
     for(size_t i = 0; i < g_platform.ioapic_count; ++i)
     {
+        debug("platform: ioapic mmio map addr=0x")(g_platform.ioapics[i].address, 16)();
         if(!map_mmio_range(kernel_vm, g_platform.ioapics[i].address, kPageSize))
         {
             return false;
@@ -69,16 +93,19 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
     {
         return false;
     }
+    debug("platform: hpet init")();
     if(!platform_hpet_initialize())
     {
         return false;
     }
+    debug("platform: cpu topology publish")();
     if(!allocate_cpus_from_topology())
     {
         return false;
     }
 
     g_platform.acpi_active = true;
+    debug("platform: pci enumerate")();
     if(!enumerate_pci(kernel_vm,
                       g_platform.ecam_regions,
                       g_platform.ecam_region_count,

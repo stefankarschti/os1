@@ -206,6 +206,13 @@ std::vector<uint8_t> make_name_integer(const char* name, uint64_t value)
     return bytes;
 }
 
+std::vector<uint8_t> make_integer_term(uint64_t value)
+{
+    std::vector<uint8_t> bytes;
+    append_integer(bytes, value);
+    return bytes;
+}
+
 std::vector<uint8_t> make_name_eisa_id(const char* name, const char* hardware_id)
 {
     return make_name_integer(name, encode_eisa_id(hardware_id));
@@ -253,6 +260,26 @@ std::vector<uint8_t> make_name_package(const char* name,
     return bytes;
 }
 
+std::vector<uint8_t> make_name_varpackage(const char* name,
+                                          const std::vector<uint8_t>& count_term,
+                                          const std::vector<std::vector<uint8_t>>& elements)
+{
+    std::vector<uint8_t> body;
+    body.insert(body.end(), count_term.begin(), count_term.end());
+    for(const auto& element : elements)
+    {
+        body.insert(body.end(), element.begin(), element.end());
+    }
+
+    std::vector<uint8_t> bytes;
+    bytes.push_back(0x08);
+    append_nameseg(bytes, name);
+    bytes.push_back(0x13);
+    append_pkg_length(bytes, body.size());
+    bytes.insert(bytes.end(), body.begin(), body.end());
+    return bytes;
+}
+
 std::vector<uint8_t> make_method_return_name(const char* name, const char* return_name)
 {
     std::vector<uint8_t> body;
@@ -273,6 +300,23 @@ std::vector<uint8_t> make_method_return_integer(const char* name, uint64_t value
     std::vector<uint8_t> body;
     append_nameseg(body, name);
     body.push_back(0x00);
+    body.push_back(0xA4);
+    append_integer(body, value);
+
+    std::vector<uint8_t> bytes;
+    bytes.push_back(0x14);
+    append_pkg_length(bytes, body.size());
+    bytes.insert(bytes.end(), body.begin(), body.end());
+    return bytes;
+}
+
+std::vector<uint8_t> make_method_return_integer_with_arg_count(const char* name,
+                                                               uint8_t arg_count,
+                                                               uint64_t value)
+{
+    std::vector<uint8_t> body;
+    append_nameseg(body, name);
+    body.push_back(static_cast<uint8_t>(arg_count & 0x7u));
     body.push_back(0xA4);
     append_integer(body, value);
 
@@ -331,6 +375,44 @@ std::vector<uint8_t> make_scope(const char* path, const std::vector<std::vector<
     bytes.push_back(0x10);
     append_pkg_length(bytes, body.size());
     bytes.insert(bytes.end(), body.begin(), body.end());
+    return bytes;
+}
+
+std::vector<uint8_t> make_add_expression(const std::vector<uint8_t>& left,
+                                         const std::vector<uint8_t>& right)
+{
+    std::vector<uint8_t> bytes;
+    bytes.push_back(0x72);
+    bytes.insert(bytes.end(), left.begin(), left.end());
+    bytes.insert(bytes.end(), right.begin(), right.end());
+    bytes.push_back(0x00);
+    return bytes;
+}
+
+std::vector<uint8_t> make_method_invocation(const char* name,
+                                            const std::vector<std::vector<uint8_t>>& args)
+{
+    std::vector<uint8_t> bytes;
+    append_nameseg(bytes, name);
+    for(const auto& arg : args)
+    {
+        bytes.insert(bytes.end(), arg.begin(), arg.end());
+    }
+    return bytes;
+}
+
+std::vector<uint8_t> make_operation_region(const char* name,
+                                           uint8_t space,
+                                           const std::vector<uint8_t>& offset,
+                                           const std::vector<uint8_t>& length)
+{
+    std::vector<uint8_t> bytes;
+    bytes.push_back(0x5B);
+    bytes.push_back(0x80);
+    append_nameseg(bytes, name);
+    bytes.push_back(space);
+    bytes.insert(bytes.end(), offset.begin(), offset.end());
+    bytes.insert(bytes.end(), length.begin(), length.end());
     return bytes;
 }
 
@@ -625,4 +707,329 @@ TEST(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
     EXPECT_EQ(std::string_view("BAab"), std::string_view(g_power_order.data(), g_power_order_count));
 
     platform_reset_state();
+}
+
+TEST(AcpiAml, LoadsNamespaceWithComputedOperationRegionOffset)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto dsdt = make_scope(
+        "\\_SB_",
+        {make_name_integer("BAS0", 0x400),
+         make_operation_region(
+             "RGN0", 0x01, make_add_expression(std::vector<uint8_t>{'B', 'A', 'S', '0'},
+                                               make_integer_term(0x10)),
+             make_integer_term(0x20))});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+}
+
+TEST(AcpiAml, LoadsNamespaceWithOperationRegionMethodInvocation)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto dsdt = make_scope(
+        "\\_SB_",
+        {make_method_return_integer_with_arg_count("MBAS", 1, 0x410),
+         make_operation_region(
+             "RGN0", 0x01,
+             make_method_invocation("MBAS", {make_integer_term(0x10)}),
+             make_integer_term(0x20))});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+}
+
+TEST(AcpiAml, LoadsNamespaceWithModuleLevelMethodInvocation)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto dsdt = make_scope(
+        "\\_SB_",
+        {make_name_integer("VAL0", 0),
+         make_method_store_integer("INIT", 1, "VAL0"),
+         make_method_invocation("INIT", {})});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+}
+
+TEST(AcpiAml, IgnoresTrailingUnsupportedScopeBytes)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto pwrb = make_device(
+        "PWRB",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope("\\_SB_", {pwrb, std::vector<uint8_t>{0x40}});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count))
+        << acpi_namespace_last_error();
+
+    const AcpiDeviceInfo* loaded_pwrb = find_device(devices, device_count, "\\_SB_.PWRB");
+    ASSERT_NE(nullptr, loaded_pwrb);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", loaded_pwrb->hardware_id));
+}
+
+TEST(AcpiAml, IgnoresMalformedDeviceCrs)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto bad0 = make_device(
+        "BAD0",
+        {make_name_eisa_id("_HID", "PNP0C0C"),
+         make_buffer_name("_CRS", std::vector<uint8_t>{0x22}),
+         make_method_return_integer("_STA", 0x0F)});
+    const auto good0 = make_device(
+        "GOOD",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope("\\_SB_", {bad0, good0});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count))
+        << acpi_namespace_last_error();
+
+    const AcpiDeviceInfo* bad_device = find_device(devices, device_count, "\\_SB_.BAD0");
+    ASSERT_NE(nullptr, bad_device);
+    EXPECT_EQ(0u, bad_device->flags & kAcpiDeviceHasCrs);
+    EXPECT_EQ(0u, bad_device->resource_count);
+
+    const AcpiDeviceInfo* good_device = find_device(devices, device_count, "\\_SB_.GOOD");
+    ASSERT_NE(nullptr, good_device);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", good_device->hardware_id));
+}
+
+TEST(AcpiAml, IgnoresMalformedDevicePrt)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto pci0 = make_device(
+        "PCI0",
+        {make_name_eisa_id("_HID", "PNP0A08"), make_name_integer("_BBN", 0),
+         make_name_package("_PRT", {std::vector<uint8_t>{0x00}}),
+         make_method_return_integer("_STA", 0x0F)});
+    const auto pwrb = make_device(
+        "PWRB",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope("\\_SB_", {pci0, pwrb});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count))
+        << acpi_namespace_last_error();
+
+    const AcpiDeviceInfo* pci_device = find_device(devices, device_count, "\\_SB_.PCI0");
+    ASSERT_NE(nullptr, pci_device);
+    EXPECT_EQ(0u, pci_device->flags & kAcpiDeviceHasPrt);
+    EXPECT_EQ(0u, route_count);
+
+    const AcpiDeviceInfo* power_button = find_device(devices, device_count, "\\_SB_.PWRB");
+    ASSERT_NE(nullptr, power_button);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", power_button->hardware_id));
+}
+
+TEST(AcpiAml, IgnoresUnsupportedNameDataByKeepingEarlierNamespace)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto pwrb = make_device(
+        "PWRB",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    std::vector<uint8_t> bad_name{0x08, 'B', 'A', 'D', '0', 0x40};
+    const auto dsdt = make_scope("\\_SB_", {pwrb, bad_name});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count))
+        << acpi_namespace_last_error();
+
+    const AcpiDeviceInfo* loaded_pwrb = find_device(devices, device_count, "\\_SB_.PWRB");
+    ASSERT_NE(nullptr, loaded_pwrb);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", loaded_pwrb->hardware_id));
+}
+
+TEST(AcpiAml, IgnoresMethodLikeNameDataByKeepingEarlierNamespace)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto pwrb = make_device(
+        "PWRB",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    std::vector<uint8_t> bad_name{0x08, '\\', 'P', 'R', 'W', 'P', 0x14, 0x00};
+    const auto dsdt = make_scope("\\_SB_", {pwrb, bad_name});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count))
+        << acpi_namespace_last_error();
+
+    const AcpiDeviceInfo* loaded_pwrb = find_device(devices, device_count, "\\_SB_.PWRB");
+    ASSERT_NE(nullptr, loaded_pwrb);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", loaded_pwrb->hardware_id));
+}
+
+TEST(AcpiAml, LoadsNamespaceWithNameVarPackage)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto pwrb = make_device(
+        "PWRB",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope(
+        "\\_SB_",
+        {make_name_varpackage("PKG0",
+                              make_integer_term(2),
+                              {make_integer_term(1), make_integer_term(2)}),
+         pwrb});
+
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+    const size_t block_count = 1;
+
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count))
+        << acpi_namespace_last_error();
+
+    const AcpiDeviceInfo* loaded_pwrb = find_device(devices, device_count, "\\_SB_.PWRB");
+    ASSERT_NE(nullptr, loaded_pwrb);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", loaded_pwrb->hardware_id));
 }

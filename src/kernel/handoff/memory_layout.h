@@ -50,10 +50,13 @@ constexpr uint64_t kApStartupCr3Address = 0x30;
 constexpr uint64_t kApStartupIdtAddress = 0x38;
 constexpr uint64_t kApStartupIdtSizeBytes = 6;
 
-// The page-frame bitmap still lives in fixed low memory in M1 so the kernel
-// can bring up allocation deterministically before later cleanup work.
-constexpr uint64_t kPageFrameBitmapBaseAddress = 0x20000;
-constexpr uint64_t kPageFrameBitmapSizeBytes = 0x40000;
+// The page-frame bitmap still lives in a fixed early physical window in M1 so
+// the kernel can bring up allocation deterministically before later cleanup
+// work. It sits immediately above the reserved kernel window so it avoids the
+// BIOS kernel/initrd staging buffers while still fitting inside the initial
+// 2 MiB identity map. One bit per page means 512 KiB covers 16 GiB of RAM.
+constexpr uint64_t kPageFrameBitmapBaseAddress = 0x180000;
+constexpr uint64_t kPageFrameBitmapSizeBytes = 0x80000;
 constexpr uint64_t kPageFrameBitmapQwordLimit = kPageFrameBitmapSizeBytes / sizeof(uint64_t);
 
 // Early low-memory scratch remains reserved until boot no longer depends on it.

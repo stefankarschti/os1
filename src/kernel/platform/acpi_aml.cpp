@@ -22,6 +22,7 @@ constexpr uint8_t kAmlExtOpPrefix = 0x5Bu;
 constexpr uint8_t kAmlScopeOp = 0x10u;
 constexpr uint8_t kAmlBufferOp = 0x11u;
 constexpr uint8_t kAmlPackageOp = 0x12u;
+constexpr uint8_t kAmlVarPackageOp = 0x13u;
 constexpr uint8_t kAmlMethodOp = 0x14u;
 constexpr uint8_t kAmlAliasOp = 0x06u;
 constexpr uint8_t kAmlNameOp = 0x08u;
@@ -34,8 +35,33 @@ constexpr uint8_t kAmlDualNamePrefix = 0x2Eu;
 constexpr uint8_t kAmlMultiNamePrefix = 0x2Fu;
 constexpr uint8_t kAmlRootChar = 0x5Cu;
 constexpr uint8_t kAmlParentChar = 0x5Eu;
+constexpr uint8_t kAmlLocal0Op = 0x60u;
+constexpr uint8_t kAmlLocal7Op = 0x67u;
+constexpr uint8_t kAmlArg0Op = 0x68u;
+constexpr uint8_t kAmlArg6Op = 0x6Eu;
 constexpr uint8_t kAmlReturnOp = 0xA4u;
 constexpr uint8_t kAmlStoreOp = 0x70u;
+constexpr uint8_t kAmlRefOfOp = 0x71u;
+constexpr uint8_t kAmlAddOp = 0x72u;
+constexpr uint8_t kAmlConcatOp = 0x73u;
+constexpr uint8_t kAmlSubtractOp = 0x74u;
+constexpr uint8_t kAmlIncrementOp = 0x75u;
+constexpr uint8_t kAmlDecrementOp = 0x76u;
+constexpr uint8_t kAmlMultiplyOp = 0x77u;
+constexpr uint8_t kAmlDivideOp = 0x78u;
+constexpr uint8_t kAmlShiftLeftOp = 0x79u;
+constexpr uint8_t kAmlShiftRightOp = 0x7Au;
+constexpr uint8_t kAmlAndOp = 0x7Bu;
+constexpr uint8_t kAmlNandOp = 0x7Cu;
+constexpr uint8_t kAmlOrOp = 0x7Du;
+constexpr uint8_t kAmlNorOp = 0x7Eu;
+constexpr uint8_t kAmlXorOp = 0x7Fu;
+constexpr uint8_t kAmlNotOp = 0x80u;
+constexpr uint8_t kAmlDerefOfOp = 0x83u;
+constexpr uint8_t kAmlConcatResOp = 0x84u;
+constexpr uint8_t kAmlModOp = 0x85u;
+constexpr uint8_t kAmlSizeOfOp = 0x87u;
+constexpr uint8_t kAmlIndexOp = 0x88u;
 constexpr uint8_t kAmlNoopOp = 0xA3u;
 constexpr uint8_t kAmlExtOpDevice = 0x82u;
 constexpr uint8_t kAmlExtOpProcessor = 0x83u;
@@ -148,6 +174,21 @@ void set_error_with_byte(const char* prefix, uint8_t value, const char* scope = 
     }
     g_last_error_buffer[cursor] = 0;
     g_last_error = g_last_error_buffer;
+}
+
+[[nodiscard]] bool error_has_prefix(const char* error, const char* prefix)
+{
+    if((nullptr == error) || (nullptr == prefix))
+    {
+        return false;
+    }
+
+    size_t prefix_length = 0;
+    while(0 != prefix[prefix_length])
+    {
+        ++prefix_length;
+    }
+    return 0 == strncmp(error, prefix, prefix_length);
 }
 
 [[nodiscard]] bool checksum_valid(const void* data, size_t length)
@@ -729,6 +770,30 @@ bool evaluate_term(const char* scope,
             cursor = pkg_end;
             return true;
         }
+        case kAmlVarPackageOp:
+        {
+            ++cursor;
+            const uint8_t* pkg_start = nullptr;
+            const uint8_t* pkg_end = nullptr;
+            if(!parse_pkg_length(cursor, end, pkg_start, pkg_end) || (cursor >= pkg_end))
+            {
+                return false;
+            }
+
+            AmlValue count_value{};
+            if(!evaluate_term(scope, cursor, pkg_end, true, count_value) ||
+               (AmlValueKind::Integer != count_value.kind))
+            {
+                return false;
+            }
+
+            value.kind = AmlValueKind::Package;
+            value.package_count = static_cast<uint8_t>(count_value.integer & 0xFFu);
+            value.data = cursor;
+            value.length = static_cast<uint32_t>(pkg_end - cursor);
+            cursor = pkg_end;
+            return true;
+        }
         default:
             break;
     }
@@ -753,10 +818,120 @@ bool evaluate_term(const char* scope,
     return true;
 }
 
-bool skip_term(const char* scope, const uint8_t*& cursor, const uint8_t* end)
+[[nodiscard]] bool is_evaluable_term_start(uint8_t opcode)
+{
+    switch(opcode)
+    {
+        case 0x00u:
+        case 0x01u:
+        case 0xFFu:
+        case kAmlBytePrefix:
+        case kAmlWordPrefix:
+        case kAmlDwordPrefix:
+        case kAmlStringPrefix:
+        case kAmlQwordPrefix:
+        case kAmlBufferOp:
+        case kAmlPackageOp:
+        case kAmlVarPackageOp:
+            return true;
+        default:
+            return is_name_start(opcode);
+    }
+}
+
+bool skip_term(const char* scope, const uint8_t*& cursor, const uint8_t* end);
+
+bool skip_terms(const char* scope, const uint8_t*& cursor, const uint8_t* end, size_t count)
+{
+    for(size_t i = 0; i < count; ++i)
+    {
+        if(!skip_term(scope, cursor, end))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool skip_evaluable_term(const char* scope, const uint8_t*& cursor, const uint8_t* end)
 {
     AmlValue ignored{};
-    return evaluate_term(scope, cursor, end, false, ignored);
+    if(!evaluate_term(scope, cursor, end, false, ignored))
+    {
+        return false;
+    }
+    if(AmlValueKind::NamePath != ignored.kind)
+    {
+        return true;
+    }
+
+    AmlObject* const object = find_object(ignored.namepath);
+    if((nullptr == object) || (AmlObjectKind::Method != object->kind))
+    {
+        return true;
+    }
+    return skip_terms(scope, cursor, end, object->method_arg_count);
+}
+
+bool skip_term(const char* scope, const uint8_t*& cursor, const uint8_t* end)
+{
+    if(cursor >= end)
+    {
+        return false;
+    }
+    if(is_evaluable_term_start(*cursor))
+    {
+        return skip_evaluable_term(scope, cursor, end);
+    }
+
+    const uint8_t opcode = *cursor++;
+    switch(opcode)
+    {
+        case kAmlLocal0Op:
+        case kAmlLocal0Op + 1u:
+        case kAmlLocal0Op + 2u:
+        case kAmlLocal0Op + 3u:
+        case kAmlLocal0Op + 4u:
+        case kAmlLocal0Op + 5u:
+        case kAmlLocal0Op + 6u:
+        case kAmlLocal7Op:
+        case kAmlArg0Op:
+        case kAmlArg0Op + 1u:
+        case kAmlArg0Op + 2u:
+        case kAmlArg0Op + 3u:
+        case kAmlArg0Op + 4u:
+        case kAmlArg0Op + 5u:
+        case kAmlArg6Op:
+            return true;
+        case kAmlRefOfOp:
+        case kAmlIncrementOp:
+        case kAmlDecrementOp:
+        case kAmlDerefOfOp:
+        case kAmlSizeOfOp:
+            return skip_terms(scope, cursor, end, 1);
+        case kAmlNotOp:
+            return skip_terms(scope, cursor, end, 2);
+        case kAmlAddOp:
+        case kAmlConcatOp:
+        case kAmlSubtractOp:
+        case kAmlMultiplyOp:
+        case kAmlShiftLeftOp:
+        case kAmlShiftRightOp:
+        case kAmlAndOp:
+        case kAmlNandOp:
+        case kAmlOrOp:
+        case kAmlNorOp:
+        case kAmlXorOp:
+        case kAmlConcatResOp:
+        case kAmlModOp:
+        case kAmlIndexOp:
+            return skip_terms(scope, cursor, end, 3);
+        case kAmlDivideOp:
+            return skip_terms(scope, cursor, end, 4);
+        default:
+            set_error_with_byte("skip-unsupported-op", opcode, scope);
+            return false;
+    }
 }
 
 bool parse_term_list(const char* scope, const uint8_t* cursor, const uint8_t* end)
@@ -800,9 +975,14 @@ bool parse_term_list(const char* scope, const uint8_t* cursor, const uint8_t* en
                     g_last_error = "parse-name-path";
                     return false;
                 }
+                strlcpy(g_last_object_path, path, sizeof(g_last_object_path));
                 const uint8_t* data_start = cursor;
-                if(!skip_term(scope, cursor, end) ||
-                   !store_object(AmlObjectKind::Name,
+                if(!skip_term(scope, cursor, end))
+                {
+                    g_last_error = "ok";
+                    return true;
+                }
+                if(!store_object(AmlObjectKind::Name,
                                  path,
                                  data_start,
                                  static_cast<uint32_t>(cursor - data_start),
@@ -934,7 +1114,16 @@ bool parse_term_list(const char* scope, const uint8_t* cursor, const uint8_t* en
                         ++cursor;
                         if(!skip_term(scope, cursor, end) || !skip_term(scope, cursor, end))
                         {
-                            g_last_error = "parse-opregion-terms";
+                            if(error_has_prefix(g_last_error, "skip-unsupported-op") ||
+                               error_has_prefix(g_last_error, "parse-unsupported-op"))
+                            {
+                                g_last_error = "ok";
+                                return true;
+                            }
+                            if(0 == strcmp(g_last_error, "ok"))
+                            {
+                                g_last_error = "parse-opregion-terms";
+                            }
                             return false;
                         }
                         break;
@@ -966,7 +1155,21 @@ bool parse_term_list(const char* scope, const uint8_t* cursor, const uint8_t* en
                 break;
             }
             default:
-                set_error_with_byte("parse-unsupported-op", opcode, scope);
+                --cursor;
+                if(skip_term(scope, cursor, end))
+                {
+                    break;
+                }
+                if(error_has_prefix(g_last_error, "skip-unsupported-op") ||
+                   error_has_prefix(g_last_error, "parse-unsupported-op"))
+                {
+                    g_last_error = "ok";
+                    return true;
+                }
+                if(0 == strcmp(g_last_error, "ok"))
+                {
+                    set_error_with_byte("parse-unsupported-op", opcode, scope);
+                }
                 return false;
         }
     }
@@ -1455,8 +1658,10 @@ bool acpi_build_device_info(AcpiDeviceInfo* devices,
             device.flags |= kAcpiDeviceHasCrs;
             if(!parse_resources(value.data, value.length, device.resources, device.resource_count))
             {
-                g_last_error = "device-crs";
-                return false;
+                device.flags &= ~kAcpiDeviceHasCrs;
+                device.resource_count = 0;
+                memset(device.resources, 0, sizeof(device.resources));
+                g_last_error = "ok";
             }
         }
         if(has_object(object.path, "_PRT"))
@@ -1479,13 +1684,15 @@ bool acpi_build_device_info(AcpiDeviceInfo* devices,
     {
         if(0 != (devices[i].flags & kAcpiDeviceHasPrt))
         {
+            const size_t route_count_before = route_count;
             if(!build_routes_for_device(devices[i], devices, device_count, routes, route_count))
             {
-                if(0 == strcmp(g_last_error, "ok"))
-                {
-                    g_last_error = "device-routes";
-                }
-                return false;
+                devices[i].flags &= ~kAcpiDeviceHasPrt;
+                memset(routes + route_count_before,
+                       0,
+                       sizeof(AcpiPciRoute) * (kAcpiMaxPciRoutes - route_count_before));
+                route_count = route_count_before;
+                g_last_error = "ok";
             }
         }
     }

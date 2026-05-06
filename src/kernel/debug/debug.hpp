@@ -10,6 +10,8 @@ class Debug
 public:
     // initialize COM1 for polling serial output.
     Debug();
+    // Enable or disable BIOS text-mode VGA mirroring for all debug output.
+    void set_vga_mirror_enabled(bool enabled);
     // write one byte to COM1 after waiting for the transmit FIFO.
     void write(const char c);
     // write a nul-terminated string to COM1.
@@ -36,11 +38,32 @@ public:
     Debug& nl();
 
 private:
+    static constexpr uint16_t kVgaTextColumns = 80;
+    static constexpr uint16_t kVgaTextRows = 25;
+    static constexpr uint16_t kVgaPortIndex = 0x3D4;
+    static constexpr uint16_t kVgaPortData = 0x3D5;
+    static constexpr uint64_t kVgaTextBufferPhysicalAddress = 0xB8000;
+    static constexpr uint8_t kVgaTextAttribute = 0x07;
+    static constexpr uint8_t kSerialStateUninitialized = 0;
+    static constexpr uint8_t kSerialStateReady = 1;
+    static constexpr uint8_t kSerialStateUnavailable = 2;
+    static constexpr uint32_t kTransmitReadySpinLimit = 1u << 20;
     static const uint16_t PORT = 0x3F8;
     // Program COM1 to 115200 8N1 and enable FIFO mode.
     void init_serial();
     // Return non-zero while the serial transmitter is busy.
     int busy();
+    // Wait briefly for the transmitter to become ready without hanging boot.
+    bool wait_until_ready();
+    void initialize_vga_cursor();
+    void scroll_vga();
+    void update_vga_cursor();
+    void write_vga(const char c);
+
+    uint8_t serial_state_;
+    bool vga_mirror_enabled_;
+    bool vga_cursor_initialized_;
+    uint16_t vga_cursor_;
 };
 
 // Dump a memory range in hex plus printable ASCII to the serial logger.

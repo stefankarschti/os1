@@ -127,6 +127,7 @@ set(OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP "${OS1_ARTIFACT_DIR}/limine-shim-layout-c
 set(OS1_IMAGE_LAYOUT_INC "${OS1_GENERATED_DIR}/image_layout.inc")
 set(OS1_KERNEL_LAYOUT_INC "${OS1_GENERATED_DIR}/kernel_layout.inc")
 set(OS1_KERNEL_LAYOUT_HPP "${OS1_GENERATED_DIR}/kernel_layout.hpp")
+set(OS1_INITRD_PAYLOAD_LAYOUT_INC "${OS1_GENERATED_DIR}/initrd_payload.inc")
 configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/templates/image_layout.inc.in"
   "${OS1_IMAGE_LAYOUT_INC}"
@@ -142,6 +143,23 @@ configure_file(
   "${OS1_KERNEL_LAYOUT_HPP}"
   @ONLY
 )
+
+add_custom_command(
+  OUTPUT "${OS1_INITRD_PAYLOAD_LAYOUT_INC}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_GENERATED_DIR}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    "-DINPUT_FILE=${OS1_INITRD_CPIO}"
+    "-DOUTPUT_FILE=${OS1_INITRD_PAYLOAD_LAYOUT_INC}"
+    -P
+    "${PROJECT_SOURCE_DIR}/cmake/scripts/write_initrd_payload_layout.cmake"
+  DEPENDS
+    "${OS1_INITRD_CPIO}"
+    "${PROJECT_SOURCE_DIR}/cmake/scripts/write_initrd_payload_layout.cmake"
+  VERBATIM
+)
+
+add_custom_target(os1_initrd_payload_layout DEPENDS "${OS1_INITRD_PAYLOAD_LAYOUT_INC}")
 
 if(OS1_KERNEL_IMAGE_MAX_BYTES GREATER OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES)
   message(FATAL_ERROR

@@ -10,10 +10,15 @@
 namespace
 {
 constexpr uint64_t kPageMask = ~(kPageSize - 1);
+constexpr uint64_t kLargePageSize2MiB = 0x200000ull;
+constexpr uint64_t kLargePageMask2MiB = ~(kLargePageSize2MiB - 1);
+constexpr uint64_t kLargePageOffsetMask2MiB = kLargePageSize2MiB - 1;
+constexpr uint64_t kEntryLargePage = 1ull << 7;
 // Long-mode page-table entries carry the NX bit in the high flag range, so the
 // physical-address mask must exclude it explicitly instead of just clearing the
 // low page-offset bits.
 constexpr uint64_t kEntryAddressMask = 0x000FFFFFFFFFF000ull;
+constexpr uint64_t kLargePageAddressMask2MiB = 0x000FFFFFFFE00000ull;
 
 [[nodiscard]] inline uint64_t page_index(uint64_t virtual_address, unsigned shift)
 {
@@ -199,6 +204,51 @@ bool VirtualMemory::map_physical(uint64_t virtual_address,
     return true;
 }
 
+bool VirtualMemory::map_physical_2m(uint64_t virtual_address,
+                                    uint64_t physical_address,
+                                    uint64_t num_pages,
+                                    PageFlags flags)
+{
+    if((0 == num_pages) || (virtual_address & kLargePageOffsetMask2MiB) ||
+       (physical_address & kLargePageOffsetMask2MiB))
+    {
+        return false;
+    }
+
+    const bool user_visible = (PageFlags::User == (flags & PageFlags::User));
+    for(uint64_t i = 0; i < num_pages; ++i)
+    {
+        const uint64_t current_virtual = virtual_address + i * kLargePageSize2MiB;
+        const uint64_t current_physical = physical_address + i * kLargePageSize2MiB;
+
+        if(!ensure_root())
+        {
+            return false;
+        }
+
+        uint64_t* pml4 = kernel_physical_pointer<uint64_t>(root_);
+        uint64_t& pml4e = pml4[page_index(current_virtual, 39)];
+        if(!ensure_table_entry(pml4e, user_visible))
+        {
+            return false;
+        }
+
+        uint64_t* pml3 = kernel_physical_pointer<uint64_t>(pml4e & kEntryAddressMask);
+        uint64_t& pml3e = pml3[page_index(current_virtual, 30)];
+        if(!ensure_table_entry(pml3e, user_visible))
+        {
+            return false;
+        }
+
+        uint64_t* pml2 = kernel_physical_pointer<uint64_t>(pml3e & kEntryAddressMask);
+        uint64_t& pml2e = pml2[page_index(current_virtual, 21)];
+        pml2e = (current_physical & kLargePageAddressMask2MiB) |
+                flags_to_entry(flags | PageFlags::Present) | kEntryLargePage;
+    }
+
+    return true;
+}
+
 bool VirtualMemory::allocate_and_map(uint64_t virtual_address,
                                      uint64_t num_pages,
                                      PageFlags flags,
@@ -287,6 +337,13 @@ bool VirtualMemory::translate(uint64_t virtual_address,
     if(0 == pml2e)
     {
         return false;
+    }
+    if(0 != (pml2e & kEntryLargePage))
+    {
+        flags = pml2e & ~kLargePageAddressMask2MiB;
+        physical_address = (pml2e & kLargePageAddressMask2MiB) |
+                           (virtual_address & kLargePageOffsetMask2MiB);
+        return true;
     }
     const uint64_t* pml1 = kernel_physical_pointer<const uint64_t>(pml2e & kEntryAddressMask);
     const uint64_t pml1e = pml1[page_index(virtual_address, 12)];

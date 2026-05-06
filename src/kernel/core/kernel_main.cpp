@@ -315,7 +315,6 @@ bool prepare_scheduler_timer()
         return false;
     }
 
-    set_timer(kSchedulerTimerFrequencyHz);
     timer_source_set_ap_timer_enabled(false);
     kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
                          OS1_KERNEL_EVENT_FLAG_SUCCESS |
@@ -324,7 +323,7 @@ bool prepare_scheduler_timer()
                          kPitSchedulerVector,
                          kSchedulerTimerFrequencyHz,
                          0);
-    debug("timer: PIT fallback (AP ticks disabled)")();
+    debug("timer: PIT fallback configured (AP ticks disabled)")();
     return true;
 }
 
@@ -363,6 +362,10 @@ bool prepare_scheduler_timer()
 extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
 {
     bool result = false;
+    const bool bios_legacy_boot = (nullptr != info) && (info->magic == kBootInfoMagic) &&
+                                  (info->version == kBootInfoVersion) &&
+                                  (BootSource::BiosLegacy == info->source);
+    debug.set_vga_mirror_enabled(bios_legacy_boot);
     debug("[kernel64] hello!\n");
 
     g_boot_info = own_boot_info(info);
@@ -382,8 +385,11 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
 
     {
         g_cpu_boot = cpu_boot;
+        debug("K2 cpu record")();
         cpu_initialize_record(g_cpu_boot);
+        debug("K3 cpu init")();
         cpu_init();
+        debug("K4 cpu ready")();
     }
 
     debug("initializing page frame allocator")();
@@ -648,6 +654,11 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
             debug("timer: BSP lapic timer start failed")();
             return;
         }
+    }
+    else
+    {
+        set_timer(kSchedulerTimerFrequencyHz);
+        debug("timer: BSP pit timer started")();
     }
 
     kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);
