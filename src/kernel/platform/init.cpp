@@ -4,6 +4,7 @@
 #include "debug/debug.hpp"
 #include "handoff/boot_info.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
@@ -62,11 +63,34 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
 
     debug("acpi: namespace load ready")();
     debug("acpi: device info build start")();
-    if(!acpi_build_device_info(g_platform.acpi_devices,
-                               g_platform.acpi_device_count,
-                               g_platform.acpi_pci_routes,
-                               g_platform.acpi_pci_route_count))
+    if(!acpica_count_device_objects(g_platform.acpi_device_capacity))
     {
+        debug("acpi: device count failed err=")(acpi_namespace_last_error())(" obj=")(
+            acpi_namespace_last_object())();
+        return false;
+    }
+
+    if(0u != g_platform.acpi_device_capacity)
+    {
+        g_platform.acpi_devices = static_cast<AcpiDeviceInfo*>(
+            kcalloc(g_platform.acpi_device_capacity, sizeof(AcpiDeviceInfo)));
+        if(nullptr == g_platform.acpi_devices)
+        {
+            debug("acpi: device table alloc failed count=")(g_platform.acpi_device_capacity)();
+            g_platform.acpi_device_capacity = 0;
+            return false;
+        }
+    }
+
+    if(!acpica_build_device_info_with_capacity(g_platform.acpi_devices,
+                                               g_platform.acpi_device_capacity,
+                                               g_platform.acpi_device_count,
+                                               g_platform.acpi_pci_routes,
+                                               g_platform.acpi_pci_route_count))
+    {
+        kfree(g_platform.acpi_devices);
+        g_platform.acpi_devices = nullptr;
+        g_platform.acpi_device_capacity = 0;
         debug("acpi: device info build failed err=")(acpi_namespace_last_error())(" obj=")(
             acpi_namespace_last_object())();
         return false;

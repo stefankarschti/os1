@@ -16,6 +16,7 @@ extern "C"
 
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
 #include "core/kernel_state.hpp"
@@ -80,9 +81,15 @@ bool g_acpica_kernel_vm_wrapper_initialized = false;
 struct NamespaceBuildContext
 {
     AcpiDeviceInfo* devices = nullptr;
-    ACPI_HANDLE handles[kAcpiMaxDevices]{};
+    ACPI_HANDLE* handles = nullptr;
+    size_t device_capacity = 0;
     size_t device_count = 0;
     bool failed = false;
+};
+
+struct DeviceCountContext
+{
+    size_t device_count = 0;
 };
 
 void prepare_early_mutex_state()
@@ -462,7 +469,14 @@ bool get_full_path(ACPI_HANDLE handle, char* output, size_t output_capacity)
         return false;
     }
 
-    copy_string(output, output_capacity, static_cast<const char*>(buffer.Pointer));
+    const char* path = static_cast<const char*>(buffer.Pointer);
+    if((nullptr == path) || (string_length(path) >= output_capacity))
+    {
+        AcpiOsFree(buffer.Pointer);
+        return false;
+    }
+
+    copy_string(output, output_capacity, path);
     AcpiOsFree(buffer.Pointer);
     return true;
 }
@@ -971,12 +985,15 @@ ACPI_STATUS collect_device_callback(ACPI_HANDLE handle,
                                     void**)
 {
     auto* build_context = static_cast<NamespaceBuildContext*>(context);
-    if((nullptr == build_context) || (nullptr == build_context->devices))
+    if((nullptr == build_context) || (nullptr == build_context->devices) ||
+       (nullptr == build_context->handles))
     {
         return AE_BAD_PARAMETER;
     }
-    if(build_context->device_count >= kAcpiMaxDevices)
+    if(build_context->device_count >= build_context->device_capacity)
     {
+        debug("acpica: device table full limit=")(build_context->device_capacity)();
+        set_namespace_error_text("device-limit");
         build_context->failed = true;
         return AE_CTRL_TERMINATE;
     }
@@ -988,6 +1005,7 @@ ACPI_STATUS collect_device_callback(ACPI_HANDLE handle,
     device.bus_number = 0xFFu;
     if(!get_full_path(handle, device.path, sizeof(device.path)))
     {
+        set_namespace_error_text("device-path");
         build_context->failed = true;
         return AE_CTRL_TERMINATE;
     }
@@ -1081,6 +1099,21 @@ ACPI_STATUS collect_device_callback(ACPI_HANDLE handle,
     AcpiOsFree(object_info);
     build_context->handles[build_context->device_count] = handle;
     ++build_context->device_count;
+    return AE_OK;
+}
+
+ACPI_STATUS count_device_callback(ACPI_HANDLE,
+                                  UINT32,
+                                  void* context,
+                                  void**)
+{
+    auto* count_context = static_cast<DeviceCountContext*>(context);
+    if(nullptr == count_context)
+    {
+        return AE_BAD_PARAMETER;
+    }
+
+    ++count_context->device_count;
     return AE_OK;
 }
 }  // namespace
@@ -1534,12 +1567,41 @@ const char* acpica_namespace_last_object()
     return g_acpica_state.last_namespace_object;
 }
 
-bool acpica_build_device_info(AcpiDeviceInfo* devices,
-                              size_t& device_count,
-                              AcpiPciRoute* routes,
-                              size_t& route_count)
+bool acpica_count_device_objects(size_t& device_count)
 {
-    if((nullptr == devices) || (nullptr == routes))
+    if(!ensure_namespace_ready("count device info"))
+    {
+        return false;
+    }
+
+    device_count = 0;
+    clear_namespace_error();
+
+    DeviceCountContext context{};
+    const ACPI_STATUS status = AcpiWalkNamespace(ACPI_TYPE_DEVICE,
+                                                 ACPI_ROOT_OBJECT,
+                                                 ACPI_UINT32_MAX,
+                                                 count_device_callback,
+                                                 nullptr,
+                                                 &context,
+                                                 nullptr);
+    if(ACPI_FAILURE(status))
+    {
+        return set_namespace_error_status(status, "acpica: device count failed");
+    }
+
+    device_count = context.device_count;
+    clear_namespace_error();
+    return true;
+}
+
+bool acpica_build_device_info_with_capacity(AcpiDeviceInfo* devices,
+                                            size_t device_capacity,
+                                            size_t& device_count,
+                                            AcpiPciRoute* routes,
+                                            size_t& route_count)
+{
+    if((nullptr == routes) || ((0u != device_capacity) && (nullptr == devices)))
     {
         return set_namespace_error_text("build-arguments");
     }
@@ -1548,7 +1610,7 @@ bool acpica_build_device_info(AcpiDeviceInfo* devices,
         return false;
     }
 
-    for(size_t index = 0; index < kAcpiMaxDevices; ++index)
+    for(size_t index = 0; index < device_capacity; ++index)
     {
         devices[index] = {};
     }
@@ -1561,8 +1623,20 @@ bool acpica_build_device_info(AcpiDeviceInfo* devices,
     clear_route_cache();
     clear_namespace_error();
 
+    ACPI_HANDLE* handles = nullptr;
+    if(0u != device_capacity)
+    {
+        handles = static_cast<ACPI_HANDLE*>(kcalloc(device_capacity, sizeof(ACPI_HANDLE)));
+        if(nullptr == handles)
+        {
+            return set_namespace_error_text("device-memory");
+        }
+    }
+
     NamespaceBuildContext context{};
     context.devices = devices;
+    context.handles = handles;
+    context.device_capacity = device_capacity;
     const ACPI_STATUS status = AcpiWalkNamespace(ACPI_TYPE_DEVICE,
                                                  ACPI_ROOT_OBJECT,
                                                  ACPI_UINT32_MAX,
@@ -1570,11 +1644,21 @@ bool acpica_build_device_info(AcpiDeviceInfo* devices,
                                                  nullptr,
                                                  &context,
                                                  nullptr);
-    if(ACPI_FAILURE(status) || context.failed)
+    if(ACPI_FAILURE(status))
     {
+        kfree(handles);
         if(kNamespaceOk == g_acpica_state.last_namespace_error)
         {
             set_namespace_error_status(status, "acpica: device walk failed");
+        }
+        return false;
+    }
+    if(context.failed)
+    {
+        kfree(handles);
+        if(kNamespaceOk == g_acpica_state.last_namespace_error)
+        {
+            set_namespace_error_text("device-walk");
         }
         return false;
     }
@@ -1609,8 +1693,18 @@ bool acpica_build_device_info(AcpiDeviceInfo* devices,
         g_acpica_routes[index] = routes[index];
     }
     g_acpica_route_count = route_count;
+    kfree(handles);
     clear_namespace_error();
     return true;
+}
+
+bool acpica_build_device_info(AcpiDeviceInfo* devices,
+                              size_t& device_count,
+                              AcpiPciRoute* routes,
+                              size_t& route_count)
+{
+    return acpica_build_device_info_with_capacity(
+        devices, kAcpiMaxDevices, device_count, routes, route_count);
 }
 
 bool acpica_resolve_pci_route_details(uint8_t bus,

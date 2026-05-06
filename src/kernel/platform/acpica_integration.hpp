@@ -31,10 +31,16 @@ bool acpica_parse_hpet(HpetInfo& hpet);
 bool acpica_load_namespace();
 const char* acpica_namespace_last_error();
 const char* acpica_namespace_last_object();
+bool acpica_count_device_objects(size_t& device_count);
 bool acpica_build_device_info(AcpiDeviceInfo* devices,
 							  size_t& device_count,
 							  AcpiPciRoute* routes,
 							  size_t& route_count);
+bool acpica_build_device_info_with_capacity(AcpiDeviceInfo* devices,
+											 size_t device_capacity,
+											 size_t& device_count,
+											 AcpiPciRoute* routes,
+											 size_t& route_count);
 bool acpica_resolve_pci_route_details(uint8_t bus,
 								  uint8_t slot,
 								  uint8_t function,

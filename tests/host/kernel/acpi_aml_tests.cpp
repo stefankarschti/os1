@@ -752,6 +752,10 @@ TEST_F(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
     g_power_order = {};
     g_power_order_count = 0;
 
+    g_platform.acpi_device_capacity = device_count;
+    g_platform.acpi_devices = static_cast<AcpiDeviceInfo*>(
+        kcalloc(device_count, sizeof(AcpiDeviceInfo)));
+    ASSERT_TRUE((0u == device_count) || (nullptr != g_platform.acpi_devices));
     g_platform.acpi_device_count = device_count;
     for(size_t i = 0; i < device_count; ++i)
     {

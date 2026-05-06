@@ -54,7 +54,7 @@ const IrqRoute* platform_irq_routes();
 // Return the number of ACPI namespace devices parsed from DSDT/SSDT AML.
 size_t platform_acpi_device_count();
 
-// Return the fixed ACPI device table owned by platform state.
+// Return the ACPI device table owned by platform state.
 const AcpiDeviceInfo* platform_acpi_devices();
 
 // Suspend active bound devices in reverse bind order and place ACPI companions in D3.

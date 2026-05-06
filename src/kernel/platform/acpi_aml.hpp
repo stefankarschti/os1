@@ -7,9 +7,9 @@
 
 class VirtualMemory;
 
-constexpr size_t kAcpiDevicePathBytes = 48;
+constexpr size_t kAcpiDevicePathBytes = 64;
 constexpr size_t kAcpiHardwareIdBytes = 8;
-constexpr size_t kAcpiMaxDevices = 64;
+constexpr size_t kAcpiMaxDevices = 96;
 constexpr size_t kAcpiMaxDeviceResources = 8;
 constexpr size_t kAcpiMaxPciRoutes = 64;
 constexpr uint16_t kAcpiDeviceIndexNone = 0xFFFFu;

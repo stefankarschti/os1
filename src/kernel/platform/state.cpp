@@ -1,6 +1,7 @@
 // Platform-state storage and read-only public accessors.
 #include "platform/state.hpp"
 
+#include "mm/kmem.hpp"
 #include "storage/block_device.hpp"
 #include "util/memory.h"
 
@@ -25,7 +26,12 @@ void platform_reset_driver_state()
 
 void platform_reset_state()
 {
+    AcpiDeviceInfo* acpi_devices = g_platform.acpi_devices;
     platform_reset_driver_state();
+    if(nullptr != acpi_devices)
+    {
+        kfree(acpi_devices);
+    }
     memset(&g_platform, 0, sizeof(g_platform));
 }
 
