@@ -17,12 +17,19 @@ extern "C"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
+#include "mm/virtual_memory.hpp"
+#include "core/kernel_state.hpp"
 #include "platform/acpi_aml.hpp"
 #include "platform/acpica_internal.hpp"
+#include "platform/state.hpp"
 
 #if !defined(OS1_HOST_TEST)
 #include "arch/x86_64/cpu/cpu.hpp"
 #include "arch/x86_64/cpu/x86.hpp"
+inline void* operator new(size_t, void* location) noexcept
+{
+    return location;
+}
 #endif
 
 namespace
@@ -50,6 +57,7 @@ struct [[gnu::packed]] AcpicaRsdp
 struct AcpicaState
 {
     VirtualMemory* kernel_vm = nullptr;
+    uint64_t kernel_root_cr3 = 0;
     const BootInfo* boot_info = nullptr;
     const char* last_status = kStatusOk;
     const char* last_namespace_error = kNamespaceOk;
@@ -65,6 +73,9 @@ AcpicaState g_acpica_state{};
 ACPI_TABLE_DESC g_acpica_initial_tables[kInitialTableCapacity]{};
 AcpiPciRoute g_acpica_routes[kAcpiMaxPciRoutes]{};
 size_t g_acpica_route_count = 0;
+alignas(VirtualMemory) uint8_t g_acpica_kernel_vm_storage[sizeof(VirtualMemory)]{};
+VirtualMemory* g_acpica_kernel_vm_wrapper = nullptr;
+bool g_acpica_kernel_vm_wrapper_initialized = false;
 
 struct NamespaceBuildContext
 {
@@ -696,6 +707,147 @@ bool collect_first_irq_from_buffer(const ACPI_BUFFER& buffer, uint32_t& irq, uin
     return false;
 }
 
+bool resolve_route_irq(ACPI_HANDLE source_handle, uint32_t& irq, uint16_t& flags);
+
+bool route_entry_matches(const ACPI_PCI_ROUTING_TABLE* entry,
+                        uint8_t slot,
+                        uint8_t function,
+                        uint8_t pin)
+{
+    if(nullptr == entry)
+    {
+        return false;
+    }
+
+    if(static_cast<uint8_t>((entry->Address >> 16) & 0xFFu) != slot)
+    {
+        return false;
+    }
+
+    const uint16_t function_field = static_cast<uint16_t>(entry->Address & 0xFFFFu);
+    if((0xFFFFu != function_field) && (static_cast<uint8_t>(function_field & 0xFFu) != function))
+    {
+        return false;
+    }
+
+    return static_cast<uint8_t>(entry->Pin & 0xFFu) == pin;
+}
+
+bool resolve_route_entry_irq(ACPI_HANDLE scope_handle,
+                            const ACPI_PCI_ROUTING_TABLE* entry,
+                            uint32_t& irq,
+                            uint16_t& flags,
+                            bool& source_is_gsi)
+{
+    irq = 0;
+    flags = 0;
+    source_is_gsi = false;
+    if(nullptr == entry)
+    {
+        return false;
+    }
+
+    if(0 == entry->Source[0])
+    {
+        source_is_gsi = true;
+        irq = entry->SourceIndex;
+        return true;
+    }
+
+    ACPI_HANDLE source_handle = nullptr;
+    ACPI_STATUS source_status = AcpiGetHandle(scope_handle, entry->Source, &source_handle);
+    if(ACPI_FAILURE(source_status) && ('\\' == entry->Source[0]))
+    {
+        source_status = AcpiGetHandle(nullptr, entry->Source, &source_handle);
+    }
+    if(ACPI_FAILURE(source_status))
+    {
+        return false;
+    }
+
+    return resolve_route_irq(source_handle, irq, flags);
+}
+
+bool resolve_route_from_prt_handle(ACPI_HANDLE handle,
+                                   uint8_t slot,
+                                   uint8_t function,
+                                   uint8_t pin,
+                                   uint32_t& irq,
+                                   uint16_t& flags,
+                                   bool& source_is_gsi)
+{
+    ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
+    const ACPI_STATUS status = AcpiGetIrqRoutingTable(handle, &buffer);
+    if(ACPI_FAILURE(status))
+    {
+        return false;
+    }
+
+    bool found = false;
+    const auto* cursor = static_cast<const uint8_t*>(buffer.Pointer);
+    const auto* end = cursor + buffer.Length;
+    while(cursor < end)
+    {
+        if((end - cursor) < static_cast<ptrdiff_t>(sizeof(ACPI_PCI_ROUTING_TABLE)))
+        {
+            break;
+        }
+
+        const auto* entry = reinterpret_cast<const ACPI_PCI_ROUTING_TABLE*>(cursor);
+        if(0u == entry->Length)
+        {
+            break;
+        }
+        if((entry->Length < sizeof(ACPI_PCI_ROUTING_TABLE)) || ((cursor + entry->Length) > end))
+        {
+            break;
+        }
+
+        if(route_entry_matches(entry, slot, function, pin) &&
+           resolve_route_entry_irq(handle, entry, irq, flags, source_is_gsi))
+        {
+            found = true;
+            break;
+        }
+
+        cursor += entry->Length;
+    }
+
+    AcpiOsFree(buffer.Pointer);
+    return found;
+}
+
+bool resolve_route_direct(uint8_t bus,
+                          uint8_t slot,
+                          uint8_t function,
+                          uint8_t pin,
+                          uint32_t& irq,
+                          uint16_t& flags,
+                          bool& source_is_gsi)
+{
+    for(size_t index = 0; index < g_platform.acpi_device_count; ++index)
+    {
+        const AcpiDeviceInfo& device = g_platform.acpi_devices[index];
+        if(!device.active || (device.bus_number != bus))
+        {
+            continue;
+        }
+
+        ACPI_HANDLE handle = nullptr;
+        if(ACPI_FAILURE(AcpiGetHandle(nullptr, device.path, &handle)))
+        {
+            continue;
+        }
+
+        if(resolve_route_from_prt_handle(handle, slot, function, pin, irq, flags, source_is_gsi))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool resolve_route_irq(ACPI_HANDLE source_handle, uint32_t& irq, uint16_t& flags)
 {
     ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
@@ -938,6 +1090,7 @@ bool acpica_initialize_tables(VirtualMemory& kernel_vm, const BootInfo& boot_inf
     reset_state_internal();
 
     g_acpica_state.kernel_vm = &kernel_vm;
+    g_acpica_state.kernel_root_cr3 = kernel_vm.root();
     g_acpica_state.boot_info = &boot_info;
     g_acpica_state.stage = AcpicaBootStage::TableDiscovery;
 
@@ -1480,7 +1633,8 @@ bool acpica_resolve_pci_route_details(uint8_t bus,
             return true;
         }
     }
-    return false;
+
+    return resolve_route_direct(bus, slot, function, pin, irq, flags, source_is_gsi);
 }
 
 bool acpica_set_device_power_state(const char* path, AcpiPowerState state)
@@ -1514,6 +1668,28 @@ bool acpica_set_device_power_state(const char* path, AcpiPowerState state)
 
     clear_namespace_error();
     return true;
+}
+
+bool acpica_device_supports_power_state(const char* path, AcpiPowerState state)
+{
+    if(nullptr == path)
+    {
+        return false;
+    }
+    if(!ensure_namespace_ready("query device power state"))
+    {
+        return false;
+    }
+
+    ACPI_HANDLE handle = nullptr;
+    if(ACPI_FAILURE(AcpiGetHandle(nullptr, path, &handle)))
+    {
+        return false;
+    }
+
+    ACPI_HANDLE method_handle = nullptr;
+    const char* method = (AcpiPowerState::D0 == state) ? "_PS0" : "_PS3";
+    return ACPI_SUCCESS(AcpiGetHandle(handle, const_cast<char*>(method), &method_handle));
 }
 
 bool acpica_read_named_integer(const char* path, uint64_t& value)
@@ -1561,7 +1737,20 @@ void acpica_reset_for_tests()
 
 VirtualMemory* acpica_kernel_vm()
 {
-    return g_acpica_state.kernel_vm;
+    if((0 == g_acpica_state.kernel_root_cr3) || (~0ull == g_acpica_state.kernel_root_cr3))
+    {
+        return g_acpica_state.kernel_vm;
+    }
+
+    if(!g_acpica_kernel_vm_wrapper_initialized)
+    {
+        g_acpica_kernel_vm_wrapper =
+            new (g_acpica_kernel_vm_storage) VirtualMemory(page_frames, 0);
+        g_acpica_kernel_vm_wrapper_initialized = true;
+    }
+
+    g_acpica_kernel_vm_wrapper->attach(g_acpica_state.kernel_root_cr3);
+    return g_acpica_kernel_vm_wrapper;
 }
 
 const BootInfo* acpica_boot_info()

@@ -1764,6 +1764,21 @@ bool acpi_resolve_pci_route_details(uint8_t bus,
     return false;
 }
 
+bool acpi_device_supports_power_state(const char* path, AcpiPowerState state)
+{
+    if(acpica_tables_initialized())
+    {
+        return acpica_device_supports_power_state(path, state);
+    }
+
+    if(nullptr == path)
+    {
+        return false;
+    }
+    const char* method = (AcpiPowerState::D0 == state) ? "_PS0" : "_PS3";
+    return has_object(path, method);
+}
+
 bool acpi_set_device_power_state(const char* path, AcpiPowerState state)
 {
     if(acpica_tables_initialized())

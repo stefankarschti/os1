@@ -97,5 +97,6 @@ bool acpi_resolve_pci_route_details(uint8_t bus,
                                     uint32_t& irq,
                                     uint16_t& flags,
                                     bool& source_is_gsi);
+bool acpi_device_supports_power_state(const char* path, AcpiPowerState state);
 bool acpi_set_device_power_state(const char* path, AcpiPowerState state);
 bool acpi_read_named_integer(const char* path, uint64_t& value);

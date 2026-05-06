@@ -1215,7 +1215,7 @@ TEST_F(AcpiAmlWithAcpica, LoadsDevicesResourcesRoutesAndPowerMethods)
     VirtualMemory vm(frames);
     AcpicaScopedReset acpica_reset;
 
-    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info())) << acpica_last_status();
     ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
         << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
 

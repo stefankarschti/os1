@@ -15,6 +15,7 @@ enum
     OS1_OBSERVE_RESOURCES = 8,
     OS1_OBSERVE_IRQS = 9,
     OS1_OBSERVE_KMEM = 10,
+    OS1_OBSERVE_ACPI = 11,
     OS1_OBSERVE_CONSOLE_NONE = 0,
     OS1_OBSERVE_CONSOLE_VGA = 1,
     OS1_OBSERVE_CONSOLE_FRAMEBUFFER = 2,
@@ -218,6 +219,22 @@ struct Os1ObserveKmemRecord
     uint64_t free_count;
     uint64_t failed_alloc_count;
     char name[OS1_OBSERVE_KMEM_NAME_BYTES];
+};
+
+struct Os1ObserveAcpiRecord
+{
+    uint32_t route_probe_count;
+    uint32_t route_success_count;
+    uint32_t power_probe_count;
+    uint32_t power_success_count;
+    uint32_t route_irq;
+    uint16_t route_flags;
+    uint8_t route_bus;
+    uint8_t route_slot;
+    uint8_t route_function;
+    uint8_t route_pin;
+    uint8_t route_source_is_gsi;
+    uint8_t reserved0;
 };
 
 #pragma pack(pop)

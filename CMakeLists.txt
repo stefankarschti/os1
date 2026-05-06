@@ -598,6 +598,7 @@ set(OS1_SMOKE_REJECT_MARKERS
   "#UD invalid opcode"
   "[user/balancecheck] fail"
   "[user/smpcheck] fail"
+  "[user/acpiprobe] fail"
 )
 
 # The shell prompt does not terminate with a newline, so the line-buffered
@@ -619,7 +620,8 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "devices complete::irqs\\n"
   "irqs complete::resources\\n"
   "resources complete::kmem\\n"
-  "kmem complete::smpcheck\\n"
+  "kmem complete::acpiprobe\\n"
+  "shell spawn acpiprobe ok pid=::smpcheck\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -670,10 +672,17 @@ endif()
 
 set(OS1_QEMU_SMOKE_TESTS)
 
+set(OS1_ACPICA_SMOKE_MARKERS
+  "acpica: tables ready"
+  "acpica: namespace ready"
+  "acpica: methods ready"
+)
+
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   set(OS1_UEFI_XHCI_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -720,6 +729,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "boot rsdp physical=0x"
     "acpi: MADT ready"
     "acpi: MCFG ready"
@@ -772,6 +782,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_OBSERVE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -803,6 +814,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "kmem global caches="
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
+    "[user/acpiprobe] route ok"
+    "[user/acpiprobe] power "
     "[user/smpcheck] observed pids "
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
@@ -848,6 +861,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_BALANCE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -891,6 +905,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_SPAWN_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -941,6 +956,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_EXEC_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -993,6 +1009,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "boot rsdp physical=0x"
     "acpi: MADT ready"
     "acpi: MCFG ready"
@@ -1043,6 +1060,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_OBSERVE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -1074,6 +1092,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "kmem global caches="
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
+    "[user/acpiprobe] route ok"
+    "[user/acpiprobe] power "
     "[user/smpcheck] observed pids "
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
@@ -1116,6 +1136,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_BALANCE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -1157,6 +1178,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_SPAWN_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -1205,6 +1227,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_EXEC_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"

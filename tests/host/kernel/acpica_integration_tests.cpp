@@ -3,6 +3,7 @@
 #include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpica_integration.hpp"
+#include "platform/state.hpp"
 #include "support/physical_memory.hpp"
 
 extern "C"
@@ -24,6 +25,8 @@ constexpr uint64_t kXsdtPhysical = 0x2000;
 constexpr uint64_t kMadtPhysical = 0x3000;
 constexpr uint64_t kFadtPhysical = 0x4000;
 constexpr uint64_t kDsdtPhysical = 0x5000;
+constexpr uint64_t kOslMemoryPhysical = 0x18000;
+constexpr uint64_t kOslEcamBasePhysical = 0x40000;
 
 struct [[gnu::packed]] TestRsdp
 {
@@ -236,11 +239,13 @@ class AcpicaIntegration : public ::testing::Test
 protected:
     void SetUp() override
     {
+        g_platform = {};
         acpica_reset_for_tests();
     }
 
     void TearDown() override
     {
+        g_platform = {};
         acpica_reset_for_tests();
     }
 };
@@ -305,4 +310,110 @@ TEST_F(AcpicaIntegration, RejectsBrokenOrIncompleteFirmwareTables)
 
     EXPECT_FALSE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
     EXPECT_FALSE(acpica_tables_initialized());
+}
+
+TEST_F(AcpicaIntegration, OslSemaphoresEnforceBounds)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+
+    ACPI_SEMAPHORE handle = nullptr;
+    EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsCreateSemaphore(1, 2, &handle));
+    EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsCreateSemaphore(1, 0, nullptr));
+
+    ASSERT_EQ(AE_OK, AcpiOsCreateSemaphore(2, 1, &handle));
+    ASSERT_NE(nullptr, handle);
+
+    EXPECT_EQ(AE_OK, AcpiOsWaitSemaphore(handle, 1, 0));
+    EXPECT_EQ(AE_TIME, AcpiOsWaitSemaphore(handle, 1, 0));
+    EXPECT_EQ(AE_TIME, AcpiOsWaitSemaphore(handle, 0, 0));
+    EXPECT_EQ(AE_OK, AcpiOsSignalSemaphore(handle, 1));
+    EXPECT_EQ(AE_LIMIT, AcpiOsSignalSemaphore(handle, 2));
+    EXPECT_EQ(AE_OK, AcpiOsDeleteSemaphore(handle));
+}
+
+TEST_F(AcpicaIntegration, OslMapsAndAccessesPhysicalMemory)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    build_tables(arena, true, false);
+
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
+
+    void* mapped = AcpiOsMapMemory(kOslMemoryPhysical, sizeof(uint64_t));
+    ASSERT_NE(nullptr, mapped);
+    EXPECT_EQ(kernel_physical_pointer<void>(kOslMemoryPhysical), mapped);
+
+    uint64_t value = 0;
+    EXPECT_EQ(AE_OK, AcpiOsWriteMemory(kOslMemoryPhysical + 0x00, 0x5Au, 8));
+    EXPECT_EQ(AE_OK, AcpiOsReadMemory(kOslMemoryPhysical + 0x00, &value, 8));
+    EXPECT_EQ(0x5Au, value);
+
+    EXPECT_EQ(AE_OK, AcpiOsWriteMemory(kOslMemoryPhysical + 0x08, 0xBEEFu, 16));
+    EXPECT_EQ(AE_OK, AcpiOsReadMemory(kOslMemoryPhysical + 0x08, &value, 16));
+    EXPECT_EQ(0xBEEFu, value);
+
+    EXPECT_EQ(AE_OK, AcpiOsWriteMemory(kOslMemoryPhysical + 0x10, 0xAABBCCDDu, 32));
+    EXPECT_EQ(AE_OK, AcpiOsReadMemory(kOslMemoryPhysical + 0x10, &value, 32));
+    EXPECT_EQ(0xAABBCCDDu, value);
+
+    EXPECT_EQ(AE_OK,
+              AcpiOsWriteMemory(kOslMemoryPhysical + 0x18, 0x1122334455667788ull, 64));
+    EXPECT_EQ(AE_OK, AcpiOsReadMemory(kOslMemoryPhysical + 0x18, &value, 64));
+    EXPECT_EQ(0x1122334455667788ull, value);
+
+    EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsReadMemory(kOslMemoryPhysical, nullptr, 8));
+    EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsReadMemory(kOslMemoryPhysical, &value, 24));
+    EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsWriteMemory(kOslMemoryPhysical, 0x55u, 24));
+
+    UINT32 port_value = 0;
+    EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsReadPort(0x70, nullptr, 8));
+    EXPECT_EQ(AE_SUPPORT, AcpiOsReadPort(0x70, &port_value, 8));
+    EXPECT_EQ(AE_SUPPORT, AcpiOsWritePort(0x70, 0x12u, 8));
+
+    AcpiOsUnmapMemory(mapped, sizeof(uint64_t));
+}
+
+TEST_F(AcpicaIntegration, OslReadsAndWritesPublishedPciConfigSpace)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    build_tables(arena, true, false);
+
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
+
+    g_platform.ecam_region_count = 1;
+    g_platform.ecam_regions[0].base_address = kOslEcamBasePhysical;
+    g_platform.ecam_regions[0].segment_group = 0;
+    g_platform.ecam_regions[0].bus_start = 0;
+    g_platform.ecam_regions[0].bus_end = 0;
+
+    ACPI_PCI_ID pci_id{};
+    pci_id.Segment = 0;
+    pci_id.Bus = 0;
+    pci_id.Device = 1;
+    pci_id.Function = 0;
+
+    constexpr uint64_t kDevicePhysicalBase = kOslEcamBasePhysical + (1ull << 15u);
+    *kernel_physical_pointer<volatile uint32_t>(kDevicePhysicalBase + 0x10) = 0xAABBCCDDu;
+
+    uint64_t value = 0;
+    EXPECT_EQ(AE_OK, AcpiOsReadPciConfiguration(&pci_id, 0x10, &value, 32));
+    EXPECT_EQ(0xAABBCCDDu, value);
+
+    EXPECT_EQ(AE_OK, AcpiOsWritePciConfiguration(&pci_id, 0x14, 0x55AAu, 16));
+    EXPECT_EQ(0x55AAu, *kernel_physical_pointer<volatile uint16_t>(kDevicePhysicalBase + 0x14));
+
+    EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsReadPciConfiguration(&pci_id, 0x10, &value, 24));
+
+    pci_id.Bus = 1;
+    EXPECT_EQ(AE_NOT_FOUND, AcpiOsReadPciConfiguration(&pci_id, 0x10, &value, 32));
+    EXPECT_EQ(AE_NOT_FOUND, AcpiOsWritePciConfiguration(&pci_id, 0x10, 0x11u, 32));
 }

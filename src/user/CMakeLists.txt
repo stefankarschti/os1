@@ -62,6 +62,7 @@ os1_add_user_cxx_program(balancecheck "${CMAKE_CURRENT_SOURCE_DIR}/programs/bala
 os1_add_user_cxx_program(fault "${CMAKE_CURRENT_SOURCE_DIR}/programs/fault.cpp" OS1_USER_FAULT_ELF)
 os1_add_user_cxx_program(copycheck "${CMAKE_CURRENT_SOURCE_DIR}/programs/copycheck.cpp" OS1_USER_COPYCHECK_ELF)
 os1_add_user_cxx_program(smpcheck "${CMAKE_CURRENT_SOURCE_DIR}/programs/smpcheck.cpp" OS1_USER_SMPCHECK_ELF)
+os1_add_user_cxx_program(acpiprobe "${CMAKE_CURRENT_SOURCE_DIR}/programs/acpiprobe.cpp" OS1_USER_ACPIPROBE_ELF)
 os1_add_user_cxx_program(ascii "${CMAKE_CURRENT_SOURCE_DIR}/programs/ascii.cpp" OS1_USER_ASCII_ELF)
 
 add_custom_command(
@@ -77,6 +78,7 @@ add_custom_command(
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_FAULT_ELF}" "${USER_STAGE_DIR}/bin/fault"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_COPYCHECK_ELF}" "${USER_STAGE_DIR}/bin/copycheck"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_SMPCHECK_ELF}" "${USER_STAGE_DIR}/bin/smpcheck"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_ACPIPROBE_ELF}" "${USER_STAGE_DIR}/bin/acpiprobe"
   COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_USER_ASCII_ELF}" "${USER_STAGE_DIR}/bin/ascii"
   COMMAND
     "${CMAKE_COMMAND}"
@@ -95,6 +97,7 @@ add_custom_command(
     "${OS1_USER_FAULT_ELF}"
     "${OS1_USER_COPYCHECK_ELF}"
     "${OS1_USER_SMPCHECK_ELF}"
+    "${OS1_USER_ACPIPROBE_ELF}"
     "${OS1_USER_ASCII_ELF}"
   VERBATIM
 )
@@ -109,6 +112,7 @@ add_custom_target(user_programs DEPENDS
   "${OS1_USER_FAULT_ELF}"
   "${OS1_USER_COPYCHECK_ELF}"
   "${OS1_USER_SMPCHECK_ELF}"
+  "${OS1_USER_ACPIPROBE_ELF}"
   "${OS1_USER_ASCII_ELF}"
 )
 

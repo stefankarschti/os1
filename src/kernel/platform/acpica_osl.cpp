@@ -322,6 +322,11 @@ ACPI_STATUS AcpiOsGetPhysicalAddress(void* logical_address, ACPI_PHYSICAL_ADDRES
 
 #if !defined(OS1_HOST_TEST)
     const uint64_t virtual_address = reinterpret_cast<uint64_t>(logical_address);
+    if(!is_kernel_virtual_address(virtual_address) && !is_direct_map_virtual_address(virtual_address))
+    {
+        return AE_NOT_FOUND;
+    }
+
     const uint64_t direct_map_physical = virt_to_phys(virtual_address);
     if(kInvalidPhysicalAddress != direct_map_physical)
     {
