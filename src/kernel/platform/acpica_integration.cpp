@@ -167,6 +167,16 @@ bool validate_rsdp(VirtualMemory& kernel_vm, const BootInfo& boot_info)
 
     return true;
 }
+
+bool table_signature_equals(const ACPI_TABLE_HEADER& table, const char* signature)
+{
+    return bytes_equal(table.Signature, signature, 4);
+}
+
+bool descriptor_signature_equals(const ACPI_TABLE_DESC& descriptor, const char* signature)
+{
+    return bytes_equal(descriptor.Signature.Ascii, signature, 4);
+}
 }  // namespace
 
 bool acpica_initialize_tables(VirtualMemory& kernel_vm, const BootInfo& boot_info)
@@ -217,6 +227,80 @@ bool acpica_initialize_tables(VirtualMemory& kernel_vm, const BootInfo& boot_inf
     }
 
     debug("acpica: tables ready")();
+    return true;
+}
+
+bool acpica_discover_tables(uint64_t& madt_physical,
+                            uint64_t& mcfg_physical,
+                            uint64_t& hpet_physical,
+                            uint64_t& fadt_physical,
+                            uint64_t* ssdt_physical,
+                            size_t ssdt_capacity,
+                            size_t& ssdt_count)
+{
+    madt_physical = 0;
+    mcfg_physical = 0;
+    hpet_physical = 0;
+    fadt_physical = 0;
+    ssdt_count = 0;
+
+    if((0u != ssdt_capacity) && (nullptr == ssdt_physical))
+    {
+        g_acpica_state.last_status = AcpiFormatException(AE_BAD_PARAMETER);
+        return false;
+    }
+
+    if(!g_acpica_state.tables_initialized)
+    {
+        g_acpica_state.last_status = AcpiFormatException(AE_NOT_FOUND);
+        debug("acpica: discover tables before init")();
+        return false;
+    }
+
+    for(UINT32 index = 0; index < AcpiGbl_RootTableList.CurrentTableCount; ++index)
+    {
+        const ACPI_TABLE_DESC& descriptor = AcpiGbl_RootTableList.Tables[index];
+        if(0 == descriptor.Address)
+        {
+            continue;
+        }
+        if(descriptor_signature_equals(descriptor, "APIC"))
+        {
+            madt_physical = descriptor.Address;
+        }
+        else if(descriptor_signature_equals(descriptor, "MCFG"))
+        {
+            mcfg_physical = descriptor.Address;
+        }
+        else if(descriptor_signature_equals(descriptor, "HPET"))
+        {
+            hpet_physical = descriptor.Address;
+        }
+        else if(descriptor_signature_equals(descriptor, "FACP"))
+        {
+            fadt_physical = descriptor.Address;
+        }
+        else if(descriptor_signature_equals(descriptor, "SSDT"))
+        {
+            if(ssdt_count >= ssdt_capacity)
+            {
+                g_acpica_state.last_status = AcpiFormatException(AE_LIMIT);
+                debug("acpica: too many SSDTs")();
+                return false;
+            }
+            ssdt_physical[ssdt_count++] = descriptor.Address;
+        }
+    }
+
+    if((0 == madt_physical) || (0 == mcfg_physical) || (0 == fadt_physical))
+    {
+        g_acpica_state.last_status = AcpiFormatException(AE_NOT_FOUND);
+        debug("acpica: required tables missing madt=")(0 != madt_physical)(" mcfg=")(
+            0 != mcfg_physical)(" fadt=")(0 != fadt_physical)();
+        return false;
+    }
+
+    g_acpica_state.last_status = kStatusOk;
     return true;
 }
 

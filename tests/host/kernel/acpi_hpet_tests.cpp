@@ -2,6 +2,7 @@
 #include "handoff/memory_layout.h"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
+#include "platform/acpica_integration.hpp"
 #include "platform/hpet.hpp"
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
@@ -24,6 +25,7 @@ constexpr uint64_t kHpetTablePhysical = 0x5000;
 constexpr uint64_t kFadtPhysical = 0x6000;
 constexpr uint64_t kDsdtPhysical = 0x7000;
 constexpr uint64_t kSsdtPhysical = 0x8000;
+constexpr uint64_t kFacsPhysical = 0x9000;
 constexpr uint64_t kHpetMmioPhysical = 0xFED00000ull;
 constexpr uint64_t kHpetCapabilitiesOffset = 0x000;
 constexpr uint64_t kHpetMainCounterOffset = 0x0F0;
@@ -169,6 +171,21 @@ struct [[gnu::packed]] TestFadt
     uint64_t x_dsdt;
 };
 
+struct [[gnu::packed]] TestFacs
+{
+    char signature[4];
+    uint32_t length;
+    uint32_t hardware_signature;
+    uint32_t firmware_waking_vector;
+    uint32_t global_lock;
+    uint32_t flags;
+    uint64_t x_firmware_waking_vector;
+    uint8_t version;
+    uint8_t reserved[3];
+    uint32_t ospm_flags;
+    uint8_t reserved1[24];
+};
+
 struct [[gnu::packed]] TestMadtTable
 {
     TestMadt madt;
@@ -238,6 +255,7 @@ void build_acpi_tables(os1::host_test::PhysicalMemoryArena& arena, bool include_
     auto* fadt = reinterpret_cast<TestFadt*>(arena.data() + kFadtPhysical);
     auto* dsdt = reinterpret_cast<TestSdtHeader*>(arena.data() + kDsdtPhysical);
     auto* ssdt = reinterpret_cast<TestSdtHeader*>(arena.data() + kSsdtPhysical);
+    auto* facs = reinterpret_cast<TestFacs*>(arena.data() + kFacsPhysical);
 
     std::memset(rsdp, 0, sizeof(*rsdp));
     std::memcpy(rsdp->signature, "RSD PTR ", 8);
@@ -290,9 +308,15 @@ void build_acpi_tables(os1::host_test::PhysicalMemoryArena& arena, bool include_
     fadt->sci_interrupt = 9;
     fadt->boot_architecture_flags = 3;
     fadt->flags = 0xA5A5u;
-    fadt->x_firmware_control = 0x12345000ull;
+    fadt->firmware_ctrl = static_cast<uint32_t>(kFacsPhysical);
+    fadt->x_firmware_control = kFacsPhysical;
     fadt->x_dsdt = kDsdtPhysical;
     finalize_sdt(fadt->header);
+
+    std::memset(facs, 0, sizeof(*facs));
+    std::memcpy(facs->signature, "FACS", 4);
+    facs->length = sizeof(*facs);
+    facs->version = 1;
 
     std::memset(dsdt, 0, sizeof(*dsdt));
     initialize_header(*dsdt, "DSDT", sizeof(*dsdt));
@@ -330,6 +354,20 @@ void reset_platform_state()
 {
     std::memset(&g_platform, 0, sizeof(g_platform));
 }
+
+class AcpiDiscoveryWithAcpica : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        acpica_reset_for_tests();
+    }
+
+    void TearDown() override
+    {
+        acpica_reset_for_tests();
+    }
+};
 }  // namespace
 
 TEST(AcpiDiscovery, HpetTableIsOptional)
@@ -454,4 +492,58 @@ TEST(AcpiDiscovery, ParsesHpetTableAndReadsMainCounter)
     uint64_t counter = 0;
     ASSERT_TRUE(platform_hpet_read_main_counter(counter));
     EXPECT_EQ(0x1122334455667788ull, counter);
+}
+
+TEST_F(AcpiDiscoveryWithAcpica, DiscoversPlatformFromAcpicaTableManager)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    build_acpi_tables(arena, true);
+    PageFrameContainer frames = make_frames();
+    VirtualMemory vm(frames);
+
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
+
+    uint64_t lapic_base = 0;
+    std::array<CpuInfo, kPlatformMaxCpus> cpus{};
+    size_t cpu_count = 0;
+    std::array<IoApicInfo, kPlatformMaxIoApics> ioapics{};
+    size_t ioapic_count = 0;
+    std::array<InterruptOverride, kPlatformMaxInterruptOverrides> overrides{};
+    size_t override_count = 0;
+    std::array<PciEcamRegion, kPlatformMaxPciEcamRegions> ecam_regions{};
+    size_t ecam_region_count = 0;
+    HpetInfo hpet{};
+    AcpiFixedInfo acpi_fixed{};
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> definition_blocks{};
+    size_t definition_block_count = 0;
+
+    ASSERT_TRUE(discover_acpi_platform(vm,
+                                       make_boot_info(),
+                                       lapic_base,
+                                       cpus.data(),
+                                       cpu_count,
+                                       ioapics.data(),
+                                       ioapic_count,
+                                       overrides.data(),
+                                       override_count,
+                                       ecam_regions.data(),
+                                       ecam_region_count,
+                                       hpet,
+                                       acpi_fixed,
+                                       definition_blocks.data(),
+                                       definition_block_count));
+    EXPECT_EQ(0xFEE00000ull, lapic_base);
+    EXPECT_EQ(1u, cpu_count);
+    EXPECT_EQ(1u, ioapic_count);
+    EXPECT_EQ(1u, ecam_region_count);
+    ASSERT_TRUE(hpet.present);
+    EXPECT_EQ(kHpetMmioPhysical, hpet.physical_address);
+    EXPECT_TRUE(acpi_fixed.present);
+    EXPECT_EQ(9u, acpi_fixed.sci_interrupt);
+    EXPECT_EQ(kDsdtPhysical, acpi_fixed.dsdt_physical);
+    ASSERT_EQ(2u, definition_block_count);
+    EXPECT_EQ(kDsdtPhysical, definition_blocks[0].physical_address);
+    EXPECT_EQ(0, std::memcmp(definition_blocks[0].signature, "DSDT", 4));
+    EXPECT_EQ(kSsdtPhysical, definition_blocks[1].physical_address);
+    EXPECT_EQ(0, std::memcmp(definition_blocks[1].signature, "SSDT", 4));
 }

@@ -3,6 +3,7 @@
 // interrupt routing, and PCI enumeration.
 #include "platform/acpi.hpp"
 
+#include "platform/acpica_integration.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
@@ -751,7 +752,22 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
     acpi_fixed = {};
 
     AcpiRootTables tables{};
-    if(!resolve_acpi_tables(kernel_vm, boot_info, tables))
+    if(acpica_tables_initialized())
+    {
+        debug("boot rsdp physical=0x")(boot_info.rsdp_physical, 16)();
+        if(!acpica_discover_tables(tables.madt_physical,
+                                   tables.mcfg_physical,
+                                   tables.hpet_physical,
+                                   tables.fadt_physical,
+                                   tables.ssdt_physical,
+                                   kPlatformMaxAcpiDefinitionBlocks,
+                                   tables.ssdt_count))
+        {
+            debug("acpi: ACPICA table discovery failed status=")(acpica_last_status())();
+            return false;
+        }
+    }
+    else if(!resolve_acpi_tables(kernel_vm, boot_info, tables))
     {
         return false;
     }
