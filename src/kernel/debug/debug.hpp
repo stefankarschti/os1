@@ -9,7 +9,11 @@ class Debug
 {
 public:
     // initialize COM1 for polling serial output.
+#if defined(OS1_HOST_TEST)
+    constexpr Debug() = default;
+#else
     Debug();
+#endif
     // Enable or disable BIOS text-mode VGA mirroring for all debug output.
     void set_vga_mirror_enabled(bool enabled);
     // write one byte to COM1 after waiting for the transmit FIFO.
@@ -60,10 +64,10 @@ private:
     void update_vga_cursor();
     void write_vga(const char c);
 
-    uint8_t serial_state_;
-    bool vga_mirror_enabled_;
-    bool vga_cursor_initialized_;
-    uint16_t vga_cursor_;
+    uint8_t serial_state_ = kSerialStateUninitialized;
+    bool vga_mirror_enabled_ = false;
+    bool vga_cursor_initialized_ = false;
+    uint16_t vga_cursor_ = 0;
 };
 
 // Dump a memory range in hex plus printable ASCII to the serial logger.

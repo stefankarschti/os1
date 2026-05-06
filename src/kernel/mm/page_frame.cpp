@@ -8,8 +8,6 @@
 #include "sync/smp.hpp"
 #include "util/memory.h"
 
-PageFrameContainer::PageFrameContainer() : initialized_(false) {}
-
 bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_regions,
                                     uint64_t bitmap_address,
                                     uint64_t bitmap_limit)
