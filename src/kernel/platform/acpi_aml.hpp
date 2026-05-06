@@ -74,7 +74,6 @@ struct AcpiPciRoute
     char source_path[kAcpiDevicePathBytes];
 };
 
-void acpi_namespace_reset();
 bool acpi_namespace_load(VirtualMemory& kernel_vm,
                          const AcpiDefinitionBlock* definition_blocks,
                          size_t definition_block_count);
