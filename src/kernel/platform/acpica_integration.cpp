@@ -6,6 +6,8 @@
 extern "C"
 {
 #include "acpi.h"
+#include "actbl1.h"
+#include "actbl2.h"
 #include "aclocal.h"
 #include "acobject.h"
 #include "actables.h"
@@ -16,6 +18,11 @@ extern "C"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
 #include "platform/acpica_internal.hpp"
+
+#if !defined(OS1_HOST_TEST)
+#include "arch/x86_64/cpu/cpu.hpp"
+#include "arch/x86_64/cpu/x86.hpp"
+#endif
 
 namespace
 {
@@ -168,14 +175,57 @@ bool validate_rsdp(VirtualMemory& kernel_vm, const BootInfo& boot_info)
     return true;
 }
 
-bool table_signature_equals(const ACPI_TABLE_HEADER& table, const char* signature)
-{
-    return bytes_equal(table.Signature, signature, 4);
-}
-
 bool descriptor_signature_equals(const ACPI_TABLE_DESC& descriptor, const char* signature)
 {
     return bytes_equal(descriptor.Signature.Ascii, signature, 4);
+}
+
+[[nodiscard]] uint8_t current_apic_id()
+{
+#if defined(OS1_HOST_TEST)
+    return 0;
+#else
+    cpuinfo info{};
+    cpuid(1, &info);
+    return static_cast<uint8_t>((info.ebx >> 24) & 0xFFu);
+#endif
+}
+
+bool set_status_error(ACPI_STATUS status, const char* message)
+{
+    g_acpica_state.last_status = AcpiFormatException(status);
+    debug(message)(" status=")(g_acpica_state.last_status)();
+    return false;
+}
+
+bool ensure_tables_ready(const char* operation)
+{
+    if(g_acpica_state.tables_initialized)
+    {
+        return true;
+    }
+
+    g_acpica_state.last_status = AcpiFormatException(AE_NOT_FOUND);
+    debug("acpica: ")(operation)(" before init")();
+    return false;
+}
+
+template<typename TableType>
+bool get_table(const char* signature, TableType*& table)
+{
+    table = nullptr;
+    ACPI_TABLE_HEADER* raw = nullptr;
+    const ACPI_STATUS status = AcpiGetTable(const_cast<char*>(signature), 1, &raw);
+    if(ACPI_FAILURE(status))
+    {
+        g_acpica_state.last_status = AcpiFormatException(status);
+        debug("acpica: get table failed sig=")(signature)(" status=")(
+            g_acpica_state.last_status)();
+        return false;
+    }
+
+    table = reinterpret_cast<TableType*>(raw);
+    return true;
 }
 }  // namespace
 
@@ -301,6 +351,261 @@ bool acpica_discover_tables(uint64_t& madt_physical,
     }
 
     g_acpica_state.last_status = kStatusOk;
+    return true;
+}
+
+bool acpica_parse_madt(uint64_t& lapic_base,
+                       CpuInfo* cpus,
+                       size_t& cpu_count,
+                       IoApicInfo* ioapics,
+                       size_t& ioapic_count,
+                       InterruptOverride* overrides,
+                       size_t& override_count)
+{
+    if((nullptr == cpus) || (nullptr == ioapics) || (nullptr == overrides))
+    {
+        g_acpica_state.last_status = AcpiFormatException(AE_BAD_PARAMETER);
+        return false;
+    }
+    if(!ensure_tables_ready("parse MADT"))
+    {
+        return false;
+    }
+
+    ACPI_TABLE_MADT* madt = nullptr;
+    if(!get_table(ACPI_SIG_MADT, madt))
+    {
+        return false;
+    }
+
+    if(madt->Header.Length < sizeof(ACPI_TABLE_MADT))
+    {
+        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(madt));
+        return set_status_error(AE_BAD_HEADER, "acpica: MADT too short");
+    }
+
+    lapic_base = madt->Address;
+    cpu_count = 0;
+    ioapic_count = 0;
+    override_count = 0;
+
+    const auto* cursor = reinterpret_cast<const uint8_t*>(madt) + sizeof(ACPI_TABLE_MADT);
+    const auto* end = reinterpret_cast<const uint8_t*>(madt) + madt->Header.Length;
+    while(cursor < end)
+    {
+        if((cursor + sizeof(ACPI_SUBTABLE_HEADER)) > end)
+        {
+            AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(madt));
+            return set_status_error(AE_BAD_HEADER, "acpica: MADT truncated");
+        }
+
+        const auto* subtable = reinterpret_cast<const ACPI_SUBTABLE_HEADER*>(cursor);
+        if((subtable->Length < sizeof(ACPI_SUBTABLE_HEADER)) || ((cursor + subtable->Length) > end))
+        {
+            AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(madt));
+            return set_status_error(AE_BAD_HEADER, "acpica: MADT entry length invalid");
+        }
+
+        switch(subtable->Type)
+        {
+            case ACPI_MADT_TYPE_LOCAL_APIC: {
+                const auto* entry = reinterpret_cast<const ACPI_MADT_LOCAL_APIC*>(subtable);
+                if(entry->LapicFlags & ACPI_MADT_ENABLED)
+                {
+                    if(cpu_count >= kPlatformMaxCpus)
+                    {
+                        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(madt));
+                        g_acpica_state.last_status = AcpiFormatException(AE_LIMIT);
+                        debug("acpica: CPU table full")();
+                        return false;
+                    }
+                    CpuInfo& cpu = cpus[cpu_count++];
+                    cpu.apic_id = entry->Id;
+                    cpu.enabled = true;
+                    cpu.is_bsp = false;
+                }
+                break;
+            }
+            case ACPI_MADT_TYPE_IO_APIC: {
+                const auto* entry = reinterpret_cast<const ACPI_MADT_IO_APIC*>(subtable);
+                if(ioapic_count >= kPlatformMaxIoApics)
+                {
+                    AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(madt));
+                    g_acpica_state.last_status = AcpiFormatException(AE_LIMIT);
+                    debug("acpica: IOAPIC table full")();
+                    return false;
+                }
+                IoApicInfo& ioapic = ioapics[ioapic_count++];
+                ioapic.id = entry->Id;
+                ioapic.address = entry->Address;
+                ioapic.gsi_base = entry->GlobalIrqBase;
+                break;
+            }
+            case ACPI_MADT_TYPE_INTERRUPT_OVERRIDE: {
+                const auto* entry = reinterpret_cast<const ACPI_MADT_INTERRUPT_OVERRIDE*>(subtable);
+                if(0u == entry->Bus)
+                {
+                    if(override_count >= kPlatformMaxInterruptOverrides)
+                    {
+                        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(madt));
+                        g_acpica_state.last_status = AcpiFormatException(AE_LIMIT);
+                        debug("acpica: interrupt override table full")();
+                        return false;
+                    }
+                    InterruptOverride& irq_override = overrides[override_count++];
+                    irq_override.bus_irq = entry->SourceIrq;
+                    irq_override.flags = entry->IntiFlags;
+                    irq_override.global_irq = entry->GlobalIrq;
+                }
+                break;
+            }
+            case ACPI_MADT_TYPE_LOCAL_APIC_OVERRIDE: {
+                const auto* entry = reinterpret_cast<const ACPI_MADT_LOCAL_APIC_OVERRIDE*>(subtable);
+                lapic_base = entry->Address;
+                break;
+            }
+            default:
+                break;
+        }
+
+        cursor += subtable->Length;
+    }
+
+    AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(madt));
+
+    if((0 == cpu_count) || (0 == ioapic_count) || (0 == lapic_base))
+    {
+        return set_status_error(AE_NOT_FOUND, "acpica: MADT missing required topology");
+    }
+
+    const uint8_t bsp_apic_id = current_apic_id();
+    bool found_bsp = false;
+    for(size_t index = 0; index < cpu_count; ++index)
+    {
+        if(cpus[index].apic_id == bsp_apic_id)
+        {
+            cpus[index].is_bsp = true;
+            found_bsp = true;
+            break;
+        }
+    }
+    if(!found_bsp)
+    {
+        return set_status_error(AE_NOT_FOUND, "acpica: BSP APIC ID not found in MADT");
+    }
+
+    g_acpica_state.last_status = kStatusOk;
+    debug("acpi: MADT ready cpus=")(cpu_count)(" ioapics=")(ioapic_count)(" overrides=")(
+        override_count)();
+    return true;
+}
+
+bool acpica_parse_mcfg(PciEcamRegion* ecam_regions, size_t& ecam_region_count)
+{
+    if(nullptr == ecam_regions)
+    {
+        g_acpica_state.last_status = AcpiFormatException(AE_BAD_PARAMETER);
+        return false;
+    }
+    if(!ensure_tables_ready("parse MCFG"))
+    {
+        return false;
+    }
+
+    ACPI_TABLE_MCFG* mcfg = nullptr;
+    if(!get_table(ACPI_SIG_MCFG, mcfg))
+    {
+        return false;
+    }
+
+    if(mcfg->Header.Length < sizeof(ACPI_TABLE_MCFG))
+    {
+        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(mcfg));
+        return set_status_error(AE_BAD_HEADER, "acpica: MCFG too short");
+    }
+
+    ecam_region_count = 0;
+    const uint32_t payload_length = mcfg->Header.Length - sizeof(ACPI_TABLE_MCFG);
+    if(0u != (payload_length % sizeof(ACPI_MCFG_ALLOCATION)))
+    {
+        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(mcfg));
+        return set_status_error(AE_BAD_HEADER, "acpica: MCFG length misaligned");
+    }
+
+    const auto* entries = reinterpret_cast<const ACPI_MCFG_ALLOCATION*>(
+        reinterpret_cast<const uint8_t*>(mcfg) + sizeof(ACPI_TABLE_MCFG));
+    const size_t entry_count = payload_length / sizeof(ACPI_MCFG_ALLOCATION);
+    if(0u == entry_count)
+    {
+        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(mcfg));
+        return set_status_error(AE_NOT_FOUND, "acpica: MCFG contains no ECAM regions");
+    }
+
+    for(size_t index = 0; index < entry_count; ++index)
+    {
+        if(ecam_region_count >= kPlatformMaxPciEcamRegions)
+        {
+            AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(mcfg));
+            g_acpica_state.last_status = AcpiFormatException(AE_LIMIT);
+            debug("acpica: ECAM region table full")();
+            return false;
+        }
+        if(entries[index].StartBusNumber > entries[index].EndBusNumber)
+        {
+            AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(mcfg));
+            return set_status_error(AE_BAD_VALUE, "acpica: invalid ECAM bus range");
+        }
+
+        PciEcamRegion& region = ecam_regions[ecam_region_count++];
+        region.base_address = entries[index].Address;
+        region.segment_group = entries[index].PciSegment;
+        region.bus_start = entries[index].StartBusNumber;
+        region.bus_end = entries[index].EndBusNumber;
+    }
+
+    AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(mcfg));
+    g_acpica_state.last_status = kStatusOk;
+    debug("acpi: MCFG ready regions=")(ecam_region_count)();
+    return true;
+}
+
+bool acpica_parse_hpet(HpetInfo& hpet)
+{
+    if(!ensure_tables_ready("parse HPET"))
+    {
+        return false;
+    }
+
+    ACPI_TABLE_HPET* hpet_table = nullptr;
+    if(!get_table(ACPI_SIG_HPET, hpet_table))
+    {
+        return false;
+    }
+
+    if(hpet_table->Header.Length < sizeof(ACPI_TABLE_HPET))
+    {
+        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(hpet_table));
+        return set_status_error(AE_BAD_HEADER, "acpica: HPET too short");
+    }
+
+    if((hpet_table->Address.SpaceId != ACPI_ADR_SPACE_SYSTEM_MEMORY) ||
+       (0u == hpet_table->Address.Address))
+    {
+        AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(hpet_table));
+        return set_status_error(AE_BAD_ADDRESS, "acpica: HPET has unsupported base address");
+    }
+
+    hpet = {};
+    hpet.present = true;
+    hpet.hpet_number = hpet_table->Sequence;
+    hpet.page_protection = static_cast<uint8_t>(hpet_table->Flags & ACPI_HPET_PAGE_PROTECT_MASK);
+    hpet.minimum_tick = hpet_table->MinimumTick;
+    hpet.physical_address = hpet_table->Address.Address;
+
+    AcpiPutTable(reinterpret_cast<ACPI_TABLE_HEADER*>(hpet_table));
+    g_acpica_state.last_status = kStatusOk;
+    debug("acpi: HPET discovered base=0x")(hpet.physical_address, 16)(" number=")(
+        hpet.hpet_number)(" min_tick=")(hpet.minimum_tick)();
     return true;
 }
 

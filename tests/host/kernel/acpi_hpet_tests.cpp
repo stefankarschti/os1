@@ -88,6 +88,24 @@ struct [[gnu::packed]] TestMadtIoApic
     uint32_t gsi_base;
 };
 
+struct [[gnu::packed]] TestMadtInterruptOverride
+{
+    uint8_t type;
+    uint8_t length;
+    uint8_t bus;
+    uint8_t source_irq;
+    uint32_t global_irq;
+    uint16_t flags;
+};
+
+struct [[gnu::packed]] TestMadtLocalApicOverride
+{
+    uint8_t type;
+    uint8_t length;
+    uint16_t reserved;
+    uint64_t lapic_address;
+};
+
 struct [[gnu::packed]] TestGas
 {
     uint8_t address_space_id;
@@ -197,6 +215,40 @@ struct [[gnu::packed]] TestMcfgTable
 {
     TestMcfg mcfg;
     TestMcfgEntry entry;
+};
+
+struct [[gnu::packed]] TestMadtExtendedTable
+{
+    TestMadt madt;
+    TestMadtLocalApic local_apic_bsp;
+    TestMadtLocalApic local_apic_ap;
+    TestMadtLocalApic local_apic_disabled;
+    TestMadtIoApic ioapic;
+    TestMadtInterruptOverride irq_override;
+    TestMadtLocalApicOverride lapic_override;
+};
+
+struct [[gnu::packed]] TestMcfgDualTable
+{
+    TestMcfg mcfg;
+    TestMcfgEntry entries[2];
+};
+
+struct DiscoverySnapshot
+{
+    uint64_t lapic_base = 0;
+    std::array<CpuInfo, kPlatformMaxCpus> cpus{};
+    size_t cpu_count = 0;
+    std::array<IoApicInfo, kPlatformMaxIoApics> ioapics{};
+    size_t ioapic_count = 0;
+    std::array<InterruptOverride, kPlatformMaxInterruptOverrides> overrides{};
+    size_t override_count = 0;
+    std::array<PciEcamRegion, kPlatformMaxPciEcamRegions> ecam_regions{};
+    size_t ecam_region_count = 0;
+    HpetInfo hpet{};
+    AcpiFixedInfo acpi_fixed{};
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> definition_blocks{};
+    size_t definition_block_count = 0;
 };
 
 uint8_t checksum_value(const void* data, size_t length)
@@ -336,6 +388,124 @@ void build_acpi_tables(os1::host_test::PhysicalMemoryArena& arena, bool include_
         hpet->hpet_number = 0;
         hpet->minimum_tick = 128;
         hpet->page_protection = 0;
+        finalize_sdt(hpet->header);
+    }
+}
+
+void build_complex_acpi_tables(os1::host_test::PhysicalMemoryArena& arena, bool include_hpet)
+{
+    auto* rsdp = reinterpret_cast<TestRsdp*>(arena.data() + kRsdpPhysical);
+    auto* xsdt = reinterpret_cast<TestXsdt*>(arena.data() + kXsdtPhysical);
+    auto* madt = reinterpret_cast<TestMadtExtendedTable*>(arena.data() + kMadtPhysical);
+    auto* mcfg = reinterpret_cast<TestMcfgDualTable*>(arena.data() + kMcfgPhysical);
+    auto* hpet = reinterpret_cast<TestHpet*>(arena.data() + kHpetTablePhysical);
+    auto* fadt = reinterpret_cast<TestFadt*>(arena.data() + kFadtPhysical);
+    auto* dsdt = reinterpret_cast<TestSdtHeader*>(arena.data() + kDsdtPhysical);
+    auto* ssdt = reinterpret_cast<TestSdtHeader*>(arena.data() + kSsdtPhysical);
+    auto* facs = reinterpret_cast<TestFacs*>(arena.data() + kFacsPhysical);
+
+    std::memset(rsdp, 0, sizeof(*rsdp));
+    std::memcpy(rsdp->signature, "RSD PTR ", 8);
+    std::memcpy(rsdp->oem_id, "OS1   ", 6);
+    rsdp->revision = 2;
+    rsdp->length = sizeof(*rsdp);
+    rsdp->xsdt_address = kXsdtPhysical;
+    rsdp->checksum = checksum_value(rsdp, 20);
+    rsdp->extended_checksum = checksum_value(rsdp, sizeof(*rsdp));
+
+    std::memset(xsdt, 0, sizeof(*xsdt));
+    initialize_header(xsdt->header,
+                      "XSDT",
+                      static_cast<uint32_t>(sizeof(TestSdtHeader) +
+                                            (include_hpet ? 5u : 4u) * sizeof(uint64_t)));
+    xsdt->entries[0] = kMadtPhysical;
+    xsdt->entries[1] = kMcfgPhysical;
+    xsdt->entries[2] = kFadtPhysical;
+    xsdt->entries[3] = kSsdtPhysical;
+    xsdt->entries[4] = include_hpet ? kHpetTablePhysical : 0;
+    finalize_sdt(xsdt->header);
+
+    std::memset(madt, 0, sizeof(*madt));
+    initialize_header(madt->madt.header, "APIC", sizeof(*madt));
+    madt->madt.lapic_address = 0xFEE00000u;
+    madt->madt.flags = 1;
+    madt->local_apic_bsp.type = 0;
+    madt->local_apic_bsp.length = sizeof(TestMadtLocalApic);
+    madt->local_apic_bsp.acpi_processor_id = 0;
+    madt->local_apic_bsp.apic_id = 0;
+    madt->local_apic_bsp.flags = 1;
+    madt->local_apic_ap.type = 0;
+    madt->local_apic_ap.length = sizeof(TestMadtLocalApic);
+    madt->local_apic_ap.acpi_processor_id = 1;
+    madt->local_apic_ap.apic_id = 3;
+    madt->local_apic_ap.flags = 1;
+    madt->local_apic_disabled.type = 0;
+    madt->local_apic_disabled.length = sizeof(TestMadtLocalApic);
+    madt->local_apic_disabled.acpi_processor_id = 2;
+    madt->local_apic_disabled.apic_id = 7;
+    madt->local_apic_disabled.flags = 0;
+    madt->ioapic.type = 1;
+    madt->ioapic.length = sizeof(TestMadtIoApic);
+    madt->ioapic.ioapic_id = 9;
+    madt->ioapic.ioapic_address = 0xFEC01000u;
+    madt->ioapic.gsi_base = 32;
+    madt->irq_override.type = 2;
+    madt->irq_override.length = sizeof(TestMadtInterruptOverride);
+    madt->irq_override.bus = 0;
+    madt->irq_override.source_irq = 1;
+    madt->irq_override.global_irq = 33;
+    madt->irq_override.flags = 0x000Du;
+    madt->lapic_override.type = 5;
+    madt->lapic_override.length = sizeof(TestMadtLocalApicOverride);
+    madt->lapic_override.lapic_address = 0xFEE01000ull;
+    finalize_sdt(madt->madt.header);
+
+    std::memset(mcfg, 0, sizeof(*mcfg));
+    initialize_header(mcfg->mcfg.header, "MCFG", sizeof(*mcfg));
+    mcfg->entries[0].base_address = 0xE0000000ull;
+    mcfg->entries[0].segment_group = 0;
+    mcfg->entries[0].bus_start = 0;
+    mcfg->entries[0].bus_end = 0;
+    mcfg->entries[1].base_address = 0xE1000000ull;
+    mcfg->entries[1].segment_group = 1;
+    mcfg->entries[1].bus_start = 2;
+    mcfg->entries[1].bus_end = 5;
+    finalize_sdt(mcfg->mcfg.header);
+
+    std::memset(fadt, 0, sizeof(*fadt));
+    initialize_header(fadt->header, "FACP", sizeof(*fadt));
+    fadt->preferred_pm_profile = 2;
+    fadt->sci_interrupt = 9;
+    fadt->boot_architecture_flags = 3;
+    fadt->flags = 0xA5A5u;
+    fadt->firmware_ctrl = static_cast<uint32_t>(kFacsPhysical);
+    fadt->x_firmware_control = kFacsPhysical;
+    fadt->x_dsdt = kDsdtPhysical;
+    finalize_sdt(fadt->header);
+
+    std::memset(facs, 0, sizeof(*facs));
+    std::memcpy(facs->signature, "FACS", 4);
+    facs->length = sizeof(*facs);
+    facs->version = 1;
+
+    std::memset(dsdt, 0, sizeof(*dsdt));
+    initialize_header(*dsdt, "DSDT", sizeof(*dsdt));
+    finalize_sdt(*dsdt);
+
+    std::memset(ssdt, 0, sizeof(*ssdt));
+    initialize_header(*ssdt, "SSDT", sizeof(*ssdt));
+    finalize_sdt(*ssdt);
+
+    if(include_hpet)
+    {
+        std::memset(hpet, 0, sizeof(*hpet));
+        initialize_header(hpet->header, "HPET", sizeof(*hpet));
+        hpet->base_address.address_space_id = 0;
+        hpet->base_address.register_bit_width = 64;
+        hpet->base_address.address = kHpetMmioPhysical;
+        hpet->hpet_number = 3;
+        hpet->minimum_tick = 77;
+        hpet->page_protection = 2;
         finalize_sdt(hpet->header);
     }
 }
@@ -546,4 +716,99 @@ TEST_F(AcpiDiscoveryWithAcpica, DiscoversPlatformFromAcpicaTableManager)
     EXPECT_EQ(0, std::memcmp(definition_blocks[0].signature, "DSDT", 4));
     EXPECT_EQ(kSsdtPhysical, definition_blocks[1].physical_address);
     EXPECT_EQ(0, std::memcmp(definition_blocks[1].signature, "SSDT", 4));
+}
+
+TEST_F(AcpiDiscoveryWithAcpica, AcpicaBackedDiscoveryMatchesLegacyForMadtMcfgAndHpet)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    build_complex_acpi_tables(arena, true);
+
+    const auto capture = [&](bool use_acpica, DiscoverySnapshot& snapshot) {
+        PageFrameContainer frames = make_frames();
+        VirtualMemory vm(frames);
+        if(use_acpica)
+        {
+            ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
+        }
+
+        ASSERT_TRUE(discover_acpi_platform(vm,
+                                           make_boot_info(),
+                                           snapshot.lapic_base,
+                                           snapshot.cpus.data(),
+                                           snapshot.cpu_count,
+                                           snapshot.ioapics.data(),
+                                           snapshot.ioapic_count,
+                                           snapshot.overrides.data(),
+                                           snapshot.override_count,
+                                           snapshot.ecam_regions.data(),
+                                           snapshot.ecam_region_count,
+                                           snapshot.hpet,
+                                           snapshot.acpi_fixed,
+                                           snapshot.definition_blocks.data(),
+                                           snapshot.definition_block_count));
+        acpica_reset_for_tests();
+    };
+
+    DiscoverySnapshot legacy{};
+    DiscoverySnapshot via_acpica{};
+    capture(false, legacy);
+    capture(true, via_acpica);
+
+    EXPECT_EQ(legacy.lapic_base, via_acpica.lapic_base);
+    EXPECT_EQ(0xFEE01000ull, via_acpica.lapic_base);
+
+    EXPECT_EQ(legacy.cpu_count, via_acpica.cpu_count);
+    ASSERT_EQ(2u, via_acpica.cpu_count);
+    for(size_t index = 0; index < via_acpica.cpu_count; ++index)
+    {
+        EXPECT_EQ(legacy.cpus[index].apic_id, via_acpica.cpus[index].apic_id);
+        EXPECT_EQ(legacy.cpus[index].enabled, via_acpica.cpus[index].enabled);
+        EXPECT_EQ(legacy.cpus[index].is_bsp, via_acpica.cpus[index].is_bsp);
+    }
+
+    EXPECT_EQ(legacy.ioapic_count, via_acpica.ioapic_count);
+    ASSERT_EQ(1u, via_acpica.ioapic_count);
+    EXPECT_EQ(legacy.ioapics[0].id, via_acpica.ioapics[0].id);
+    EXPECT_EQ(legacy.ioapics[0].address, via_acpica.ioapics[0].address);
+    EXPECT_EQ(legacy.ioapics[0].gsi_base, via_acpica.ioapics[0].gsi_base);
+
+    EXPECT_EQ(legacy.override_count, via_acpica.override_count);
+    ASSERT_EQ(1u, via_acpica.override_count);
+    EXPECT_EQ(legacy.overrides[0].bus_irq, via_acpica.overrides[0].bus_irq);
+    EXPECT_EQ(legacy.overrides[0].flags, via_acpica.overrides[0].flags);
+    EXPECT_EQ(legacy.overrides[0].global_irq, via_acpica.overrides[0].global_irq);
+
+    EXPECT_EQ(legacy.ecam_region_count, via_acpica.ecam_region_count);
+    ASSERT_EQ(2u, via_acpica.ecam_region_count);
+    for(size_t index = 0; index < via_acpica.ecam_region_count; ++index)
+    {
+        EXPECT_EQ(legacy.ecam_regions[index].base_address, via_acpica.ecam_regions[index].base_address);
+        EXPECT_EQ(legacy.ecam_regions[index].segment_group, via_acpica.ecam_regions[index].segment_group);
+        EXPECT_EQ(legacy.ecam_regions[index].bus_start, via_acpica.ecam_regions[index].bus_start);
+        EXPECT_EQ(legacy.ecam_regions[index].bus_end, via_acpica.ecam_regions[index].bus_end);
+    }
+
+    EXPECT_EQ(legacy.hpet.present, via_acpica.hpet.present);
+    EXPECT_EQ(legacy.hpet.hpet_number, via_acpica.hpet.hpet_number);
+    EXPECT_EQ(legacy.hpet.page_protection, via_acpica.hpet.page_protection);
+    EXPECT_EQ(legacy.hpet.minimum_tick, via_acpica.hpet.minimum_tick);
+    EXPECT_EQ(legacy.hpet.physical_address, via_acpica.hpet.physical_address);
+
+    EXPECT_EQ(legacy.acpi_fixed.present, via_acpica.acpi_fixed.present);
+    EXPECT_EQ(legacy.acpi_fixed.sci_interrupt, via_acpica.acpi_fixed.sci_interrupt);
+    EXPECT_EQ(legacy.acpi_fixed.dsdt_physical, via_acpica.acpi_fixed.dsdt_physical);
+
+    EXPECT_EQ(legacy.definition_block_count, via_acpica.definition_block_count);
+    ASSERT_EQ(2u, via_acpica.definition_block_count);
+    for(size_t index = 0; index < via_acpica.definition_block_count; ++index)
+    {
+        EXPECT_EQ(legacy.definition_blocks[index].active, via_acpica.definition_blocks[index].active);
+        EXPECT_EQ(legacy.definition_blocks[index].length, via_acpica.definition_blocks[index].length);
+        EXPECT_EQ(legacy.definition_blocks[index].physical_address,
+                  via_acpica.definition_blocks[index].physical_address);
+        EXPECT_EQ(0,
+                  std::memcmp(legacy.definition_blocks[index].signature,
+                              via_acpica.definition_blocks[index].signature,
+                              sizeof(via_acpica.definition_blocks[index].signature)));
+    }
 }

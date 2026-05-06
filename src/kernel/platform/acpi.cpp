@@ -788,8 +788,17 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
         .definition_block_count = definition_block_count,
     };
     output.hpet = {};
-    if(!parse_madt(kernel_vm, tables.madt_physical, output) ||
-       !parse_mcfg(kernel_vm, tables.mcfg_physical, output) ||
+    const bool use_acpica = acpica_tables_initialized();
+    if((use_acpica ? !acpica_parse_madt(output.lapic_base,
+                                        output.cpus,
+                                        output.cpu_count,
+                                        output.ioapics,
+                                        output.ioapic_count,
+                                        output.overrides,
+                                        output.override_count)
+                    : !parse_madt(kernel_vm, tables.madt_physical, output)) ||
+       (use_acpica ? !acpica_parse_mcfg(output.ecam_regions, output.ecam_region_count)
+                   : !parse_mcfg(kernel_vm, tables.mcfg_physical, output)) ||
        !parse_fadt(kernel_vm, tables.fadt_physical, output))
     {
         return false;
@@ -808,7 +817,9 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
         }
     }
 
-    if((0 != tables.hpet_physical) && !parse_hpet(kernel_vm, tables.hpet_physical, output))
+    if((0 != tables.hpet_physical) &&
+       (use_acpica ? !acpica_parse_hpet(output.hpet)
+                   : !parse_hpet(kernel_vm, tables.hpet_physical, output)))
     {
         debug("acpi: ignoring unusable HPET table")();
         output.hpet = {};
