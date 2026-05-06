@@ -148,7 +148,5 @@ add_executable(os1_host_tests
 target_link_libraries(os1_host_tests PRIVATE os1_host_support os1_acpica GTest::gtest_main)
 
 include(GoogleTest)
-gtest_discover_tests(os1_host_tests
-  DISCOVERY_TIMEOUT 30
-  PROPERTIES LABELS "host;unit"
-)
+gtest_add_tests(TARGET os1_host_tests TEST_LIST os1_host_tests_TESTS)
+set_tests_properties(${os1_host_tests_TESTS} PROPERTIES LABELS "host;unit")
