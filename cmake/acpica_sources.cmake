@@ -10,15 +10,24 @@ if(NOT EXISTS "${OS1_ACPICA_ROOT}/source/include/acpi.h")
   message(FATAL_ERROR "Missing ACPICA sources under ${OS1_ACPICA_ROOT}; run git submodule update --init --recursive")
 endif()
 
-file(GLOB OS1_ACPICA_TABLE_SOURCES CONFIGURE_DEPENDS
-  "${OS1_ACPICA_ROOT}/source/components/tables/*.c"
-)
-file(GLOB OS1_ACPICA_UTILITY_SOURCES CONFIGURE_DEPENDS
-  "${OS1_ACPICA_ROOT}/source/components/utilities/*.c"
+set(OS1_ACPICA_COMPONENT_DIRS
+  dispatcher
+  events
+  executer
+  hardware
+  namespace
+  parser
+  resources
+  tables
+  utilities
 )
 
-set(OS1_ACPICA_SOURCES
-  ${OS1_ACPICA_TABLE_SOURCES}
-  ${OS1_ACPICA_UTILITY_SOURCES}
-)
+set(OS1_ACPICA_SOURCES)
+foreach(component_dir IN LISTS OS1_ACPICA_COMPONENT_DIRS)
+  file(GLOB component_sources CONFIGURE_DEPENDS
+    "${OS1_ACPICA_ROOT}/source/components/${component_dir}/*.c"
+  )
+  list(APPEND OS1_ACPICA_SOURCES ${component_sources})
+endforeach()
+list(FILTER OS1_ACPICA_SOURCES EXCLUDE REGEX ".*/rsdump(info)?\\.c$")
 list(SORT OS1_ACPICA_SOURCES)

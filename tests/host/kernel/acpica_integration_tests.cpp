@@ -1,5 +1,6 @@
 #include "handoff/boot_info.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpica_integration.hpp"
 #include "support/physical_memory.hpp"
@@ -251,6 +252,7 @@ TEST_F(AcpicaIntegration, InitializesTableManagerFromBootRsdp)
     build_tables(arena, true, false);
 
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory vm(frames);
 
     ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
@@ -278,6 +280,7 @@ TEST_F(AcpicaIntegration, RejectsMissingBootRsdp)
     build_tables(arena, true, false);
 
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory vm(frames);
 
     EXPECT_FALSE(acpica_initialize_tables(vm, make_boot_info(0)));
@@ -291,6 +294,7 @@ TEST_F(AcpicaIntegration, RejectsBrokenOrIncompleteFirmwareTables)
     build_tables(bad_checksum_arena, true, true);
 
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory vm(frames);
 
     EXPECT_FALSE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));

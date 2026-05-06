@@ -514,9 +514,9 @@ loader_main64:
 	add rbp, PAGE_SIZE
 	shr rbp, 12
 	shl rbp, 12
-	mov rsi, rbp			; base of stack: param to kernel main
+	mov rsi, rbp			; base of BSP cpu record: param to kernel main
 	add rbp, PAGE_SIZE
-	mov rsp, rbp			; give at least 4k stack
+	lea rsp, [rbp + PAGE_SIZE]	; give the kernel a dedicated 4k bootstrap stack
 
 	; jump
 	mov rax, [e_entry]

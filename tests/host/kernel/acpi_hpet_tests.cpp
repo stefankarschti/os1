@@ -1,5 +1,6 @@
 #include "handoff/boot_info.hpp"
 #include "handoff/memory_layout.h"
+#include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
 #include "platform/acpica_integration.hpp"
@@ -669,6 +670,7 @@ TEST_F(AcpiDiscoveryWithAcpica, DiscoversPlatformFromAcpicaTableManager)
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     build_acpi_tables(arena, true);
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory vm(frames);
 
     ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
@@ -725,6 +727,10 @@ TEST_F(AcpiDiscoveryWithAcpica, AcpicaBackedDiscoveryMatchesLegacyForMadtMcfgAnd
 
     const auto capture = [&](bool use_acpica, DiscoverySnapshot& snapshot) {
         PageFrameContainer frames = make_frames();
+        if(use_acpica)
+        {
+            kmem_init(frames);
+        }
         VirtualMemory vm(frames);
         if(use_acpica)
         {

@@ -66,6 +66,7 @@ def main() -> None:
     args = parser.parse_args()
 
     elf_path = args.elf
+    elf_name = os.path.basename(elf_path)
     disk_slot_bytes = parse_int(args.disk_slot_bytes)
     staging_buffer_bytes = parse_int(args.staging_buffer_bytes)
     reserved_start = parse_int(args.reserved_start)
@@ -78,7 +79,7 @@ def main() -> None:
         required_sectors = align_up(file_size, 512) // 512
         fail(
             "kernel boot contract check: "
-            f"kernel.elf is {file_size} bytes ({required_sectors} sectors) but the BIOS raw-image slot only reserves "
+            f"{elf_name} is {file_size} bytes ({required_sectors} sectors) but the BIOS raw-image slot only reserves "
             f"{disk_slot_bytes} bytes ({disk_slot_bytes // 512} sectors). Increase OS1_KERNEL_IMAGE_SECTOR_COUNT in CMakeLists.txt."
         )
 

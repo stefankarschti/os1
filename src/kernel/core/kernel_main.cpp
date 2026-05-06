@@ -434,11 +434,16 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
+    if(!map_bootstrap_identity_range(
+           kvm, align_down(reinterpret_cast<uint64_t>(g_cpu_boot), kPageSize), kPageSize))
+    {
+        return;
+    }
     uint64_t bootstrap_stack_pointer = 0;
     asm volatile("mov %%rsp, %0" : "=r"(bootstrap_stack_pointer));
     // Both boot frontends still enter kernel_main on a low bootstrap stack, so
-    // keep the current stack page mapped until the BSP later switches to a
-    // steady-state kernel thread stack.
+    // keep the current stack page and boot CPU record mapped until the BSP
+    // later switches to a steady-state kernel thread stack and GS base.
     if(!map_bootstrap_identity_range(
            kvm, align_down(bootstrap_stack_pointer, kPageSize), kPageSize))
     {
@@ -568,14 +573,13 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     active_terminal->write_line("[kernel64] hello");
 
     result = interrupts.initialize();
-    debug(result ? "Interrupts initialization successful" : "Interrupts initialization failed")();
     if(!result)
     {
         return;
     }
     if(!ipi_initialize())
     {
-        debug("IPI initialization failed")();
+        debug.write_line("ipi init failed");
         return;
     }
 
@@ -594,6 +598,9 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         interrupts.set_exception_handler(kernel_fault_vectors[i], on_kernel_exception);
     }
+
+    asm volatile("sti");
+    debug("Interrupts initialization successful")();
 
     // Driver probing stays after the IDT and local interrupt controllers are
     // online so later MSI/MSI-X work does not need another boot-order split.

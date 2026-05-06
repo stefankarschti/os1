@@ -17,6 +17,7 @@ extern "C"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
+#include "platform/acpi_aml.hpp"
 #include "platform/acpica_internal.hpp"
 
 #if !defined(OS1_HOST_TEST)
@@ -29,7 +30,9 @@ namespace
 constexpr const char* kAcpicaPinnedRelease = "20260408";
 constexpr const char* kAcpicaPinnedShaShort = "232ff3f8ae1a";
 constexpr const char* kStatusOk = "AE_OK";
+constexpr const char* kNamespaceOk = "ok";
 constexpr UINT32 kInitialTableCapacity = 32;
+constexpr uint32_t kAcpiDefaultSta = 0x0Fu;
 
 struct [[gnu::packed]] AcpicaRsdp
 {
@@ -49,12 +52,26 @@ struct AcpicaState
     VirtualMemory* kernel_vm = nullptr;
     const BootInfo* boot_info = nullptr;
     const char* last_status = kStatusOk;
+    const char* last_namespace_error = kNamespaceOk;
     AcpicaBootStage stage = AcpicaBootStage::Inactive;
+    bool subsystem_initialized = false;
     bool tables_initialized = false;
+    bool namespace_loaded = false;
+    char last_namespace_object[kAcpiDevicePathBytes]{};
 };
 
 AcpicaState g_acpica_state{};
 ACPI_TABLE_DESC g_acpica_initial_tables[kInitialTableCapacity]{};
+AcpiPciRoute g_acpica_routes[kAcpiMaxPciRoutes]{};
+size_t g_acpica_route_count = 0;
+
+struct NamespaceBuildContext
+{
+    AcpiDeviceInfo* devices = nullptr;
+    ACPI_HANDLE handles[kAcpiMaxDevices]{};
+    size_t device_count = 0;
+    bool failed = false;
+};
 
 void prepare_early_mutex_state()
 {
@@ -72,6 +89,181 @@ void clear_table_array()
     {
         g_acpica_initial_tables[index] = {};
     }
+}
+
+void clear_route_cache()
+{
+    for(size_t index = 0; index < kAcpiMaxPciRoutes; ++index)
+    {
+        g_acpica_routes[index] = {};
+    }
+    g_acpica_route_count = 0;
+}
+
+void copy_string(char* destination, size_t capacity, const char* source)
+{
+    if((nullptr == destination) || (0u == capacity))
+    {
+        return;
+    }
+
+    size_t index = 0;
+    if(nullptr != source)
+    {
+        while((0 != source[index]) && ((index + 1u) < capacity))
+        {
+            destination[index] = source[index];
+            ++index;
+        }
+    }
+    destination[index] = 0;
+}
+
+void copy_string_n(char* destination, size_t capacity, const char* source, size_t length)
+{
+    if((nullptr == destination) || (0u == capacity))
+    {
+        return;
+    }
+
+    size_t index = 0;
+    while((nullptr != source) && (index < length) && (0 != source[index]) && ((index + 1u) < capacity))
+    {
+        destination[index] = source[index];
+        ++index;
+    }
+    destination[index] = 0;
+}
+
+size_t string_length(const char* value)
+{
+    size_t length = 0;
+    while((nullptr != value) && (0 != value[length]))
+    {
+        ++length;
+    }
+    return length;
+}
+
+bool string_equals(const char* left, const char* right)
+{
+    size_t index = 0;
+    while(true)
+    {
+        const char left_char = (nullptr != left) ? left[index] : 0;
+        const char right_char = (nullptr != right) ? right[index] : 0;
+        if(left_char != right_char)
+        {
+            return false;
+        }
+        if(0 == left_char)
+        {
+            return true;
+        }
+        ++index;
+    }
+}
+
+void clear_namespace_error()
+{
+    g_acpica_state.last_namespace_error = kNamespaceOk;
+    g_acpica_state.last_namespace_object[0] = 0;
+}
+
+bool set_namespace_error_text(const char* message, const char* object_path = nullptr)
+{
+    g_acpica_state.last_namespace_error = (nullptr != message) ? message : kNamespaceOk;
+    copy_string(g_acpica_state.last_namespace_object,
+                sizeof(g_acpica_state.last_namespace_object),
+                object_path);
+    return false;
+}
+
+bool set_namespace_error_status(ACPI_STATUS status,
+                                const char* message,
+                                const char* object_path = nullptr)
+{
+    g_acpica_state.last_status = AcpiFormatException(status);
+    g_acpica_state.last_namespace_error = g_acpica_state.last_status;
+    copy_string(g_acpica_state.last_namespace_object,
+                sizeof(g_acpica_state.last_namespace_object),
+                object_path);
+    if(nullptr != object_path)
+    {
+        debug(message)(" status=")(g_acpica_state.last_status)(" obj=")(object_path)();
+    }
+    else
+    {
+        debug(message)(" status=")(g_acpica_state.last_status)();
+    }
+    return false;
+}
+
+int hex_value(char value)
+{
+    if((value >= '0') && (value <= '9'))
+    {
+        return value - '0';
+    }
+    if((value >= 'A') && (value <= 'F'))
+    {
+        return 10 + (value - 'A');
+    }
+    if((value >= 'a') && (value <= 'f'))
+    {
+        return 10 + (value - 'a');
+    }
+    return -1;
+}
+
+uint32_t eisa_id_from_string(const char* hardware_id)
+{
+    if((nullptr == hardware_id) || (7u != string_length(hardware_id)))
+    {
+        return 0;
+    }
+    if((hardware_id[0] < 'A') || (hardware_id[0] > 'Z') || (hardware_id[1] < 'A') ||
+       (hardware_id[1] > 'Z') || (hardware_id[2] < 'A') || (hardware_id[2] > 'Z'))
+    {
+        return 0;
+    }
+
+    uint32_t expanded = (static_cast<uint32_t>(hardware_id[0] - '@') << 26) |
+                        (static_cast<uint32_t>(hardware_id[1] - '@') << 21) |
+                        (static_cast<uint32_t>(hardware_id[2] - '@') << 16);
+    for(size_t index = 3; index < 7; ++index)
+    {
+        const int nibble = hex_value(hardware_id[index]);
+        if(nibble < 0)
+        {
+            return 0;
+        }
+        expanded = static_cast<uint32_t>((expanded << 4) | static_cast<uint32_t>(nibble));
+    }
+    return ((expanded & 0x000000FFu) << 24) | ((expanded & 0x0000FF00u) << 8) |
+           ((expanded & 0x00FF0000u) >> 8) | ((expanded & 0xFF000000u) >> 24);
+}
+
+const char* path_last_segment(const char* path)
+{
+    if(nullptr == path)
+    {
+        return nullptr;
+    }
+
+    const char* segment = path;
+    for(size_t index = 0; 0 != path[index]; ++index)
+    {
+        if('.' == path[index])
+        {
+            segment = path + index + 1u;
+        }
+    }
+    if(('\\' == segment[0]) && (0 != segment[1]))
+    {
+        return segment + 1u;
+    }
+    return segment;
 }
 
 bool bytes_equal(const char* left, const char* right, size_t length)
@@ -99,7 +291,13 @@ bool validate_checksum(const void* data, size_t length)
 
 void reset_state_internal()
 {
-    if(g_acpica_state.tables_initialized || (nullptr != AcpiGbl_RootTableList.Tables))
+    clear_route_cache();
+
+    if(g_acpica_state.subsystem_initialized)
+    {
+        AcpiTerminate();
+    }
+    else if(g_acpica_state.tables_initialized || (nullptr != AcpiGbl_RootTableList.Tables))
     {
         prepare_early_mutex_state();
         AcpiTbTerminate();
@@ -108,6 +306,7 @@ void reset_state_internal()
     clear_table_array();
     g_acpica_state = {};
     g_acpica_state.last_status = kStatusOk;
+    g_acpica_state.last_namespace_error = kNamespaceOk;
 }
 
 bool sanity_check_required_tables()
@@ -227,6 +426,530 @@ bool get_table(const char* signature, TableType*& table)
     table = reinterpret_cast<TableType*>(raw);
     return true;
 }
+
+bool ensure_namespace_ready(const char* operation)
+{
+    if(g_acpica_state.namespace_loaded)
+    {
+        return true;
+    }
+
+    set_namespace_error_text("namespace-not-loaded");
+    debug("acpica: ")(operation)(" before namespace load")();
+    return false;
+}
+
+bool evaluate_integer(ACPI_HANDLE handle, const char* path, uint64_t& value)
+{
+    ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
+    const ACPI_STATUS status = AcpiEvaluateObjectTyped(
+        handle, const_cast<char*>(path), nullptr, &buffer, ACPI_TYPE_INTEGER);
+    if(ACPI_FAILURE(status))
+    {
+        return false;
+    }
+
+    const auto* object = static_cast<const ACPI_OBJECT*>(buffer.Pointer);
+    value = object->Integer.Value;
+    AcpiOsFree(buffer.Pointer);
+    return true;
+}
+
+bool get_full_path(ACPI_HANDLE handle, char* output, size_t output_capacity)
+{
+    if((nullptr == output) || (0u == output_capacity))
+    {
+        return false;
+    }
+
+    ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
+    const ACPI_STATUS status = AcpiGetName(handle, ACPI_FULL_PATHNAME, &buffer);
+    if(ACPI_FAILURE(status))
+    {
+        return false;
+    }
+
+    copy_string(output, output_capacity, static_cast<const char*>(buffer.Pointer));
+    AcpiOsFree(buffer.Pointer);
+    return true;
+}
+
+bool has_named_child(ACPI_HANDLE handle, const char* name)
+{
+    ACPI_HANDLE child = nullptr;
+    return ACPI_SUCCESS(AcpiGetHandle(handle, name, &child));
+}
+
+uint8_t inherit_bus_number(ACPI_HANDLE handle)
+{
+    ACPI_HANDLE parent = handle;
+    while(ACPI_SUCCESS(AcpiGetParent(parent, &parent)))
+    {
+        uint64_t bus_number = 0;
+        if(evaluate_integer(parent, "_BBN", bus_number))
+        {
+            return static_cast<uint8_t>(bus_number & 0xFFu);
+        }
+
+        ACPI_DEVICE_INFO* info = nullptr;
+        if(ACPI_SUCCESS(AcpiGetObjectInfo(parent, &info)))
+        {
+            const bool is_root_bridge = 0 != (info->Flags & ACPI_PCI_ROOT_BRIDGE);
+            AcpiOsFree(info);
+            if(is_root_bridge)
+            {
+                return 0u;
+            }
+        }
+    }
+    return 0xFFu;
+}
+
+uint16_t irq_flags_from_resource(uint8_t polarity, uint8_t triggering)
+{
+    uint16_t flags = 0;
+    if(ACPI_ACTIVE_HIGH == polarity)
+    {
+        flags |= 1u;
+    }
+    else if(ACPI_ACTIVE_LOW == polarity)
+    {
+        flags |= 3u;
+    }
+
+    if(ACPI_EDGE_SENSITIVE == triggering)
+    {
+        flags |= static_cast<uint16_t>(1u << 2);
+    }
+    else if(ACPI_LEVEL_SENSITIVE == triggering)
+    {
+        flags |= static_cast<uint16_t>(3u << 2);
+    }
+    return flags;
+}
+
+void append_resource(AcpiResourceInfo* resources,
+                     uint8_t& resource_count,
+                     AcpiResourceKind kind,
+                     uint16_t flags,
+                     uint64_t base,
+                     uint64_t length)
+{
+    if((nullptr == resources) || (resource_count >= kAcpiMaxDeviceResources))
+    {
+        return;
+    }
+
+    AcpiResourceInfo& resource = resources[resource_count++];
+    resource = {};
+    resource.kind = kind;
+    resource.flags = flags;
+    resource.base = base;
+    resource.length = length;
+}
+
+bool collect_resources_from_buffer(const ACPI_BUFFER& buffer,
+                                   AcpiResourceInfo* resources,
+                                   uint8_t& resource_count)
+{
+    resource_count = 0;
+    if(nullptr == buffer.Pointer)
+    {
+        return true;
+    }
+
+    const auto* cursor = static_cast<const uint8_t*>(buffer.Pointer);
+    const auto* end = cursor + buffer.Length;
+    while(cursor < end)
+    {
+        if((end - cursor) < static_cast<ptrdiff_t>(ACPI_RS_SIZE_NO_DATA))
+        {
+            return false;
+        }
+
+        const auto* resource = reinterpret_cast<const ACPI_RESOURCE*>(cursor);
+        if((resource->Length < ACPI_RS_SIZE_NO_DATA) || ((cursor + resource->Length) > end))
+        {
+            return false;
+        }
+        if(ACPI_RESOURCE_TYPE_END_TAG == resource->Type)
+        {
+            return true;
+        }
+
+        switch(resource->Type)
+        {
+            case ACPI_RESOURCE_TYPE_IRQ:
+                if(resource->Data.Irq.InterruptCount > 0)
+                {
+                    append_resource(resources,
+                                    resource_count,
+                                    AcpiResourceKind::Irq,
+                                    irq_flags_from_resource(resource->Data.Irq.Polarity,
+                                                            resource->Data.Irq.Triggering),
+                                    resource->Data.Irq.Interrupts[0],
+                                    1);
+                }
+                break;
+            case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+                if(resource->Data.ExtendedIrq.InterruptCount > 0)
+                {
+                    append_resource(resources,
+                                    resource_count,
+                                    AcpiResourceKind::Irq,
+                                    irq_flags_from_resource(resource->Data.ExtendedIrq.Polarity,
+                                                            resource->Data.ExtendedIrq.Triggering),
+                                    resource->Data.ExtendedIrq.Interrupts[0],
+                                    1);
+                }
+                break;
+            case ACPI_RESOURCE_TYPE_IO:
+                append_resource(resources,
+                                resource_count,
+                                AcpiResourceKind::Io,
+                                0,
+                                resource->Data.Io.Minimum,
+                                resource->Data.Io.AddressLength);
+                break;
+            case ACPI_RESOURCE_TYPE_FIXED_IO:
+                append_resource(resources,
+                                resource_count,
+                                AcpiResourceKind::Io,
+                                0,
+                                resource->Data.FixedIo.Address,
+                                resource->Data.FixedIo.AddressLength);
+                break;
+            case ACPI_RESOURCE_TYPE_FIXED_MEMORY32:
+                append_resource(resources,
+                                resource_count,
+                                AcpiResourceKind::Memory,
+                                resource->Data.FixedMemory32.WriteProtect,
+                                resource->Data.FixedMemory32.Address,
+                                resource->Data.FixedMemory32.AddressLength);
+                break;
+            case ACPI_RESOURCE_TYPE_ADDRESS16:
+            case ACPI_RESOURCE_TYPE_ADDRESS32:
+            case ACPI_RESOURCE_TYPE_ADDRESS64:
+            case ACPI_RESOURCE_TYPE_EXTENDED_ADDRESS64: {
+                ACPI_RESOURCE_ADDRESS64 address{};
+                if(ACPI_SUCCESS(
+                       AcpiResourceToAddress64(const_cast<ACPI_RESOURCE*>(resource), &address)))
+                {
+                    if(ACPI_MEMORY_RANGE == address.ResourceType)
+                    {
+                        append_resource(resources,
+                                        resource_count,
+                                        AcpiResourceKind::Memory,
+                                        address.Info.Mem.WriteProtect,
+                                        address.Address.Minimum,
+                                        address.Address.AddressLength);
+                    }
+                    else if(ACPI_IO_RANGE == address.ResourceType)
+                    {
+                        append_resource(resources,
+                                        resource_count,
+                                        AcpiResourceKind::Io,
+                                        0,
+                                        address.Address.Minimum,
+                                        address.Address.AddressLength);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+
+        cursor += resource->Length;
+    }
+    return true;
+}
+
+bool collect_first_irq_from_buffer(const ACPI_BUFFER& buffer, uint32_t& irq, uint16_t& flags)
+{
+    irq = 0;
+    flags = 0;
+    if(nullptr == buffer.Pointer)
+    {
+        return false;
+    }
+
+    const auto* cursor = static_cast<const uint8_t*>(buffer.Pointer);
+    const auto* end = cursor + buffer.Length;
+    while(cursor < end)
+    {
+        if((end - cursor) < static_cast<ptrdiff_t>(ACPI_RS_SIZE_NO_DATA))
+        {
+            return false;
+        }
+
+        const auto* resource = reinterpret_cast<const ACPI_RESOURCE*>(cursor);
+        if((resource->Length < ACPI_RS_SIZE_NO_DATA) || ((cursor + resource->Length) > end))
+        {
+            return false;
+        }
+        if(ACPI_RESOURCE_TYPE_END_TAG == resource->Type)
+        {
+            return false;
+        }
+
+        if((ACPI_RESOURCE_TYPE_IRQ == resource->Type) && (resource->Data.Irq.InterruptCount > 0))
+        {
+            irq = resource->Data.Irq.Interrupts[0];
+            flags = irq_flags_from_resource(resource->Data.Irq.Polarity,
+                                            resource->Data.Irq.Triggering);
+            return true;
+        }
+        if((ACPI_RESOURCE_TYPE_EXTENDED_IRQ == resource->Type) &&
+           (resource->Data.ExtendedIrq.InterruptCount > 0))
+        {
+            irq = resource->Data.ExtendedIrq.Interrupts[0];
+            flags = irq_flags_from_resource(resource->Data.ExtendedIrq.Polarity,
+                                            resource->Data.ExtendedIrq.Triggering);
+            return true;
+        }
+
+        cursor += resource->Length;
+    }
+    return false;
+}
+
+bool resolve_route_irq(ACPI_HANDLE source_handle, uint32_t& irq, uint16_t& flags)
+{
+    ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
+    const ACPI_STATUS status = AcpiGetCurrentResources(source_handle, &buffer);
+    if(ACPI_FAILURE(status))
+    {
+        return false;
+    }
+
+    const bool found = collect_first_irq_from_buffer(buffer, irq, flags);
+    AcpiOsFree(buffer.Pointer);
+    return found;
+}
+
+uint16_t find_device_index_by_handle(const ACPI_HANDLE* handles, size_t count, ACPI_HANDLE handle)
+{
+    for(size_t index = 0; index < count; ++index)
+    {
+        if(handles[index] == handle)
+        {
+            return static_cast<uint16_t>(index);
+        }
+    }
+    return kAcpiDeviceIndexNone;
+}
+
+bool build_routes_for_device(ACPI_HANDLE device_handle,
+                             const AcpiDeviceInfo& device,
+                             const ACPI_HANDLE* handles,
+                             const AcpiDeviceInfo* devices,
+                             size_t device_count,
+                             AcpiPciRoute* routes,
+                             size_t& route_count)
+{
+    ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
+    const ACPI_STATUS status = AcpiGetIrqRoutingTable(device_handle, &buffer);
+    if(ACPI_FAILURE(status))
+    {
+        return set_namespace_error_status(status, "acpica: _PRT evaluation failed", device.path);
+    }
+
+    const auto* cursor = static_cast<const uint8_t*>(buffer.Pointer);
+    const auto* end = cursor + buffer.Length;
+    while(cursor < end)
+    {
+        if((end - cursor) < static_cast<ptrdiff_t>(sizeof(ACPI_PCI_ROUTING_TABLE)))
+        {
+            AcpiOsFree(buffer.Pointer);
+            return set_namespace_error_text("route-table-malformed", device.path);
+        }
+
+        const auto* entry = reinterpret_cast<const ACPI_PCI_ROUTING_TABLE*>(cursor);
+        if(0u == entry->Length)
+        {
+            break;
+        }
+        if((entry->Length < sizeof(ACPI_PCI_ROUTING_TABLE)) || ((cursor + entry->Length) > end))
+        {
+            AcpiOsFree(buffer.Pointer);
+            return set_namespace_error_text("route-table-malformed", device.path);
+        }
+        if(route_count >= kAcpiMaxPciRoutes)
+        {
+            AcpiOsFree(buffer.Pointer);
+            return set_namespace_error_text("route-table-full", device.path);
+        }
+
+        AcpiPciRoute& route = routes[route_count];
+        route = {};
+        route.active = true;
+        route.bus_number = device.bus_number;
+        route.slot = static_cast<uint8_t>((entry->Address >> 16) & 0xFFu);
+        const uint16_t function_field = static_cast<uint16_t>(entry->Address & 0xFFFFu);
+        route.function = (0xFFFFu == function_field) ? 0xFFu
+                                                     : static_cast<uint8_t>(function_field & 0xFFu);
+        route.pin = static_cast<uint8_t>(entry->Pin & 0xFFu);
+        route.source_device_index = kAcpiDeviceIndexNone;
+
+        if(0 == entry->Source[0])
+        {
+            route.source_is_gsi = true;
+            route.irq = entry->SourceIndex;
+        }
+        else
+        {
+            ACPI_HANDLE source_handle = nullptr;
+            ACPI_STATUS source_status = AcpiGetHandle(device_handle, entry->Source, &source_handle);
+            if(ACPI_FAILURE(source_status) && ('\\' == entry->Source[0]))
+            {
+                source_status = AcpiGetHandle(nullptr, entry->Source, &source_handle);
+            }
+            if(ACPI_FAILURE(source_status))
+            {
+                AcpiOsFree(buffer.Pointer);
+                return set_namespace_error_status(
+                    source_status, "acpica: _PRT source resolve failed", device.path);
+            }
+            if(!resolve_route_irq(source_handle, route.irq, route.flags))
+            {
+                AcpiOsFree(buffer.Pointer);
+                return set_namespace_error_text("route-no-irq", device.path);
+            }
+            if(!get_full_path(source_handle, route.source_path, sizeof(route.source_path)))
+            {
+                AcpiOsFree(buffer.Pointer);
+                return set_namespace_error_text("route-source-path", device.path);
+            }
+            route.source_device_index = find_device_index_by_handle(handles, device_count, source_handle);
+        }
+
+        ++route_count;
+        cursor += entry->Length;
+    }
+
+    AcpiOsFree(buffer.Pointer);
+    return true;
+}
+
+ACPI_STATUS collect_device_callback(ACPI_HANDLE handle,
+                                    UINT32,
+                                    void* context,
+                                    void**)
+{
+    auto* build_context = static_cast<NamespaceBuildContext*>(context);
+    if((nullptr == build_context) || (nullptr == build_context->devices))
+    {
+        return AE_BAD_PARAMETER;
+    }
+    if(build_context->device_count >= kAcpiMaxDevices)
+    {
+        build_context->failed = true;
+        return AE_CTRL_TERMINATE;
+    }
+
+    AcpiDeviceInfo& device = build_context->devices[build_context->device_count];
+    device = {};
+    device.active = true;
+    device.status = kAcpiDefaultSta;
+    device.bus_number = 0xFFu;
+    if(!get_full_path(handle, device.path, sizeof(device.path)))
+    {
+        build_context->failed = true;
+        return AE_CTRL_TERMINATE;
+    }
+
+    const char* segment = path_last_segment(device.path);
+    copy_string_n(device.name, sizeof(device.name), segment, 4u);
+
+    ACPI_DEVICE_INFO* object_info = nullptr;
+    const ACPI_STATUS info_status = AcpiGetObjectInfo(handle, &object_info);
+    if(ACPI_FAILURE(info_status))
+    {
+        set_namespace_error_status(info_status, "acpica: object info failed", device.path);
+        build_context->failed = true;
+        return AE_CTRL_TERMINATE;
+    }
+
+    if((0 != (object_info->Valid & ACPI_VALID_HID)) && (0u != object_info->HardwareId.Length))
+    {
+        device.flags |= kAcpiDeviceHasHid;
+        copy_string_n(device.hardware_id,
+                      sizeof(device.hardware_id),
+                      object_info->HardwareId.String,
+                      object_info->HardwareId.Length);
+        device.hid_eisa_id = eisa_id_from_string(device.hardware_id);
+    }
+    if(0 != (object_info->Valid & ACPI_VALID_ADR))
+    {
+        device.flags |= kAcpiDeviceHasAdr;
+        device.adr = object_info->Address;
+    }
+
+    uint64_t value = 0;
+    if(evaluate_integer(handle, "_UID", value))
+    {
+        device.flags |= kAcpiDeviceHasUid;
+        device.uid = value;
+    }
+    if(evaluate_integer(handle, "_BBN", value))
+    {
+        device.flags |= kAcpiDeviceHasBbn;
+        device.bus_number = static_cast<uint8_t>(value & 0xFFu);
+    }
+    else if(0 != (object_info->Flags & ACPI_PCI_ROOT_BRIDGE))
+    {
+        device.bus_number = 0u;
+    }
+    else
+    {
+        device.bus_number = inherit_bus_number(handle);
+    }
+    if(evaluate_integer(handle, "_STA", value))
+    {
+        device.status = static_cast<uint32_t>(value);
+    }
+    if(has_named_child(handle, "_CRS"))
+    {
+        ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
+        device.flags |= kAcpiDeviceHasCrs;
+        const ACPI_STATUS resource_status = AcpiGetCurrentResources(handle, &buffer);
+        const bool have_resources = ACPI_SUCCESS(resource_status) &&
+                                    collect_resources_from_buffer(
+                                        buffer, device.resources, device.resource_count);
+        if(nullptr != buffer.Pointer)
+        {
+            AcpiOsFree(buffer.Pointer);
+        }
+        if(!have_resources)
+        {
+            device.flags &= ~kAcpiDeviceHasCrs;
+            device.resource_count = 0;
+            for(size_t index = 0; index < kAcpiMaxDeviceResources; ++index)
+            {
+                device.resources[index] = {};
+            }
+            clear_namespace_error();
+        }
+    }
+    if(has_named_child(handle, "_PRT"))
+    {
+        device.flags |= kAcpiDeviceHasPrt;
+    }
+    if(has_named_child(handle, "_PS0"))
+    {
+        device.flags |= kAcpiDeviceHasPs0;
+    }
+    if(has_named_child(handle, "_PS3"))
+    {
+        device.flags |= kAcpiDeviceHasPs3;
+    }
+
+    AcpiOsFree(object_info);
+    build_context->handles[build_context->device_count] = handle;
+    ++build_context->device_count;
+    return AE_OK;
+}
 }  // namespace
 
 bool acpica_initialize_tables(VirtualMemory& kernel_vm, const BootInfo& boot_info)
@@ -251,9 +974,17 @@ bool acpica_initialize_tables(VirtualMemory& kernel_vm, const BootInfo& boot_inf
         return false;
     }
 
-    prepare_early_mutex_state();
-
     debug("acpica: version ")(kAcpicaPinnedRelease)(" sha=")(kAcpicaPinnedShaShort)();
+
+    const ACPI_STATUS subsystem_status = AcpiInitializeSubsystem();
+    if(ACPI_FAILURE(subsystem_status))
+    {
+        g_acpica_state.last_status = AcpiFormatException(subsystem_status);
+        debug("acpica: subsystem init failed status=")(g_acpica_state.last_status)();
+        reset_state_internal();
+        return false;
+    }
+    g_acpica_state.subsystem_initialized = true;
 
     const ACPI_STATUS status = AcpiInitializeTables(g_acpica_initial_tables,
                                                     kInitialTableCapacity,
@@ -609,6 +1340,204 @@ bool acpica_parse_hpet(HpetInfo& hpet)
     return true;
 }
 
+bool acpica_load_namespace()
+{
+    if(!ensure_tables_ready("load namespace"))
+    {
+        return false;
+    }
+    if(g_acpica_state.namespace_loaded)
+    {
+        clear_namespace_error();
+        return true;
+    }
+
+    const ACPI_STATUS status = AcpiLoadTables();
+    if(ACPI_FAILURE(status))
+    {
+        return set_namespace_error_status(status, "acpica: namespace load failed");
+    }
+
+    g_acpica_state.namespace_loaded = true;
+    clear_namespace_error();
+    debug("acpica: namespace ready")();
+    return true;
+}
+
+const char* acpica_namespace_last_error()
+{
+    return g_acpica_state.last_namespace_error;
+}
+
+const char* acpica_namespace_last_object()
+{
+    return g_acpica_state.last_namespace_object;
+}
+
+bool acpica_build_device_info(AcpiDeviceInfo* devices,
+                              size_t& device_count,
+                              AcpiPciRoute* routes,
+                              size_t& route_count)
+{
+    if((nullptr == devices) || (nullptr == routes))
+    {
+        return set_namespace_error_text("build-arguments");
+    }
+    if(!ensure_namespace_ready("build device info"))
+    {
+        return false;
+    }
+
+    for(size_t index = 0; index < kAcpiMaxDevices; ++index)
+    {
+        devices[index] = {};
+    }
+    for(size_t index = 0; index < kAcpiMaxPciRoutes; ++index)
+    {
+        routes[index] = {};
+    }
+    device_count = 0;
+    route_count = 0;
+    clear_route_cache();
+    clear_namespace_error();
+
+    NamespaceBuildContext context{};
+    context.devices = devices;
+    const ACPI_STATUS status = AcpiWalkNamespace(ACPI_TYPE_DEVICE,
+                                                 ACPI_ROOT_OBJECT,
+                                                 ACPI_UINT32_MAX,
+                                                 collect_device_callback,
+                                                 nullptr,
+                                                 &context,
+                                                 nullptr);
+    if(ACPI_FAILURE(status) || context.failed)
+    {
+        if(kNamespaceOk == g_acpica_state.last_namespace_error)
+        {
+            set_namespace_error_status(status, "acpica: device walk failed");
+        }
+        return false;
+    }
+
+    device_count = context.device_count;
+    for(size_t index = 0; index < device_count; ++index)
+    {
+        if(0 != (devices[index].flags & kAcpiDeviceHasPrt))
+        {
+            const size_t route_count_before = route_count;
+            if(!build_routes_for_device(context.handles[index],
+                                        devices[index],
+                                        context.handles,
+                                        devices,
+                                        device_count,
+                                        routes,
+                                        route_count))
+            {
+                devices[index].flags &= ~kAcpiDeviceHasPrt;
+                for(size_t route_index = route_count_before; route_index < kAcpiMaxPciRoutes;
+                    ++route_index)
+                {
+                    routes[route_index] = {};
+                }
+                route_count = route_count_before;
+                clear_namespace_error();
+            }
+        }
+    }
+
+    for(size_t index = 0; index < route_count; ++index)
+    {
+        g_acpica_routes[index] = routes[index];
+    }
+    g_acpica_route_count = route_count;
+    clear_namespace_error();
+    return true;
+}
+
+bool acpica_resolve_pci_route_details(uint8_t bus,
+                                      uint8_t slot,
+                                      uint8_t function,
+                                      uint8_t pin,
+                                      uint32_t& irq,
+                                      uint16_t& flags,
+                                      bool& source_is_gsi)
+{
+    for(size_t index = 0; index < g_acpica_route_count; ++index)
+    {
+        const AcpiPciRoute& route = g_acpica_routes[index];
+        if(route.active && (route.bus_number == bus) && (route.slot == slot) && (route.pin == pin) &&
+           ((0xFFu == route.function) || (route.function == function)))
+        {
+            irq = route.irq;
+            flags = route.flags;
+            source_is_gsi = route.source_is_gsi;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool acpica_set_device_power_state(const char* path, AcpiPowerState state)
+{
+    if(nullptr == path)
+    {
+        return false;
+    }
+    if(!ensure_namespace_ready("set device power state"))
+    {
+        return false;
+    }
+
+    ACPI_HANDLE handle = nullptr;
+    const ACPI_STATUS handle_status = AcpiGetHandle(nullptr, path, &handle);
+    if(ACPI_FAILURE(handle_status))
+    {
+        return set_namespace_error_status(handle_status,
+                                          "acpica: device lookup failed",
+                                          path);
+    }
+
+    const char* method = (AcpiPowerState::D0 == state) ? "_PS0" : "_PS3";
+    const ACPI_STATUS status = AcpiEvaluateObject(handle, const_cast<char*>(method), nullptr, nullptr);
+    if(ACPI_FAILURE(status))
+    {
+        return set_namespace_error_status(status,
+                                          "acpica: device power method failed",
+                                          path);
+    }
+
+    clear_namespace_error();
+    return true;
+}
+
+bool acpica_read_named_integer(const char* path, uint64_t& value)
+{
+    if(nullptr == path)
+    {
+        return false;
+    }
+    if(!ensure_namespace_ready("read named integer"))
+    {
+        return false;
+    }
+
+    ACPI_BUFFER buffer{ACPI_ALLOCATE_BUFFER, nullptr};
+    const ACPI_STATUS status = AcpiEvaluateObjectTyped(
+        nullptr, const_cast<char*>(path), nullptr, &buffer, ACPI_TYPE_INTEGER);
+    if(ACPI_FAILURE(status))
+    {
+        return set_namespace_error_status(status,
+                                          "acpica: named integer evaluation failed",
+                                          path);
+    }
+
+    const auto* object = static_cast<const ACPI_OBJECT*>(buffer.Pointer);
+    value = object->Integer.Value;
+    AcpiOsFree(buffer.Pointer);
+    clear_namespace_error();
+    return true;
+}
+
 bool acpica_tables_initialized()
 {
     return g_acpica_state.tables_initialized;
@@ -650,13 +1579,4 @@ const char* acpica_boot_stage_name()
         default:
             return "inactive";
     }
-}
-
-extern "C" ACPI_STATUS AcpiNsLoadTable(UINT32, ACPI_NAMESPACE_NODE*)
-{
-    return AE_SUPPORT;
-}
-
-extern "C" void AcpiNsDeleteNamespaceByOwner(ACPI_OWNER_ID)
-{
 }

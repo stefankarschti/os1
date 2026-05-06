@@ -20,7 +20,8 @@ struct LimineBootResponses
 
 [[nodiscard]] bool prepare_kernel_handoff(uint64_t kernel_physical_end,
                                           cpu*& cpu_boot,
-                                          uint64_t& boot_info_storage_physical);
+                                          uint64_t& boot_info_storage_physical,
+                                          uint64_t& bootstrap_stack_top);
 [[nodiscard]] BootInfo* build_boot_info(const LimineBootResponses& responses,
                                         const limine_file& initrd_module,
                                         uint64_t kernel_physical_start,

@@ -52,6 +52,7 @@ set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
 set(OS1_CPU_START_BIN "${OS1_ARTIFACT_DIR}/cpu_start.bin")
 set(OS1_KERNEL_ELF "${OS1_ARTIFACT_DIR}/kernel.elf")
+set(OS1_KERNEL_BIOS_ELF "${OS1_ARTIFACT_DIR}/kernel_bios.elf")
 set(OS1_KERNEL_LIMINE_ELF "${OS1_ARTIFACT_DIR}/kernel_limine.elf")
 set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
@@ -93,12 +94,12 @@ endforeach()
 set(OS1_KERNEL_IMAGE_LOAD_ADDRESS 0x10000)
 set(OS1_INITRD_LOAD_ADDRESS 0x90000)
 set(OS1_KERNEL_RESERVED_PHYSICAL_START 0x100000)
-set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x180000)
+set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x192000)
 set(OS1_KERNEL_VIRTUAL_OFFSET 0xFFFFFFFF80000000)
 set(OS1_KERNEL_SHIM_VIRTUAL_BASE 0xFFFFFFFF90000000)
 set(OS1_DIRECT_MAP_BASE 0xFFFF800000000000)
 math(EXPR OS1_KERNEL_RESERVED_PHYSICAL_BYTES "${OS1_KERNEL_RESERVED_PHYSICAL_END} - ${OS1_KERNEL_RESERVED_PHYSICAL_START}")
-set(OS1_KERNEL_POST_IMAGE_RESERVE_BYTES 0x3000)
+set(OS1_KERNEL_POST_IMAGE_RESERVE_BYTES 0x4000)
 math(EXPR OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES "${OS1_INITRD_LOAD_ADDRESS} - ${OS1_KERNEL_IMAGE_LOAD_ADDRESS}")
 math(EXPR OS1_KERNEL_RESERVED_PHYSICAL_BYTES_REMAINDER "${OS1_KERNEL_RESERVED_PHYSICAL_BYTES} % 512")
 if(NOT OS1_KERNEL_RESERVED_PHYSICAL_BYTES_REMAINDER EQUAL 0)
@@ -108,11 +109,11 @@ endif()
 set(OS1_LOADER16_IMAGE_START_LBA 1)
 set(OS1_LOADER16_IMAGE_SECTOR_COUNT 64)
 math(EXPR OS1_KERNEL_IMAGE_START_LBA "${OS1_LOADER16_IMAGE_START_LBA} + ${OS1_LOADER16_IMAGE_SECTOR_COUNT}")
-# The BIOS raw-image kernel slot intentionally matches the reserved low-physical
-# execution window so the on-disk budget and the in-memory reserved range stay in
-# sync. The build separately asserts that the ELF PT_LOAD range plus the
-# post-image bootstrap reserve fit inside this window.
-math(EXPR OS1_KERNEL_IMAGE_SECTOR_COUNT "${OS1_KERNEL_RESERVED_PHYSICAL_BYTES} / 512")
+# The BIOS raw-image kernel slot is constrained by the low-memory staging buffer
+# between kKernelImageLoadAddress and kInitrdLoadAddress. The build separately
+# asserts that the stripped BIOS ELF fits this slot and that the PT_LOAD range
+# plus the post-image reserve fit inside the higher-half reserved kernel window.
+math(EXPR OS1_KERNEL_IMAGE_SECTOR_COUNT "${OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES} / 512")
 math(EXPR OS1_INITRD_IMAGE_START_LBA "${OS1_KERNEL_IMAGE_START_LBA} + ${OS1_KERNEL_IMAGE_SECTOR_COUNT}")
 set(OS1_INITRD_IMAGE_SECTOR_COUNT 128)
 math(EXPR OS1_KERNEL_IMAGE_MAX_BYTES "${OS1_KERNEL_IMAGE_SECTOR_COUNT} * 512")
@@ -173,6 +174,7 @@ find_program(OS1_CPIO_EXECUTABLE NAMES cpio REQUIRED)
 find_program(OS1_XORRISO_EXECUTABLE NAMES xorriso REQUIRED)
 find_program(OS1_QEMU_EXECUTABLE NAMES qemu-system-x86_64)
 find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
+find_program(OS1_STRIP_EXECUTABLE NAMES x86_64-elf-strip strip REQUIRED)
 find_program(OS1_PYTHON_EXECUTABLE NAMES python3 python REQUIRED)
 
 set(OS1_SMOKE_RUNNER "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke.py")
@@ -279,7 +281,7 @@ add_custom_command(
     "${OS1_PYTHON_EXECUTABLE}"
     "${OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT}"
     --elf
-    "${OS1_KERNEL_ELF}"
+    "${OS1_KERNEL_BIOS_ELF}"
     --disk-slot-bytes
     "${OS1_KERNEL_IMAGE_MAX_BYTES}"
     --staging-buffer-bytes
@@ -304,7 +306,7 @@ add_custom_command(
     "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
   COMMAND "${CMAKE_COMMAND}" -E touch "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
   DEPENDS
-    "${OS1_KERNEL_ELF}"
+    "${OS1_KERNEL_BIOS_ELF}"
     "${OS1_INITRD_CPIO}"
     "${OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT}"
     "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
@@ -312,6 +314,15 @@ add_custom_command(
 )
 
 add_custom_target(os1_bios_layout_check DEPENDS "${OS1_BIOS_LAYOUT_CHECK_STAMP}")
+
+add_custom_command(
+  OUTPUT "${OS1_KERNEL_BIOS_ELF}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND "${OS1_STRIP_EXECUTABLE}" -o "${OS1_KERNEL_BIOS_ELF}" --strip-unneeded "${OS1_KERNEL_ELF}"
+  DEPENDS
+    "${OS1_KERNEL_ELF}"
+  VERBATIM
+)
 
 add_custom_command(
   OUTPUT "${OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP}"
@@ -352,7 +363,7 @@ add_custom_command(
     conv=notrunc,sync
   COMMAND
     "${OS1_DD_EXECUTABLE}"
-    "if=${OS1_KERNEL_ELF}"
+    "if=${OS1_KERNEL_BIOS_ELF}"
     "of=${OS1_RAW_IMAGE}"
     bs=512
     "seek=${OS1_KERNEL_IMAGE_START_LBA}"
@@ -369,7 +380,7 @@ add_custom_command(
   DEPENDS
     "${OS1_BOOT_BIN}"
     "${OS1_KERNEL16_BIN}"
-    "${OS1_KERNEL_ELF}"
+    "${OS1_KERNEL_BIOS_ELF}"
     "${OS1_INITRD_CPIO}"
     "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
   VERBATIM

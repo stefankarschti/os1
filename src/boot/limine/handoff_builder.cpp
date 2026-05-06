@@ -1,5 +1,7 @@
 #include "handoff_builder.hpp"
 
+#include <stddef.h>
+
 #include "freestanding/string.hpp"
 #include "handoff/memory_layout.h"
 #include "paging.hpp"
@@ -33,7 +35,7 @@ struct LowHandoffBootInfoStorage
 };
 
 typedef char low_handoff_storage_fits_reserved_budget
-    [(sizeof(LowHandoffBootInfoStorage) <= (kKernelPostImageReserveBytes - kPageSize)) ? 1 : -1];
+    [(sizeof(LowHandoffBootInfoStorage) <= (kKernelPostImageReserveBytes - (2 * kPageSize))) ? 1 : -1];
 
 [[nodiscard]] char* reserve_boot_string(BootStringArena& arena, size_t capacity)
 {
@@ -295,7 +297,8 @@ void populate_firmware_pointers(const LimineBootResponses& responses, BootInfo& 
 
 [[nodiscard]] bool prepare_kernel_handoff(uint64_t kernel_physical_end,
                                           cpu*& cpu_boot,
-                                          uint64_t& boot_info_storage_physical)
+                                          uint64_t& boot_info_storage_physical,
+                                          uint64_t& bootstrap_stack_top)
 {
     cpu_boot = reinterpret_cast<cpu*>(align_up(kernel_physical_end, kPageSize));
     uint8_t* cpu_boot_page = map_physical_pointer<uint8_t>(reinterpret_cast<uint64_t>(cpu_boot));
@@ -309,7 +312,21 @@ void populate_firmware_pointers(const LimineBootResponses& responses, BootInfo& 
         align_up(reinterpret_cast<uint64_t>(cpu_boot) + kPageSize, kPageSize);
     const uint64_t boot_info_storage_end =
         align_up(boot_info_storage_physical + sizeof(LowHandoffBootInfoStorage), kPageSize);
-    return boot_info_storage_end <= kKernelReservedPhysicalEnd;
+    uint8_t* bootstrap_stack_page = map_physical_pointer<uint8_t>(boot_info_storage_end);
+    if(nullptr == bootstrap_stack_page)
+    {
+        return false;
+    }
+    freestanding::zero_bytes(bootstrap_stack_page, kPageSize);
+
+    const uint64_t bootstrap_stack_end = boot_info_storage_end + kPageSize;
+    if(bootstrap_stack_end > kKernelReservedPhysicalEnd)
+    {
+        return false;
+    }
+
+    bootstrap_stack_top = bootstrap_stack_end;
+    return true;
 }
 
 [[nodiscard]] __attribute__((noinline)) OS1_GCC_OPTIMIZE_O1 BootInfo* build_boot_info(

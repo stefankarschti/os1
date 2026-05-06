@@ -16,6 +16,7 @@ extern "C"
 #include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpica_internal.hpp"
+#include "platform/state.hpp"
 
 #if !defined(OS1_HOST_TEST)
 #include "arch/x86_64/cpu/io_port.hpp"
@@ -112,6 +113,37 @@ ACPI_STATUS write_physical_value(ACPI_PHYSICAL_ADDRESS address, UINT64 value, UI
             return AE_BAD_PARAMETER;
     }
 }
+
+bool pci_config_physical_address(const ACPI_PCI_ID* pci_id,
+                                 UINT32 register_offset,
+                                 ACPI_SIZE access_bytes,
+                                 uint64_t& physical_address)
+{
+    physical_address = 0;
+    if((nullptr == pci_id) || (access_bytes > 8u) || ((register_offset + access_bytes) > 4096u) ||
+       (pci_id->Device > 31u) || (pci_id->Function > 7u))
+    {
+        return false;
+    }
+
+    for(size_t index = 0; index < g_platform.ecam_region_count; ++index)
+    {
+        const PciEcamRegion& region = g_platform.ecam_regions[index];
+        if((region.segment_group != pci_id->Segment) || (pci_id->Bus < region.bus_start) ||
+           (pci_id->Bus > region.bus_end))
+        {
+            continue;
+        }
+
+        physical_address = region.base_address +
+                           (static_cast<uint64_t>(pci_id->Bus - region.bus_start) << 20u) +
+                           (static_cast<uint64_t>(pci_id->Device) << 15u) +
+                           (static_cast<uint64_t>(pci_id->Function) << 12u) + register_offset;
+        return map_physical_range(static_cast<ACPI_PHYSICAL_ADDRESS>(physical_address), access_bytes);
+    }
+
+    return false;
+}
 }  // namespace
 
 extern "C"
@@ -171,7 +203,6 @@ ACPI_STATUS AcpiOsCreateLock(ACPI_SPINLOCK* out_handle)
     {
         return AE_BAD_PARAMETER;
     }
-
     *out_handle = reinterpret_cast<ACPI_SPINLOCK>(1);
     return AE_OK;
 }
@@ -401,18 +432,73 @@ ACPI_STATUS AcpiOsWriteMemory(ACPI_PHYSICAL_ADDRESS address, UINT64 value, UINT3
     return write_physical_value(address, value, width);
 }
 
-ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID*, UINT32, UINT64*, UINT32)
+ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID* pci_id,
+                                       UINT32 register_offset,
+                                       UINT64* value,
+                                       UINT32 width)
 {
-    static bool logged = false;
-    log_unsupported_once(logged, "AcpiOsReadPciConfiguration");
-    return AE_SUPPORT;
+    if(nullptr == value)
+    {
+        return AE_BAD_PARAMETER;
+    }
+
+    const ACPI_SIZE access_bytes = static_cast<ACPI_SIZE>(width / 8u);
+    uint64_t physical_address = 0;
+    if((0u == access_bytes) ||
+       !pci_config_physical_address(pci_id, register_offset, access_bytes, physical_address))
+    {
+        return AE_NOT_FOUND;
+    }
+
+    switch(width)
+    {
+        case 8:
+            *value = *kernel_physical_pointer<volatile uint8_t>(physical_address);
+            return AE_OK;
+        case 16:
+            *value = *kernel_physical_pointer<volatile uint16_t>(physical_address);
+            return AE_OK;
+        case 32:
+            *value = *kernel_physical_pointer<volatile uint32_t>(physical_address);
+            return AE_OK;
+        case 64:
+            *value = *kernel_physical_pointer<volatile uint64_t>(physical_address);
+            return AE_OK;
+        default:
+            return AE_BAD_PARAMETER;
+    }
 }
 
-ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID*, UINT32, UINT64, UINT32)
+ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID* pci_id,
+                                        UINT32 register_offset,
+                                        UINT64 value,
+                                        UINT32 width)
 {
-    static bool logged = false;
-    log_unsupported_once(logged, "AcpiOsWritePciConfiguration");
-    return AE_SUPPORT;
+    const ACPI_SIZE access_bytes = static_cast<ACPI_SIZE>(width / 8u);
+    uint64_t physical_address = 0;
+    if((0u == access_bytes) ||
+       !pci_config_physical_address(pci_id, register_offset, access_bytes, physical_address))
+    {
+        return AE_NOT_FOUND;
+    }
+
+    switch(width)
+    {
+        case 8:
+            *kernel_physical_pointer<volatile uint8_t>(physical_address) = static_cast<uint8_t>(value);
+            return AE_OK;
+        case 16:
+            *kernel_physical_pointer<volatile uint16_t>(physical_address) = static_cast<uint16_t>(value);
+            return AE_OK;
+        case 32:
+            *kernel_physical_pointer<volatile uint32_t>(physical_address) = static_cast<uint32_t>(value);
+            return AE_OK;
+        case 64:
+            *kernel_physical_pointer<volatile uint64_t>(physical_address) = value;
+            return AE_OK;
+        default:
+            return AE_BAD_PARAMETER;
+    }
 }
 
 BOOLEAN AcpiOsReadable(void* pointer, ACPI_SIZE)

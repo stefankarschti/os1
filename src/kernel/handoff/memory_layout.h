@@ -54,8 +54,8 @@ constexpr uint64_t kApStartupIdtSizeBytes = 6;
 // the kernel can bring up allocation deterministically before later cleanup
 // work. It sits immediately above the reserved kernel window so it avoids the
 // BIOS kernel/initrd staging buffers while still fitting inside the initial
-// 2 MiB identity map. One bit per page means 512 KiB covers 16 GiB of RAM.
-constexpr uint64_t kPageFrameBitmapBaseAddress = 0x180000;
+// BIOS identity map. One bit per page means 512 KiB covers 16 GiB of RAM.
+constexpr uint64_t kPageFrameBitmapBaseAddress = 0x192000;
 constexpr uint64_t kPageFrameBitmapSizeBytes = 0x80000;
 constexpr uint64_t kPageFrameBitmapQwordLimit = kPageFrameBitmapSizeBytes / sizeof(uint64_t);
 

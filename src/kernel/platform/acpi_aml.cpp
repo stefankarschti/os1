@@ -2,6 +2,8 @@
 // PCI INTx routing through _PRT, and simple device power hooks.
 #include "platform/acpi_aml.hpp"
 
+#include "platform/acpica_integration.hpp"
+
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
 #include "mm/virtual_memory.hpp"
@@ -1178,10 +1180,13 @@ bool parse_term_list(const char* scope, const uint8_t* cursor, const uint8_t* en
 
 void decode_eisa_id(uint32_t value, char output[kAcpiHardwareIdBytes])
 {
-    output[0] = static_cast<char>('@' + ((value >> 26) & 0x1Fu));
-    output[1] = static_cast<char>('@' + ((value >> 21) & 0x1Fu));
-    output[2] = static_cast<char>('@' + ((value >> 16) & 0x1Fu));
-    const uint16_t product = static_cast<uint16_t>(value & 0xFFFFu);
+    const uint32_t expanded = ((value & 0x000000FFu) << 24) | ((value & 0x0000FF00u) << 8) |
+                              ((value & 0x00FF0000u) >> 8) |
+                              ((value & 0xFF000000u) >> 24);
+    output[0] = static_cast<char>('@' + ((expanded >> 26) & 0x1Fu));
+    output[1] = static_cast<char>('@' + ((expanded >> 21) & 0x1Fu));
+    output[2] = static_cast<char>('@' + ((expanded >> 16) & 0x1Fu));
+    const uint16_t product = static_cast<uint16_t>(expanded & 0xFFFFu);
     for(size_t i = 0; i < 4; ++i)
     {
         const uint8_t nibble = static_cast<uint8_t>((product >> ((3u - i) * 4u)) & 0xFu);
@@ -1516,6 +1521,14 @@ bool acpi_namespace_load(VirtualMemory& kernel_vm,
                          const AcpiDefinitionBlock* definition_blocks,
                          size_t definition_block_count)
 {
+    if(acpica_tables_initialized())
+    {
+        (void)kernel_vm;
+        (void)definition_blocks;
+        (void)definition_block_count;
+        return acpica_load_namespace();
+    }
+
     if((nullptr == definition_blocks) || (0 == definition_block_count))
     {
         g_last_error = "bad-arguments";
@@ -1562,12 +1575,12 @@ bool acpi_namespace_load(VirtualMemory& kernel_vm,
 
 const char* acpi_namespace_last_error()
 {
-    return g_last_error;
+    return acpica_tables_initialized() ? acpica_namespace_last_error() : g_last_error;
 }
 
 const char* acpi_namespace_last_object()
 {
-    return g_last_object_path;
+    return acpica_tables_initialized() ? acpica_namespace_last_object() : g_last_object_path;
 }
 
 bool acpi_build_device_info(AcpiDeviceInfo* devices,
@@ -1575,6 +1588,11 @@ bool acpi_build_device_info(AcpiDeviceInfo* devices,
                             AcpiPciRoute* routes,
                             size_t& route_count)
 {
+    if(acpica_tables_initialized())
+    {
+        return acpica_build_device_info(devices, device_count, routes, route_count);
+    }
+
     if((nullptr == devices) || (nullptr == routes) || !g_namespace.loaded)
     {
         g_last_error = "build-arguments";
@@ -1725,6 +1743,12 @@ bool acpi_resolve_pci_route_details(uint8_t bus,
                                     uint16_t& flags,
                                     bool& source_is_gsi)
 {
+    if(acpica_tables_initialized())
+    {
+        return acpica_resolve_pci_route_details(
+            bus, slot, function, pin, irq, flags, source_is_gsi);
+    }
+
     for(size_t i = 0; i < g_route_count; ++i)
     {
         const AcpiPciRoute& route = g_routes[i];
@@ -1742,6 +1766,11 @@ bool acpi_resolve_pci_route_details(uint8_t bus,
 
 bool acpi_set_device_power_state(const char* path, AcpiPowerState state)
 {
+    if(acpica_tables_initialized())
+    {
+        return acpica_set_device_power_state(path, state);
+    }
+
     if(nullptr == path)
     {
         return false;
@@ -1753,6 +1782,11 @@ bool acpi_set_device_power_state(const char* path, AcpiPowerState state)
 
 bool acpi_read_named_integer(const char* path, uint64_t& value)
 {
+    if(acpica_tables_initialized())
+    {
+        return acpica_read_named_integer(path, value);
+    }
+
     if(nullptr == path)
     {
         return false;
