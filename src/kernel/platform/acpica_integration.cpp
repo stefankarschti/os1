@@ -57,6 +57,7 @@ struct AcpicaState
     bool subsystem_initialized = false;
     bool tables_initialized = false;
     bool namespace_loaded = false;
+    bool runtime_initialized = false;
     char last_namespace_object[kAcpiDevicePathBytes]{};
 };
 
@@ -143,25 +144,6 @@ size_t string_length(const char* value)
         ++length;
     }
     return length;
-}
-
-bool string_equals(const char* left, const char* right)
-{
-    size_t index = 0;
-    while(true)
-    {
-        const char left_char = (nullptr != left) ? left[index] : 0;
-        const char right_char = (nullptr != right) ? right[index] : 0;
-        if(left_char != right_char)
-        {
-            return false;
-        }
-        if(0 == left_char)
-        {
-            return true;
-        }
-        ++index;
-    }
 }
 
 void clear_namespace_error()
@@ -743,7 +725,6 @@ uint16_t find_device_index_by_handle(const ACPI_HANDLE* handles, size_t count, A
 bool build_routes_for_device(ACPI_HANDLE device_handle,
                              const AcpiDeviceInfo& device,
                              const ACPI_HANDLE* handles,
-                             const AcpiDeviceInfo* devices,
                              size_t device_count,
                              AcpiPciRoute* routes,
                              size_t& route_count)
@@ -1346,21 +1327,47 @@ bool acpica_load_namespace()
     {
         return false;
     }
-    if(g_acpica_state.namespace_loaded)
+    if(!g_acpica_state.namespace_loaded)
     {
-        clear_namespace_error();
-        return true;
+        const ACPI_STATUS status = AcpiLoadTables();
+        if(ACPI_FAILURE(status))
+        {
+            return set_namespace_error_status(status, "acpica: namespace load failed");
+        }
+
+        g_acpica_state.namespace_loaded = true;
+        g_acpica_state.stage = AcpicaBootStage::NamespaceReady;
+        debug("acpica: namespace ready")();
     }
 
-    const ACPI_STATUS status = AcpiLoadTables();
-    if(ACPI_FAILURE(status))
+    if(!g_acpica_state.runtime_initialized)
     {
-        return set_namespace_error_status(status, "acpica: namespace load failed");
+        const ACPI_STATUS enable_status =
+            AcpiEnableSubsystem(ACPI_NO_EVENT_INIT | ACPI_NO_HANDLER_INIT);
+        if(ACPI_FAILURE(enable_status))
+        {
+            return set_namespace_error_status(enable_status,
+                                              "acpica: runtime enable failed");
+        }
+
+        // Phase 5 still keeps SCI/GPE/event delivery disabled, but ACPICA
+        // selected-method evaluation depends on the namespace runtime being
+        // fully initialized so device _STA/_INI and OpRegion _REG methods can
+        // establish the execution environment expected by firmware.
+        const ACPI_STATUS object_status = AcpiInitializeObjects(ACPI_FULL_INITIALIZATION);
+        if(ACPI_FAILURE(object_status))
+        {
+            return set_namespace_error_status(object_status,
+                                              "acpica: object init failed");
+        }
+
+        g_acpica_state.runtime_initialized = true;
+        g_acpica_state.stage = AcpicaBootStage::MethodEvaluationReady;
+        g_acpica_state.last_status = kStatusOk;
+        debug("acpica: methods ready")();
     }
 
-    g_acpica_state.namespace_loaded = true;
     clear_namespace_error();
-    debug("acpica: namespace ready")();
     return true;
 }
 
@@ -1428,7 +1435,6 @@ bool acpica_build_device_info(AcpiDeviceInfo* devices,
             if(!build_routes_for_device(context.handles[index],
                                         devices[index],
                                         context.handles,
-                                        devices,
                                         device_count,
                                         routes,
                                         route_count))
@@ -1576,6 +1582,10 @@ const char* acpica_boot_stage_name()
             return "table-discovery";
         case AcpicaBootStage::TablesReady:
             return "tables-ready";
+        case AcpicaBootStage::NamespaceReady:
+            return "namespace-ready";
+        case AcpicaBootStage::MethodEvaluationReady:
+            return "method-evaluation-ready";
         default:
             return "inactive";
     }

@@ -11,6 +11,8 @@ enum class AcpicaBootStage : uint8_t
     Inactive = 0,
     TableDiscovery,
     TablesReady,
+    NamespaceReady,
+    MethodEvaluationReady,
 };
 
 VirtualMemory* acpica_kernel_vm();

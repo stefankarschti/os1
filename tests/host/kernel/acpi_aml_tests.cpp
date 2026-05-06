@@ -1432,3 +1432,45 @@ TEST_F(AcpiAmlWithAcpica, IgnoresMalformedDevicePrt)
     ASSERT_NE(nullptr, power_button);
     EXPECT_EQ(0, std::strcmp("PNP0C0C", power_button->hardware_id));
 }
+
+TEST_F(AcpiAmlWithAcpica, RunsDeviceIniBeforeSelectedMethodEvaluation)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto dev0 = make_device(
+        "DEV0",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_name_integer("INIV", 0),
+         make_method_store_integer("_INI", 1, "INIV"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope("\\_SB_", {dev0});
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+    build_acpica_firmware_tables(arena, false);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
+
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), 1))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    uint64_t value = 0;
+    ASSERT_TRUE(acpi_read_named_integer("\\_SB_.DEV0.INIV", value));
+    EXPECT_EQ(1u, value);
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count));
+
+    const AcpiDeviceInfo* device = find_device(devices, device_count, "\\_SB_.DEV0");
+    ASSERT_NE(nullptr, device);
+    EXPECT_EQ(0x0Fu, device->status);
+}
