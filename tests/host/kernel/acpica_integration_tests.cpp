@@ -348,7 +348,7 @@ TEST_F(AcpicaIntegration, OslMapsAndAccessesPhysicalMemory)
     ASSERT_NE(nullptr, mapped);
     EXPECT_EQ(kernel_physical_pointer<void>(kOslMemoryPhysical), mapped);
 
-    uint64_t value = 0;
+    UINT64 value = 0;
     EXPECT_EQ(AE_OK, AcpiOsWriteMemory(kOslMemoryPhysical + 0x00, 0x5Au, 8));
     EXPECT_EQ(AE_OK, AcpiOsReadMemory(kOslMemoryPhysical + 0x00, &value, 8));
     EXPECT_EQ(0x5Au, value);
@@ -404,7 +404,7 @@ TEST_F(AcpicaIntegration, OslReadsAndWritesPublishedPciConfigSpace)
     constexpr uint64_t kDevicePhysicalBase = kOslEcamBasePhysical + (1ull << 15u);
     *kernel_physical_pointer<volatile uint32_t>(kDevicePhysicalBase + 0x10) = 0xAABBCCDDu;
 
-    uint64_t value = 0;
+    UINT64 value = 0;
     EXPECT_EQ(AE_OK, AcpiOsReadPciConfiguration(&pci_id, 0x10, &value, 32));
     EXPECT_EQ(0xAABBCCDDu, value);
 
