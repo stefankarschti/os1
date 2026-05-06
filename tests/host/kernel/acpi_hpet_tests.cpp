@@ -381,8 +381,12 @@ protected:
     {
         acpica_reset_for_tests();
     }
+};
 
-    void TearDown() override
+class AcpicaScopedReset final
+{
+public:
+    ~AcpicaScopedReset()
     {
         acpica_reset_for_tests();
     }
@@ -396,6 +400,7 @@ TEST_F(AcpiDiscovery, HpetTableIsOptional)
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
     ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info())) << acpica_last_status();
 
@@ -465,6 +470,7 @@ TEST_F(AcpiDiscovery, ParsesHpetTableAndReadsMainCounter)
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
     ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info())) << acpica_last_status();
 

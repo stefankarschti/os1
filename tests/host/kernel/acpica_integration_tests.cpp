@@ -242,8 +242,12 @@ protected:
         g_platform = {};
         acpica_reset_for_tests();
     }
+};
 
-    void TearDown() override
+class AcpicaScopedReset final
+{
+public:
+    ~AcpicaScopedReset()
     {
         g_platform = {};
         acpica_reset_for_tests();
@@ -259,6 +263,7 @@ TEST_F(AcpicaIntegration, InitializesTableManagerFromBootRsdp)
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
     ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
     EXPECT_TRUE(acpica_tables_initialized());
@@ -287,6 +292,7 @@ TEST_F(AcpicaIntegration, RejectsMissingBootRsdp)
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
     EXPECT_FALSE(acpica_initialize_tables(vm, make_boot_info(0)));
     EXPECT_FALSE(acpica_tables_initialized());
@@ -301,6 +307,7 @@ TEST_F(AcpicaIntegration, RejectsBrokenOrIncompleteFirmwareTables)
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
     EXPECT_FALSE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
     EXPECT_FALSE(acpica_tables_initialized());
@@ -317,6 +324,7 @@ TEST_F(AcpicaIntegration, OslSemaphoresEnforceBounds)
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
+    AcpicaScopedReset acpica_reset;
 
     ACPI_SEMAPHORE handle = nullptr;
     EXPECT_EQ(AE_BAD_PARAMETER, AcpiOsCreateSemaphore(1, 2, &handle));
@@ -341,6 +349,7 @@ TEST_F(AcpicaIntegration, OslMapsAndAccessesPhysicalMemory)
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
     ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
 
@@ -386,6 +395,7 @@ TEST_F(AcpicaIntegration, OslReadsAndWritesPublishedPciConfigSpace)
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
     ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info(kRsdpPhysical)));
 

@@ -1,8 +1,26 @@
 #ifndef __ACENV_H__
 #define __ACENV_H__
 
+#if defined(OS1_HOST_TEST)
+#define ACPI_USE_SYSTEM_CLIBRARY
+#define ACPI_USE_STANDARD_HEADERS
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
+
+#if defined(ACPI_USE_STANDARD_HEADERS)
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#endif
+
+#if defined(OS1_ACPICA_RENAME_UTPRINT)
+#define snprintf os1_acpica_snprintf
+#define sprintf os1_acpica_sprintf
+#define vsnprintf os1_acpica_vsnprintf
+#endif
 
 #define ACPI_BINARY_SEMAPHORE 0
 #define ACPI_OSL_MUTEX 1

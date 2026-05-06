@@ -38,6 +38,15 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/googletest")
 
 add_library(os1_acpica STATIC ${OS1_ACPICA_SOURCES})
+set(OS1_ACPICA_UTPRINT_SOURCE
+  "${OS1_ACPICA_ROOT}/source/components/utilities/utprint.c"
+)
+set_source_files_properties(
+  "${OS1_ACPICA_UTPRINT_SOURCE}"
+  PROPERTIES
+    COMPILE_DEFINITIONS "OS1_ACPICA_RENAME_UTPRINT=1"
+)
+target_compile_definitions(os1_acpica PRIVATE OS1_HOST_TEST=1)
 target_include_directories(os1_acpica PRIVATE
   "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
   "${OS1_ACPICA_INCLUDE_DIR}"
