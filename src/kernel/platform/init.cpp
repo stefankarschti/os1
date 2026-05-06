@@ -8,6 +8,7 @@
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi.hpp"
 #include "platform/acpi_aml.hpp"
+#include "platform/acpica_integration.hpp"
 #include "platform/hpet.hpp"
 #include "platform/pci.hpp"
 #include "platform/platform.hpp"
@@ -20,6 +21,12 @@ bool platform_discover(const BootInfo& boot_info, VirtualMemory& kernel_vm)
 {
     KASSERT_ON_BSP();
     platform_reset_state();
+
+    if(!acpica_initialize_tables(kernel_vm, boot_info))
+    {
+        debug("platform: ACPICA table init failed status=")(acpica_last_status())();
+        return false;
+    }
 
     const bool acpi_available = discover_acpi_platform(kernel_vm,
                                                        boot_info,

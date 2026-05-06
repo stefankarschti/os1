@@ -2,7 +2,7 @@
 
 int main(void)
 {
-    for(unsigned i = 0; i < 2048; ++i)
+    for(unsigned i = 0; i < 16384; ++i)
     {
         os1::user::yield();
     }

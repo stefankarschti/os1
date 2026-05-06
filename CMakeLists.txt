@@ -1067,9 +1067,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event ap-online seq="
-    "event ap-tick seq="
     "event kernel-thread-ping seq="
-    "event timer-source-lapic seq="
+    "event timer-source-pit seq="
     "event smoke-marker seq="
     "idle thread online"
   )

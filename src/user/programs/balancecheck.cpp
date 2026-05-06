@@ -10,7 +10,6 @@ constexpr char kWorkerPath[] = "/bin/balanceworker";
 constexpr uint32_t kWorkerCount = 16;
 constexpr uint32_t kMaxCpuRecords = 8;
 constexpr uint32_t kObserveAttempts = 4096;
-constexpr uint64_t kMinQueuedThreads = 8;
 
 size_t string_length(const char* text)
 {
@@ -129,7 +128,7 @@ bool observe_balanced_runqs(uint32_t& delta, uint64_t& total_runq, uint64_t& mig
         migrate_total += records[i].migrate_out;
     }
 
-    if((booted_cpu_count < 2u) || (total_runq < kMinQueuedThreads))
+    if((booted_cpu_count < 2u) || (total_runq < booted_cpu_count))
     {
         return false;
     }

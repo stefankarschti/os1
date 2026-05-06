@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(os1_host_tests LANGUAGES CXX)
+project(os1_host_tests LANGUAGES C CXX)
 
 option(OS1_KMEM_DEBUG "Enable kernel small-object allocator debug instrumentation" ON)
 
@@ -10,6 +10,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 get_filename_component(OS1_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(OS1_HOST_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+
+include("${OS1_REPO_ROOT}/cmake/acpica_sources.cmake")
 
 set(OS1_KERNEL_IMAGE_LOAD_ADDRESS 0x10000)
 set(OS1_INITRD_LOAD_ADDRESS 0x90000)
@@ -34,6 +36,19 @@ enable_testing()
 set(INSTALL_GTEST OFF CACHE BOOL "Do not install GoogleTest from os1 host tests" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/googletest")
+
+add_library(os1_acpica STATIC ${OS1_ACPICA_SOURCES})
+target_include_directories(os1_acpica PRIVATE
+  "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
+  "${OS1_ACPICA_INCLUDE_DIR}"
+)
+set_target_properties(
+  os1_acpica
+  PROPERTIES
+    C_STANDARD 99
+    C_EXTENSIONS ON
+)
+target_compile_options(os1_acpica PRIVATE -O2 -w)
 
 add_library(os1_host_support
   support/cpu_stubs.cpp
@@ -64,6 +79,8 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi_aml.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/acpica_integration.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/acpica_osl.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/hpet.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/irq_registry.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/power.cpp"
@@ -86,6 +103,8 @@ if(OS1_KMEM_DEBUG)
 endif()
 target_include_directories(os1_host_support PUBLIC
   "${CMAKE_CURRENT_LIST_DIR}"
+  "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
+  "${OS1_ACPICA_INCLUDE_DIR}"
   "${OS1_REPO_ROOT}/src/common"
   "${OS1_REPO_ROOT}/src/kernel"
   "${OS1_REPO_ROOT}/src/uapi"
@@ -100,6 +119,7 @@ add_executable(os1_host_tests
   kernel/atomic_tests.cpp
   kernel/acpi_hpet_tests.cpp
   kernel/acpi_aml_tests.cpp
+  kernel/acpica_integration_tests.cpp
   kernel/cpu_record_tests.cpp
   kernel/utility_tests.cpp
   kernel/event_ring_tests.cpp
@@ -125,7 +145,7 @@ add_executable(os1_host_tests
   proc/user_elf_tests.cpp
   syscall/observe_abi_tests.cpp
 )
-target_link_libraries(os1_host_tests PRIVATE os1_host_support GTest::gtest_main)
+target_link_libraries(os1_host_tests PRIVATE os1_host_support os1_acpica GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(os1_host_tests

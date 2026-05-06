@@ -494,7 +494,7 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
         IrqSpinGuard guard(g_thread_registry_lock);
         link_thread(thread);
     }
-    (void)enqueue_thread_on_cpu(thread, owner);
+    mark_thread_ready(thread, owner);
     return thread;
 }
 
@@ -586,7 +586,7 @@ Thread* create_user_thread(Process* process,
     }
     if(start_ready)
     {
-        (void)enqueue_thread_on_cpu(thread, thread->scheduler_cpu);
+        mark_thread_ready(thread, thread->scheduler_cpu);
     }
     return thread;
 }
