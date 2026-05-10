@@ -142,7 +142,7 @@ The project should support modern machine discovery on `x86_64`, including:
 
 - memory map handoff
 - ACPI discovery and parsing
-- ACPI support that starts with RSDP/XSDT, MADT, FADT, MCFG, and HPET, while AML-based device and power-management support remains a later-stage goal
+- ACPICA-backed ACPI support for RSDP/XSDT/RSDT, MADT, FADT, MCFG, HPET, namespace/device/resource discovery, PCI `_PRT` routing, and the initial `_PS0`/`_PS3` power hooks
 - interrupt-controller discovery
 - timer discovery
 - PCI/PCIe enumeration
@@ -451,7 +451,7 @@ The in-repo milestone designs (M1–M5) refine the coarser A–G map below into 
 - ACPI discovery ([M4](doc/2026-04-22-milestone-4-modern-platform-support.md) — implemented; FADT/HPET added in the 2026-04-30 [driver/device/platform pass](doc/2026-04-29-driver-device-platform-implementation-plan.md))
 - improved platform abstraction (M4 — implemented)
 - PCIe enumeration, BAR ownership, MSI-X/MSI/INTx fallback, shared virtio transport, request-shaped block layer, and interrupt-driven `virtio-blk` reads + writes ([2026-04-30 pass](doc/2026-04-29-driver-device-platform-implementation-plan.md) — implemented)
-- ACPI-first machine discovery starting with RSDP/XSDT, MADT, FADT, MCFG, and HPET, plus a deliberately minimal AML interpreter for `_PRT`/`_CRS`/`_STA`/`_ADR`/`_BBN`/`_HID`/`_UID`/`_PS0`/`_PS3` (implemented; broader AML coverage remains a real-hardware-driven follow-up)
+- ACPI-first machine discovery now backed by upstream ACPICA: table discovery, namespace load, device enumeration, `_PRT`/resource resolution, and `_PS0`/`_PS3` power transitions are implemented through the ACPICA integration ([2026-05-06 design](doc/2026-05-06-acpica-integration.md), [2026-05-10 review](doc/2026-05-10-review.md)); broader real-hardware ACPI coverage is follow-on work
 - PCIe support expanding from enumeration into BAR/resource ownership, driver binding, bus mastering, MSI/MSI-X, and DMA-safe building blocks (implemented)
 - USB host-controller discovery through PCI, with xHCI as the first USB transport and HID keyboard as the first USB class target ([2026-04-30 pass](doc/2026-04-29-driver-device-platform-implementation-plan.md) — implemented; HID mouse recognized but not yet routed; USB hub class and mass storage remain follow-on work)
 - HPET-calibrated LAPIC periodic timer with PIT fallback (implemented)
@@ -465,7 +465,7 @@ The in-repo milestone designs (M1–M5) refine the coarser A–G map below into 
 - a small SYSCALL/SYSRET-entered syscall interface (`write`, `read`, `exit`, `yield`, `getpid`, `observe`, `spawn`, `waitpid`, `exec`) for console I/O, observability, and initrd-backed process control
 - initrd-backed operator environment with `/bin/init`, `/bin/sh`, `/bin/yield`, `/bin/fault`, `/bin/copycheck`, and `/bin/ascii` (the last is a human-only visual probe; see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) for why it is deliberately not asserted by smoke)
 - serial-drivable shell and smoke coverage on both boot paths
-- structured observability through versioned fixed-record snapshots (`sys`, `ps`, `cpu`, `pci`, `initrd`, `events`, `devices`, `resources`, `irqs`, `kmem`) and a 256-record kernel event ring covering traps, scheduler transitions, IRQs, block I/O, PCI bind, user-copy failures, smoke markers, timer-source choice, `kmem` corruption, NIC RX, AP-online/tick events, reschedule/TLB-shootdown IPIs, thread migration, and run-queue depth
+- structured observability through versioned fixed-record snapshots (`sys`, `ps`, `cpu`, `pci`, `initrd`, `events`, `devices`, `resources`, `irqs`, `kmem`, `acpi`) and a 256-record kernel event ring covering traps, scheduler transitions, IRQs, block I/O, PCI bind, user-copy failures, smoke markers, timer-source choice, `kmem` corruption, NIC RX, AP-online/tick events, reschedule/TLB-shootdown IPIs, thread migration, and run-queue depth
 
 Later follow-ups expected in this area: filesystem-backed loading, richer file-descriptor / handle semantics, arguments/environment passing, and process credentials.
 
@@ -514,7 +514,7 @@ Some earlier open questions have since been resolved in source or in the milesto
 - **Resolved:** the modern default boot path is Limine plus UEFI, while BIOS remains available during the transition ([M3](doc/2026-04-22-milestone-3-modern-default-boot-path.md)).
 - **Resolved:** the first protected-userland ABI is statically linked ELF64 / `ET_EXEC` loaded from a `cpio newc` initrd, with SYSCALL/SYSRET-entered syscalls matching the System V AMD64 register layout and now covering console I/O, observability, and initrd-backed process control ([M2](doc/2026-04-22-milestone-2-process-model-and-isolation.md), [M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [src/uapi/os1/syscall_numbers.h](src/uapi/os1/syscall_numbers.h), [src/kernel/syscall/abi.hpp](src/kernel/syscall/abi.hpp), [src/kernel/arch/x86_64/cpu/syscall.cpp](src/kernel/arch/x86_64/cpu/syscall.cpp), [src/uapi/os1/observe.h](src/uapi/os1/observe.h), [src/user/](src/user/)).
 - **Resolved:** the first operator environment is an initrd-backed ring-3 shell entered through a minimal `/bin/init` that `exec`s `/bin/sh`, scriptable through serial input and backed by explicit kernel observability snapshots rather than parsed boot logs ([M5](doc/2026-04-23-milestone-5-interactive-shell-and-observability.md), [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)).
-- **Resolved:** PCI device interrupts use MSI-X first, then MSI, then IOAPIC INTx as a best-effort fallback. AML `_PRT` data feeds the INTx fallback when present; firmware-populated `interrupt_line` is the secondary fallback ([src/kernel/platform/pci_msi.cpp](src/kernel/platform/pci_msi.cpp), [src/kernel/platform/acpi_aml.cpp](src/kernel/platform/acpi_aml.cpp)).
+- **Resolved:** PCI device interrupts use MSI-X first, then MSI, then IOAPIC INTx as a best-effort fallback. ACPICA-backed `_PRT` data feeds the INTx fallback when present; firmware-populated `interrupt_line` is the secondary fallback ([src/kernel/platform/pci_msi.cpp](src/kernel/platform/pci_msi.cpp), [src/kernel/platform/acpica_integration.cpp](src/kernel/platform/acpica_integration.cpp), [src/kernel/platform/acpica_osl.cpp](src/kernel/platform/acpica_osl.cpp)).
 - **Resolved:** the BSP scheduler tick uses an HPET-calibrated LAPIC periodic timer when available, with the PIT retained as a fallback when HPET or LAPIC calibration is unavailable ([src/kernel/core/kernel_main.cpp](src/kernel/core/kernel_main.cpp)).
 - **Resolved:** the first NIC target in QEMU/virtio-first environments is `virtio-net` over the shared virtio PCI transport, with MSI-X-driven RX/TX completion and an ARP probe smoke ([src/kernel/drivers/net/virtio_net.cpp](src/kernel/drivers/net/virtio_net.cpp)). The protocol stack on top remains future work.
 - **Resolved:** the first USB transport is xHCI bound by PCI class `0x0c/0x03/0x30`, with HID boot-keyboard input feeding the canonical console-input path used by PS/2 ([src/kernel/drivers/usb/xhci.cpp](src/kernel/drivers/usb/xhci.cpp), [src/kernel/drivers/usb/hid_keyboard.cpp](src/kernel/drivers/usb/hid_keyboard.cpp)).

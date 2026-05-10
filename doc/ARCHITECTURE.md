@@ -1,6 +1,6 @@
 # os1 Architecture
 
-> generated-by: GitHub Copilot; updated-by: Codex (GPT-5) - last-reviewed: 2026-05-05 - git-state: working tree
+> generated-by: GitHub Copilot; updated-by: Codex (GPT-5) - last-reviewed: 2026-05-10 - git-state: working tree
 
 This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Latest Review](latest-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
@@ -10,7 +10,7 @@ This document is the current-state source of truth for `os1`. It describes what 
 - a default modern UEFI boot path based on Limine
 - an explicit legacy BIOS compatibility path
 - one kernel-facing boot contract: `BootInfo`
-- an ACPI-first platform-discovery layer on both boot frontends
+- an ACPICA-backed ACPI platform-discovery layer on both boot frontends
 - PCIe enumeration through ACPI `MCFG` and ECAM
 - a minimal static PCI driver model with binding, BAR ownership, IRQ route
   ownership, DMA records, and remove hooks
@@ -879,12 +879,13 @@ Current observe kinds include:
 - claimed resources (PCI BAR claims and DMA buffer ownership)
 - IRQ routes (vector, kind, owner, source)
 - kernel small-object allocator snapshot
+- ACPICA route/power probe snapshot (`OS1_OBSERVE_ACPI`)
 
 The event ring currently stores 256 overwrite-on-full records with monotonic sequence numbers and direct `pid` / `tid` fields. Current event types cover traps, scheduler transitions, IRQs, block I/O, PCI binds, user-copy failures, smoke markers used by the observe smokes, the chosen scheduler timer source (PIT vs LAPIC), `kmem` corruption, NIC RX completions, AP-online / AP-tick events, reschedule / TLB-shootdown IPIs, kernel-thread ping markers, thread migration, and run-queue depth changes.
 
 `/bin/sh events` is a snapshot command. Continuous streaming and `Ctrl-C` cancellation are intentionally deferred until the console/process layer has nonblocking input, cancellation, or signal-like infrastructure.
 
-The ring-3 shell consumes those records through built-ins such as `sys`, `ps`, `cpu`, `pci`, `initrd`, `events`, `devices`, `resources`, and `irqs`, which keeps the user-facing observability contract explicit.
+The ring-3 shell consumes most records through built-ins such as `sys`, `ps`, `cpu`, `pci`, `initrd`, `events`, `devices`, `resources`, and `irqs`; `/bin/acpiprobe` consumes the ACPICA snapshot. Keeping these paths explicit avoids turning observability into parsed boot logs.
 
 ## Process And Userland Architecture
 
@@ -913,6 +914,8 @@ Each user process gets:
 
 The kernel validates user pointers through `mm/user_copy.cpp` before copying syscall payloads. That boundary rejects null, non-canonical, overflowing, and out-of-user-range addresses. It also requires user-accessible mappings for reads and user-writable mappings for kernel-to-user writes. The kernel does not rely on deliberate kernel faults as a normal syscall-copy mechanism.
 
+User-slot teardown in `mm/virtual_memory.cpp` now issues `ipi_send_tlb_shootdown()` so other CPUs reload stale user address-space state after mappings are removed. The current shootdown is still coarse-grained CR3 reload rather than per-CR3/per-page invalidation; that granularity remains a prerequisite for future `mmap`, COW, or paging work.
+
 ### Initrd And ELF Loader
 
 The initrd is a `cpio newc` archive built from `src/user`.
@@ -928,6 +931,7 @@ Current user programs:
 - `/bin/smpcheck` — observe-driven SMP state verifier built from [`src/user/programs/smpcheck.cpp`](../src/user/programs/smpcheck.cpp)
 - `/bin/fault` — deliberate page-fault probe built from [`src/user/programs/fault.cpp`](../src/user/programs/fault.cpp)
 - `/bin/copycheck` — negative syscall-copy regression probe built from [`src/user/programs/copycheck.cpp`](../src/user/programs/copycheck.cpp)
+- `/bin/acpiprobe` — ACPICA observe probe built from [`src/user/programs/acpiprobe.cpp`](../src/user/programs/acpiprobe.cpp)
 - `/bin/ascii` — ASCII table probe built from [`src/user/programs/ascii.cpp`](../src/user/programs/ascii.cpp) to visually verify 8x16 font rendering on the framebuffer text backend. Intended for human operator inspection only; deliberately not asserted by any automated smoke because its purpose is glyph-shape verification on a real display, which the headless serial-driven smoke matrix cannot validate.
 
 The kernel keeps its fixed `/bin/init` boot contract, but init is now a real first user process rather than an alias for the shell. It immediately calls `exec("/bin/sh")`, so later init responsibilities can grow without changing the kernel boot path. The kernel parses the initrd, finds those paths, and loads ELF64 `ET_EXEC` images with `PT_LOAD` segments only. It maps segment permissions from ELF flags and zero-fills `memsz - filesz` for `.bss`.
@@ -948,14 +952,15 @@ This deferred teardown is important. The kernel does not free the current thread
 
 ## Modern Platform Support
 
-Milestone 4 has completed the move to ACPI-derived platform discovery and removed the legacy MP-table path.
+Milestone 4 completed the move to ACPI-derived platform discovery and removed the legacy MP-table path. The 2026-05-10 ACPICA integration made upstream ACPICA the active ACPI implementation for table discovery, namespace load, device enumeration, resource parsing, `_PRT` resolution, and `_PS0`/`_PS3` power transitions. ACPICA is vendored under `third_party/acpica` at submodule SHA `232ff3f8` (release `20260408`); OS-specific policy and glue stay behind `src/kernel/platform/acpica_*` and the public platform facade.
 
 The kernel now:
 
 - consumes `BootInfo.rsdp_physical` on both Limine and BIOS boots
-- parses `XSDT` first and falls back to `RSDT` when needed
-- uses `MADT` as the primary source of CPU, LAPIC, IOAPIC, and IRQ-override topology
-- uses `MCFG` to discover PCIe ECAM ranges
+- asks ACPICA to discover `XSDT`/`RSDT`, `MADT`, `MCFG`, `FADT`, HPET, DSDT, and SSDTs
+- uses ACPICA-backed `MADT` data as the primary source of CPU, LAPIC, IOAPIC, and IRQ-override topology
+- uses ACPICA-backed `MCFG` data to discover PCIe ECAM ranges
+- uses ACPICA namespace/resource APIs for ACPI device records, `_CRS` resources, `_PRT` PCI INTx routing, and `_PS0`/`_PS3` device power transitions
 - enumerates PCIe devices and records BAR information
 - separates platform discovery from driver activation so MSI/MSI-X-capable
   drivers bind only after the IDT and LAPIC are online
@@ -989,7 +994,7 @@ The test ladder is now:
 
 The host unit tests live under `tests/host/` as a separate CMake project. They intentionally do not include the root `CMakeLists.txt`, because the root project is a freestanding `x86_64-elf` build and should continue to reject a hosted compiler.
 
-The current SMP synchronization contract is documented in [SMP Synchronization Contract - 2026-04-29](2026-04-29-smp-synchronization-contract.md). The live runtime now uses those locks for per-CPU run queues, wait queues, console input, and process/thread registries; AP-targeted device IRQ steering and a named public page-frame lock are the next alignment gaps.
+The current SMP synchronization contract is documented in [SMP Synchronization Contract - 2026-04-29](2026-04-29-smp-synchronization-contract.md). The live runtime now uses those locks for per-CPU run queues, wait queues, console input, process/thread registries, and the named public page-frame allocator lock. AP-targeted device IRQ steering remains the next alignment gap.
 
 ### Local Targets
 
@@ -1045,7 +1050,9 @@ The host unit test harness uses the vendored GoogleTest submodule at `third_part
 - `src/kernel/mm/user_address.hpp`
 - `src/kernel/mm/virtual_memory.cpp`
 - `src/kernel/platform/acpi.cpp`
-- `src/kernel/platform/acpi_aml.cpp`
+- `src/kernel/platform/acpica_integration.cpp`
+- `src/kernel/platform/acpica_osl.cpp`
+- `src/kernel/platform/acpi_aml.cpp` (compatibility shim over the ACPICA-backed facade)
 - `src/kernel/platform/hpet.cpp`
 - `src/kernel/platform/irq_registry.cpp`
 - `src/kernel/platform/pci_capability.cpp`
@@ -1133,20 +1140,20 @@ Major constraints that remain:
 - userland is still initrd-backed and single-user rather than filesystem-backed and multiuser
 - there is no per-process file-descriptor or handle table; `spawn` and `exec` accept only a path, with no `argv`/`envp` and no errno discipline
 - block I/O is request-shaped, interrupt-completed, and supports bounded multi-sector requests up to `kVirtioBlkMaxSectorsPerRequest = 8` (4 KiB per request) through a single contiguous data descriptor; the synchronous wrappers chunk by `BlockDevice::max_sectors_per_request`; there is still no block scheduler, request merging, filesystem-facing buffer cache, or per-page user-buffer scatter-gather (which awaits user-DMA pinning)
-- PCI INTx fallback now prefers AML `_PRT` routing, but the implemented AML
-  subset is intentionally narrow rather than a general-purpose ACPICA-class
-  interpreter
+- PCI INTx fallback now resolves through ACPICA `_PRT` data when firmware
+  provides it, with firmware-populated `interrupt_line` retained as the
+  secondary fallback
 - DMA is coherent direct-map only; there is no low-address allocator, pinned
   user-buffer mapping, cacheability policy, or IOMMU
 - the kernel small-object allocator at [src/kernel/mm/kmem.cpp](../src/kernel/mm/kmem.cpp) is active infrastructure (builtin caches at 16/32/64/128/256/512/1024 bytes, named caches via `kmem_cache_create`, large-allocation page-run path, debug-build poisoning + redzones + leak dump, `OS1_OBSERVE_KMEM` snapshot kind, `kmem` shell built-in, smoke marker `kmem complete`). Current consumers include the process/thread registries, ARP cache, device-binding registry, PCI BAR claim registry, DMA allocation registry, and IRQ route registry. The next allocator growth is VFS/file/network resource lifetime, not first-use validation
 - hot-remove exists as a driver/resource lifecycle path, but there are no PCIe
   or ACPI hotplug event sources yet
-- APs come up through ACPI-derived bring-up, install the shared IDT, enter per-CPU idle threads, take per-CPU LAPIC timer ticks, and participate in per-CPU scheduling; device IRQ steering is still BSP-first and the page-frame allocator's named public lock identity is still a follow-up
+- APs come up through ACPI-derived bring-up, install the shared IDT, enter per-CPU idle threads, take per-CPU LAPIC timer ticks, and participate in per-CPU scheduling; device IRQ steering is still BSP-first
 - the `virtio-net` driver works but there is no IP/UDP/TCP/ICMP/ARP/DHCP/DNS layer above it
 - xHCI brings up HID boot keyboards but does not yet handle USB hubs, mice past recognition, or USB mass storage
 - NVMe and AHCI are still follow-on work
 
-The next major work is therefore not another boot or shell bring-up refactor. With the 2026-04-30 driver/device/platform pass and the 2026-05-05 SMP enablement round both landed (`virtio-net`, HPET-calibrated LAPIC scheduling, MSI-X-driven block I/O, the minimal AML interpreter, per-CPU run queues, `WaitQueue` / `Completion`, and balance smokes are all in code and exercised by tests), the active growth fronts are storage above the block driver, the network protocol stack above `virtio-net`, and a richer filesystem-backed userland on top of the current platform and operator shell base:
+The next major work is therefore not another boot or shell bring-up refactor. With the 2026-04-30 driver/device/platform pass, the 2026-05-05 SMP enablement round, and the 2026-05-10 ACPICA integration all landed (`virtio-net`, HPET-calibrated LAPIC scheduling, MSI-X-driven block I/O, ACPICA-backed platform discovery, per-CPU run queues, `WaitQueue` / `Completion`, and balance smokes are all in code and exercised by tests), the active growth fronts are storage above the block driver, the network protocol stack above `virtio-net`, and a richer filesystem-backed userland on top of the current platform and operator shell base:
 
 - decide the native object/handle vs POSIX-FD stance before adding a per-process descriptor table; this gates VFS shape, sockets shape, device-handle shape, and the eventual POSIX shim direction (see drafts under [os-api-draft/](os-api-draft/): [native_object_kernel_contract.md](os-api-draft/native_object_kernel_contract.md), [object_oriented_vfs_spec.md](os-api-draft/object_oriented_vfs_spec.md), [elf_interface_spec.md](os-api-draft/elf_interface_spec.md), [os1-shell-language-first-draft.md](os-api-draft/os1-shell-language-first-draft.md))
 - add `argv`/`envp` handoff in the initrd-backed loader so the shell can pass arguments and a real `init` can evolve apart from `/bin/sh`
@@ -1157,6 +1164,6 @@ The next major work is therefore not another boot or shell bring-up refactor. Wi
 - the IPv4/UDP/TCP/ARP/ICMP protocol stack on top of `virtio-net`, followed by DHCP and DNS once persistent configuration storage exists
 - USB hub class, mouse routing past recognition, and USB mass storage as the next USB tier
 - per-CPU device IRQ steering plus lock-order / policy follow-through on top of the operational SMP runtime (the synchronization vocabulary already exists in [src/kernel/sync/smp.hpp](../src/kernel/sync/smp.hpp))
-- broader ACPI coverage beyond the current minimal AML subset when new hardware requires it
+- ACPICA upgrade/footprint policy, OSL feature boundaries, and broader real-hardware ACPI coverage when new hardware requires it
 
 At this point the architecture is intentionally in a good place for that work: the boot path is modernized, the kernel entry contract is shared, ACPI/PCIe discovery is in place, MSI-X is the default device interrupt path, drivers bind through owned resources with a hot-remove skeleton, the kernel event ring carries cross-subsystem events, and both modern and legacy boot paths remain continuously testable on the same `q35` virtual platform.
