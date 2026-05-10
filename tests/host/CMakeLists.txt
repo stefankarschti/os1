@@ -4,6 +4,19 @@ project(os1_host_tests LANGUAGES C CXX)
 
 option(OS1_KMEM_DEBUG "Enable kernel small-object allocator debug instrumentation" ON)
 
+if(APPLE)
+  # ACPICA intentionally compiles some objects to no symbols with this config.
+  # Apple ranlib warns for those, while libtool has a targeted suppression.
+  find_program(OS1_DARWIN_LIBTOOL NAMES libtool REQUIRED)
+  foreach(OS1_ARCHIVE_LANG C CXX)
+    set(CMAKE_${OS1_ARCHIVE_LANG}_ARCHIVE_CREATE
+      "<CMAKE_COMMAND> -E rm -f <TARGET> && \"${OS1_DARWIN_LIBTOOL}\" -static -no_warning_for_no_symbols -o <TARGET> <LINK_FLAGS> <OBJECTS>"
+    )
+    set(CMAKE_${OS1_ARCHIVE_LANG}_ARCHIVE_APPEND "")
+    set(CMAKE_${OS1_ARCHIVE_LANG}_ARCHIVE_FINISH "")
+  endforeach()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -36,6 +49,14 @@ enable_testing()
 set(INSTALL_GTEST OFF CACHE BOOL "Do not install GoogleTest from os1 host tests" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/googletest")
+foreach(OS1_GTEST_TARGET gtest gtest_main gmock gmock_main)
+  if(TARGET "${OS1_GTEST_TARGET}")
+    # GoogleTest trips AppleClang's char8_t conversion warning under C++20.
+    target_compile_options("${OS1_GTEST_TARGET}" PRIVATE
+      $<$<CXX_COMPILER_ID:AppleClang,Clang>:-Wno-character-conversion>
+    )
+  endif()
+endforeach()
 
 add_library(os1_acpica STATIC ${OS1_ACPICA_SOURCES})
 set(OS1_ACPICA_UTPRINT_SOURCE
@@ -113,11 +134,13 @@ endif()
 target_include_directories(os1_host_support PUBLIC
   "${CMAKE_CURRENT_LIST_DIR}"
   "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
-  "${OS1_ACPICA_INCLUDE_DIR}"
   "${OS1_REPO_ROOT}/src/common"
   "${OS1_REPO_ROOT}/src/kernel"
   "${OS1_REPO_ROOT}/src/uapi"
   "${OS1_HOST_GENERATED_DIR}"
+)
+target_include_directories(os1_host_support SYSTEM PUBLIC
+  "${OS1_ACPICA_INCLUDE_DIR}"
 )
 
 add_executable(os1_host_tests

@@ -198,13 +198,15 @@ add_library(kernel_core_objects OBJECT ${KERNEL_CXX_SOURCES})
 target_include_directories(kernel_core_objects PRIVATE
   "${PROJECT_SOURCE_DIR}/src/common"
   "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
-  "${OS1_ACPICA_INCLUDE_DIR}"
   "${OS1_GENERATED_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${KERNEL_ARCH_DIR}"
   "${PROJECT_SOURCE_DIR}/src/libc"
   "${PROJECT_SOURCE_DIR}/src/uapi"
   "${PROJECT_SOURCE_DIR}/third_party/font8x16"
+)
+target_include_directories(kernel_core_objects SYSTEM PRIVATE
+  "${OS1_ACPICA_INCLUDE_DIR}"
 )
 set_target_properties(
   kernel_core_objects
