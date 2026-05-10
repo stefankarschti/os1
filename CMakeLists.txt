@@ -177,6 +177,24 @@ find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
 find_program(OS1_STRIP_EXECUTABLE NAMES x86_64-elf-strip strip REQUIRED)
 find_program(OS1_PYTHON_EXECUTABLE NAMES python3 python REQUIRED)
 
+# Wrapped developer tools such as Snap can inject incompatible runtime linker
+# and GTK plugin paths into child processes. Scrub those variables before
+# launching host-side QEMU so run targets behave consistently.
+set(OS1_QEMU_HOST_COMMAND
+  "${CMAKE_COMMAND}"
+  -E
+  env
+  --unset=LD_LIBRARY_PATH
+  --unset=LD_PRELOAD
+  --unset=GIO_MODULE_DIR
+  --unset=GTK_EXE_PREFIX
+  --unset=GTK_IM_MODULE_FILE
+  --unset=GTK_MODULES
+  --unset=GTK_PATH
+  --unset=XDG_DATA_DIRS
+  --unset=XDG_DATA_HOME
+)
+
 set(OS1_SMOKE_RUNNER "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke.py")
 set(OS1_VIRTIO_TEST_DISK_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/create_virtio_test_disk.cmake")
 
@@ -444,6 +462,7 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_OVMF_VARS_TEMPLATE}" "${OS1_OVMF_VARS_FILE}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
@@ -480,6 +499,7 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_OVMF_VARS_TEMPLATE}" "${OS1_OVMF_VARS_FILE}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
@@ -520,6 +540,7 @@ if(OS1_QEMU_EXECUTABLE)
     BYPRODUCTS "${OS1_BIOS_SERIAL_LOG}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
@@ -551,6 +572,7 @@ if(OS1_QEMU_EXECUTABLE)
     run_bios_serial
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
