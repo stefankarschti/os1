@@ -315,7 +315,6 @@ bool prepare_scheduler_timer()
         return false;
     }
 
-    set_timer(kSchedulerTimerFrequencyHz);
     timer_source_set_ap_timer_enabled(false);
     kernel_event::record(OS1_KERNEL_EVENT_TIMER_SOURCE,
                          OS1_KERNEL_EVENT_FLAG_SUCCESS |
@@ -324,7 +323,7 @@ bool prepare_scheduler_timer()
                          kPitSchedulerVector,
                          kSchedulerTimerFrequencyHz,
                          0);
-    debug("timer: PIT fallback (AP ticks disabled)")();
+    debug("timer: PIT fallback configured (AP ticks disabled)")();
     return true;
 }
 
@@ -363,6 +362,10 @@ bool prepare_scheduler_timer()
 extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
 {
     bool result = false;
+    const bool bios_legacy_boot = (nullptr != info) && (info->magic == kBootInfoMagic) &&
+                                  (info->version == kBootInfoVersion) &&
+                                  (BootSource::BiosLegacy == info->source);
+    debug.set_vga_mirror_enabled(bios_legacy_boot);
     debug("[kernel64] hello!\n");
 
     g_boot_info = own_boot_info(info);
@@ -382,8 +385,11 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
 
     {
         g_cpu_boot = cpu_boot;
+        debug("K2 cpu record")();
         cpu_initialize_record(g_cpu_boot);
+        debug("K3 cpu init")();
         cpu_init();
+        debug("K4 cpu ready")();
     }
 
     debug("initializing page frame allocator")();
@@ -428,11 +434,16 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         return;
     }
+    if(!map_bootstrap_identity_range(
+           kvm, align_down(reinterpret_cast<uint64_t>(g_cpu_boot), kPageSize), kPageSize))
+    {
+        return;
+    }
     uint64_t bootstrap_stack_pointer = 0;
     asm volatile("mov %%rsp, %0" : "=r"(bootstrap_stack_pointer));
     // Both boot frontends still enter kernel_main on a low bootstrap stack, so
-    // keep the current stack page mapped until the BSP later switches to a
-    // steady-state kernel thread stack.
+    // keep the current stack page and boot CPU record mapped until the BSP
+    // later switches to a steady-state kernel thread stack and GS base.
     if(!map_bootstrap_identity_range(
            kvm, align_down(bootstrap_stack_pointer, kPageSize), kPageSize))
     {
@@ -562,14 +573,13 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     active_terminal->write_line("[kernel64] hello");
 
     result = interrupts.initialize();
-    debug(result ? "Interrupts initialization successful" : "Interrupts initialization failed")();
     if(!result)
     {
         return;
     }
     if(!ipi_initialize())
     {
-        debug("IPI initialization failed")();
+        debug.write_line("ipi init failed");
         return;
     }
 
@@ -588,6 +598,9 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
     {
         interrupts.set_exception_handler(kernel_fault_vectors[i], on_kernel_exception);
     }
+
+    asm volatile("sti");
+    debug("Interrupts initialization successful")();
 
     // Driver probing stays after the IDT and local interrupt controllers are
     // online so later MSI/MSI-X work does not need another boot-order split.
@@ -648,6 +661,11 @@ extern "C" void kernel_main(BootInfo* info, cpu* cpu_boot)
             debug("timer: BSP lapic timer start failed")();
             return;
         }
+    }
+    else
+    {
+        set_timer(kSchedulerTimerFrequencyHz);
+        debug("timer: BSP pit timer started")();
     }
 
     kernel_event::record(OS1_KERNEL_EVENT_SMOKE_MARKER, 0, OS1_KERNEL_EVENT_SMOKE_MAGIC, 0, 0, 0);

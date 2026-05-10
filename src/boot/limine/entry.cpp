@@ -5,6 +5,7 @@
 #include "freestanding/string.hpp"
 #include "elf_loader.hpp"
 #include "handoff/boot_info.hpp"
+#include "handoff/memory_layout.h"
 #include "handoff_builder.hpp"
 #include "limine.h"
 #include "paging.hpp"
@@ -18,7 +19,10 @@
 // uses a newer cross compiler than local `act` runs.
 constexpr size_t kLimineShimStackBytes = 16 * 1024;
 
-extern "C" [[noreturn]] void limine_enter_kernel(void (*)(BootInfo*, cpu*), BootInfo*, cpu*);
+extern "C" [[noreturn]] void limine_enter_kernel(void (*)(BootInfo*, cpu*),
+                                                  BootInfo*,
+                                                  cpu*,
+                                                  uint64_t);
 extern "C" [[noreturn]] void limine_start_main(void);
 extern "C"
 {
@@ -33,7 +37,7 @@ limine_enter_kernel:
 	cli
 	cld
 	mov %rdi, %rax
-	lea 4096(%rdx), %rsp
+    mov %rcx, %rsp
 	and $-16, %rsp
 	mov %rsi, %rdi
 	mov %rdx, %rsi
@@ -215,6 +219,7 @@ extern "C" [[noreturn]] void limine_start_main()
     uint64_t kernel_physical_start = 0;
     uint64_t kernel_physical_end = 0;
     uint64_t boot_info_storage_physical = 0;
+    uint64_t bootstrap_stack_top = 0;
     cpu* cpu_boot = nullptr;
     if(!limine_shim::inspect_kernel_image(
            kernel_module, entry_point, kernel_physical_start, kernel_physical_end))
@@ -222,8 +227,8 @@ extern "C" [[noreturn]] void limine_start_main()
         limine_shim::write_serial_ln("[limine-shim] kernel inspect failed");
         halt_forever();
     }
-    if(!limine_shim::prepare_kernel_handoff(
-           kernel_physical_end, cpu_boot, boot_info_storage_physical))
+        if(!limine_shim::prepare_kernel_handoff(
+            kernel_physical_end, cpu_boot, boot_info_storage_physical, bootstrap_stack_top))
     {
         limine_shim::write_serial_ln("[limine-shim] kernel handoff prep failed");
         halt_forever();
@@ -255,9 +260,11 @@ extern "C" [[noreturn]] void limine_start_main()
         halt_forever();
     }
 
-    const uint64_t low_handoff_end =
+    const uint64_t cpu_boot_end =
         align_up(reinterpret_cast<uint64_t>(cpu_boot) + limine_shim::kPageSize,
                  limine_shim::kPageSize);
+    const uint64_t bitmap_end = kPageFrameBitmapBaseAddress + kPageFrameBitmapSizeBytes;
+    const uint64_t low_handoff_end = (cpu_boot_end > bitmap_end) ? cpu_boot_end : bitmap_end;
     if(!limine_shim::ensure_bootstrap_low_window(low_handoff_end))
     {
         limine_shim::write_serial_ln("[limine-shim] low identity map failed");
@@ -275,5 +282,8 @@ extern "C" [[noreturn]] void limine_start_main()
     limine_shim::write_serial_ln("");
     limine_shim::write_serial_ln("[limine-shim] entering kernel_main");
 
-    limine_enter_kernel(reinterpret_cast<void (*)(BootInfo*, cpu*)>(entry_point), boot_info, cpu_boot);
+    limine_enter_kernel(reinterpret_cast<void (*)(BootInfo*, cpu*)>(entry_point),
+                        boot_info,
+                        cpu_boot,
+                        bootstrap_stack_top);
 }

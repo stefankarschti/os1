@@ -3,13 +3,27 @@
 #include <stdlib.h>
 
 #include "arch/x86_64/cpu/io_port.hpp"
+#include "handoff/memory_layout.h"
 #include "util/memory.h"
 
 Debug debug;
 
 Debug::Debug()
 {
+    serial_state_ = kSerialStateUninitialized;
+    vga_mirror_enabled_ = false;
+    vga_cursor_initialized_ = false;
+    vga_cursor_ = 0;
     init_serial();
+}
+
+void Debug::set_vga_mirror_enabled(bool enabled)
+{
+    vga_mirror_enabled_ = enabled;
+    if(enabled && !vga_cursor_initialized_)
+    {
+        initialize_vga_cursor();
+    }
 }
 
 void Debug::init_serial()
@@ -21,6 +35,7 @@ void Debug::init_serial()
     outb(PORT + 3, 0x03);  // 8 bits, no parity, one stop bit
     outb(PORT + 2, 0xC7);  // Enable FIFO, clear them, with 14-byte threshold
     outb(PORT + 4, 0x0B);  // IRQs enabled, RTS/DSR set
+    serial_state_ = kSerialStateReady;
 }
 
 int Debug::busy()
@@ -28,10 +43,123 @@ int Debug::busy()
     return !(inb(PORT + 5) & 0x20);
 }
 
+bool Debug::wait_until_ready()
+{
+    if(serial_state_ == kSerialStateUnavailable)
+    {
+        return false;
+    }
+
+    if(serial_state_ == kSerialStateUninitialized)
+    {
+        init_serial();
+    }
+
+    for(uint32_t spins = 0; spins < kTransmitReadySpinLimit; ++spins)
+    {
+        if(!busy())
+        {
+            return true;
+        }
+    }
+
+    serial_state_ = kSerialStateUnavailable;
+    return false;
+}
+
+void Debug::initialize_vga_cursor()
+{
+    outb(kVgaPortIndex, 0x0F);
+    const uint16_t low = inb(kVgaPortData);
+    outb(kVgaPortIndex, 0x0E);
+    const uint16_t high = inb(kVgaPortData);
+    vga_cursor_ = static_cast<uint16_t>((high << 8) | low);
+    if(vga_cursor_ >= (kVgaTextColumns * kVgaTextRows))
+    {
+        vga_cursor_ = 0;
+    }
+    vga_cursor_initialized_ = true;
+}
+
+void Debug::scroll_vga()
+{
+    volatile uint16_t* const vga =
+        kernel_physical_pointer<volatile uint16_t>(kVgaTextBufferPhysicalAddress);
+    for(uint16_t row = 1; row < kVgaTextRows; ++row)
+    {
+        for(uint16_t column = 0; column < kVgaTextColumns; ++column)
+        {
+            vga[(row - 1) * kVgaTextColumns + column] = vga[row * kVgaTextColumns + column];
+        }
+    }
+
+    for(uint16_t column = 0; column < kVgaTextColumns; ++column)
+    {
+        vga[(kVgaTextRows - 1) * kVgaTextColumns + column] =
+            (static_cast<uint16_t>(kVgaTextAttribute) << 8) | ' ';
+    }
+
+    vga_cursor_ = (kVgaTextRows - 1) * kVgaTextColumns;
+}
+
+void Debug::update_vga_cursor()
+{
+    outb(kVgaPortIndex, 0x0F);
+    outb(kVgaPortData, static_cast<uint8_t>(vga_cursor_ & 0xFF));
+    outb(kVgaPortIndex, 0x0E);
+    outb(kVgaPortData, static_cast<uint8_t>((vga_cursor_ >> 8) & 0xFF));
+}
+
+void Debug::write_vga(const char c)
+{
+    if(!vga_mirror_enabled_)
+    {
+        return;
+    }
+
+    if(!vga_cursor_initialized_)
+    {
+        initialize_vga_cursor();
+    }
+
+    if('\r' == c)
+    {
+        vga_cursor_ = static_cast<uint16_t>(vga_cursor_ - (vga_cursor_ % kVgaTextColumns));
+        update_vga_cursor();
+        return;
+    }
+
+    if('\n' == c)
+    {
+        vga_cursor_ = static_cast<uint16_t>(vga_cursor_ +
+                                            (kVgaTextColumns - (vga_cursor_ % kVgaTextColumns)));
+        if(vga_cursor_ >= (kVgaTextColumns * kVgaTextRows))
+        {
+            scroll_vga();
+        }
+        update_vga_cursor();
+        return;
+    }
+
+    volatile uint16_t* const vga =
+        kernel_physical_pointer<volatile uint16_t>(kVgaTextBufferPhysicalAddress);
+    vga[vga_cursor_] = (static_cast<uint16_t>(kVgaTextAttribute) << 8) |
+                       static_cast<uint8_t>(c);
+    ++vga_cursor_;
+    if(vga_cursor_ >= (kVgaTextColumns * kVgaTextRows))
+    {
+        scroll_vga();
+    }
+    update_vga_cursor();
+}
+
 void Debug::write(const char c)
 {
-    while(busy())
-        ;
+    write_vga(c);
+    if(!wait_until_ready())
+    {
+        return;
+    }
     outb(PORT, c);
 }
 

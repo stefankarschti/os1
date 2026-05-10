@@ -132,8 +132,6 @@ void set_current_thread(Thread* thread);
 void mark_thread_ready(Thread* thread, cpu* target = nullptr);
 // Block the current thread until console input can complete a read.
 void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length);
-// Block the current thread until the selected child can be reaped.
-void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid);
 // Block the current thread until a block-I/O completion flag is signaled.
 void block_current_thread_on_block_io(Completion* completion);
 // clear a thread's wait metadata after the wait has completed.

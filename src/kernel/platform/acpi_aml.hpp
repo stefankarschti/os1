@@ -7,9 +7,9 @@
 
 class VirtualMemory;
 
-constexpr size_t kAcpiDevicePathBytes = 48;
+constexpr size_t kAcpiDevicePathBytes = 64;
 constexpr size_t kAcpiHardwareIdBytes = 8;
-constexpr size_t kAcpiMaxDevices = 64;
+constexpr size_t kAcpiMaxDevices = 96;
 constexpr size_t kAcpiMaxDeviceResources = 8;
 constexpr size_t kAcpiMaxPciRoutes = 64;
 constexpr uint16_t kAcpiDeviceIndexNone = 0xFFFFu;
@@ -74,7 +74,6 @@ struct AcpiPciRoute
     char source_path[kAcpiDevicePathBytes];
 };
 
-void acpi_namespace_reset();
 bool acpi_namespace_load(VirtualMemory& kernel_vm,
                          const AcpiDefinitionBlock* definition_blocks,
                          size_t definition_block_count);
@@ -97,5 +96,6 @@ bool acpi_resolve_pci_route_details(uint8_t bus,
                                     uint32_t& irq,
                                     uint16_t& flags,
                                     bool& source_is_gsi);
+bool acpi_device_supports_power_state(const char* path, AcpiPowerState state);
 bool acpi_set_device_power_state(const char* path, AcpiPowerState state);
 bool acpi_read_named_integer(const char* path, uint64_t& value);

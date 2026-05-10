@@ -1,13 +1,33 @@
 // Deferred thread/process reaping. The active kernel stack cannot be freed by
 // the thread currently running on it, so reclamation happens when another thread
 // re-enters the kernel.
+#include "arch/x86_64/cpu/cpu.hpp"
 #include "handoff/memory_layout.h"
 #include "proc/thread.hpp"
 #include "syscall/wait.hpp"
 
+namespace
+{
+bool thread_is_current_on_any_cpu(const Thread* thread)
+{
+    if(nullptr == thread)
+    {
+        return false;
+    }
+
+    for(cpu* owner = g_cpu_boot; nullptr != owner; owner = owner->next)
+    {
+        if(owner->current_thread == thread)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
 void reap_dead_threads(PageFrameContainer& frames)
 {
-    Thread* active = current_thread();
     for(;;)
     {
         Thread* thread = nullptr;
@@ -15,7 +35,8 @@ void reap_dead_threads(PageFrameContainer& frames)
             IrqSpinGuard guard(g_thread_registry_lock);
             for(Thread* candidate = first_thread(); nullptr != candidate; candidate = next_thread(candidate))
             {
-                if((candidate != active) && (ThreadState::Dying == candidate->state))
+                if((ThreadState::Dying == candidate->state) &&
+                   !thread_is_current_on_any_cpu(candidate))
                 {
                     thread = candidate;
                     break;

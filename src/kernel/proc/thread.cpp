@@ -494,7 +494,7 @@ Thread* create_kernel_thread(Process* process, void (*entry)(void), PageFrameCon
         IrqSpinGuard guard(g_thread_registry_lock);
         link_thread(thread);
     }
-    (void)enqueue_thread_on_cpu(thread, owner);
+    mark_thread_ready(thread, owner);
     return thread;
 }
 
@@ -586,7 +586,7 @@ Thread* create_user_thread(Process* process,
     }
     if(start_ready)
     {
-        (void)enqueue_thread_on_cpu(thread, thread->scheduler_cpu);
+        mark_thread_ready(thread, thread->scheduler_cpu);
     }
     return thread;
 }
@@ -685,23 +685,6 @@ void block_current_thread_on_console_read(uint64_t user_buffer, uint64_t length)
     (void)block_current_thread(wait, &console_input_read_wait_queue());
 }
 
-void block_current_thread_on_child_exit(uint64_t user_status_pointer, uint64_t pid)
-{
-    ThreadWaitState wait{};
-    wait.reason = ThreadWaitReason::ChildExit;
-    wait.child_exit = ChildExitWaitState{
-        .user_status_pointer = user_status_pointer,
-        .pid = pid,
-    };
-    Thread* thread = current_thread();
-    Process* process = (nullptr != thread) ? thread->process : nullptr;
-    if(nullptr == process)
-    {
-        return;
-    }
-    (void)block_current_thread(wait, &process->child_exit_waiters);
-}
-
 void block_current_thread_on_block_io(Completion* completion)
 {
     if(nullptr == completion)
@@ -777,7 +760,6 @@ void mark_current_thread_dying(int exit_status)
     }
 
     thread->exit_status = exit_status;
-    thread->state = ThreadState::Dying;
     clear_thread_wait(thread);
     if(thread->process)
     {
@@ -786,4 +768,5 @@ void mark_current_thread_dying(int exit_status)
         thread->process->state =
             thread->process->parent ? ProcessState::Zombie : ProcessState::Dying;
     }
+    thread->state = ThreadState::Dying;
 }

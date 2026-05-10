@@ -1,8 +1,6 @@
 #include "debug/debug.hpp"
 
-Debug debug;
-
-Debug::Debug() {}
+constinit Debug debug;
 
 void Debug::write(const char) {}
 

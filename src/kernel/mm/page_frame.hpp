@@ -17,7 +17,7 @@
 class PageFrameContainer
 {
 public:
-    PageFrameContainer();
+    constexpr PageFrameContainer() = default;
     // initialize the allocator from bootloader-provided memory regions and a fixed
     // bitmap storage range.
     bool initialize(std::span<const BootMemoryRegion> memory_regions,
@@ -101,7 +101,7 @@ private:
      *	done:
      *		; NOT FOUND
      */
-    uint64_t* bitmap_;
+    uint64_t* bitmap_ = nullptr;
     uint64_t bitmap_physical_address_ = 0;
     /**
      * @brief bitmap_size_ number of qwords

@@ -17,6 +17,7 @@ TEST(ObserveAbi, ConstantsAreStable)
     EXPECT_EQ(8, OS1_OBSERVE_RESOURCES);
     EXPECT_EQ(9, OS1_OBSERVE_IRQS);
     EXPECT_EQ(10, OS1_OBSERVE_KMEM);
+    EXPECT_EQ(11, OS1_OBSERVE_ACPI);
     EXPECT_EQ(256, OS1_OBSERVE_EVENT_RING_CAPACITY);
     EXPECT_EQ(32, OS1_OBSERVE_DRIVER_NAME_BYTES);
     EXPECT_EQ(32, OS1_OBSERVE_KMEM_NAME_BYTES);
@@ -101,4 +102,14 @@ TEST(ObserveAbi, RecordLayoutsArePacked)
     EXPECT_EQ(16u, offsetof(Os1ObserveKmemRecord, slab_count));
     EXPECT_EQ(32u, offsetof(Os1ObserveKmemRecord, alloc_count));
     EXPECT_EQ(56u, offsetof(Os1ObserveKmemRecord, name));
+
+    EXPECT_EQ(28u, sizeof(Os1ObserveAcpiRecord));
+    EXPECT_EQ(0u, offsetof(Os1ObserveAcpiRecord, route_probe_count));
+    EXPECT_EQ(4u, offsetof(Os1ObserveAcpiRecord, route_success_count));
+    EXPECT_EQ(8u, offsetof(Os1ObserveAcpiRecord, power_probe_count));
+    EXPECT_EQ(12u, offsetof(Os1ObserveAcpiRecord, power_success_count));
+    EXPECT_EQ(16u, offsetof(Os1ObserveAcpiRecord, route_irq));
+    EXPECT_EQ(20u, offsetof(Os1ObserveAcpiRecord, route_flags));
+    EXPECT_EQ(22u, offsetof(Os1ObserveAcpiRecord, route_bus));
+    EXPECT_EQ(26u, offsetof(Os1ObserveAcpiRecord, route_source_is_gsi));
 }

@@ -28,8 +28,9 @@ struct PlatformState
     AcpiFixedInfo acpi_fixed;
     size_t acpi_definition_block_count;
     AcpiDefinitionBlock acpi_definition_blocks[kPlatformMaxAcpiDefinitionBlocks];
+    size_t acpi_device_capacity;
     size_t acpi_device_count;
-    AcpiDeviceInfo acpi_devices[kAcpiMaxDevices];
+    AcpiDeviceInfo* acpi_devices;
     size_t acpi_pci_route_count;
     AcpiPciRoute acpi_pci_routes[kAcpiMaxPciRoutes];
     const BlockDevice* block_device;

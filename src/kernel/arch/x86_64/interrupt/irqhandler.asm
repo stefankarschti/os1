@@ -34,7 +34,8 @@ trap_entry_common:
 	jmp .save_frame
 
 .cpu_frame:
-	lea rax, [gs:CPU_INTERRUPT_FRAME]
+	mov rax, [gs:CPU_SELF]
+	add rax, CPU_INTERRUPT_FRAME
 
 .save_frame:
 	mov rdx, [rsp]

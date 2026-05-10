@@ -1,8 +1,21 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(os1_host_tests LANGUAGES CXX)
+project(os1_host_tests LANGUAGES C CXX)
 
 option(OS1_KMEM_DEBUG "Enable kernel small-object allocator debug instrumentation" ON)
+
+if(APPLE)
+  # ACPICA intentionally compiles some objects to no symbols with this config.
+  # Apple ranlib warns for those, while libtool has a targeted suppression.
+  find_program(OS1_DARWIN_LIBTOOL NAMES libtool REQUIRED)
+  foreach(OS1_ARCHIVE_LANG C CXX)
+    set(CMAKE_${OS1_ARCHIVE_LANG}_ARCHIVE_CREATE
+      "<CMAKE_COMMAND> -E rm -f <TARGET> && \"${OS1_DARWIN_LIBTOOL}\" -static -no_warning_for_no_symbols -o <TARGET> <LINK_FLAGS> <OBJECTS>"
+    )
+    set(CMAKE_${OS1_ARCHIVE_LANG}_ARCHIVE_APPEND "")
+    set(CMAKE_${OS1_ARCHIVE_LANG}_ARCHIVE_FINISH "")
+  endforeach()
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +23,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 get_filename_component(OS1_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(OS1_HOST_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+
+include("${OS1_REPO_ROOT}/cmake/acpica_sources.cmake")
 
 set(OS1_KERNEL_IMAGE_LOAD_ADDRESS 0x10000)
 set(OS1_INITRD_LOAD_ADDRESS 0x90000)
@@ -34,6 +49,36 @@ enable_testing()
 set(INSTALL_GTEST OFF CACHE BOOL "Do not install GoogleTest from os1 host tests" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 add_subdirectory("${OS1_REPO_ROOT}/third_party/googletest" "${CMAKE_BINARY_DIR}/googletest")
+foreach(OS1_GTEST_TARGET gtest gtest_main gmock gmock_main)
+  if(TARGET "${OS1_GTEST_TARGET}")
+    # GoogleTest trips AppleClang's char8_t conversion warning under C++20.
+    target_compile_options("${OS1_GTEST_TARGET}" PRIVATE
+      $<$<CXX_COMPILER_ID:AppleClang,Clang>:-Wno-character-conversion>
+    )
+  endif()
+endforeach()
+
+add_library(os1_acpica STATIC ${OS1_ACPICA_SOURCES})
+set(OS1_ACPICA_UTPRINT_SOURCE
+  "${OS1_ACPICA_ROOT}/source/components/utilities/utprint.c"
+)
+set_source_files_properties(
+  "${OS1_ACPICA_UTPRINT_SOURCE}"
+  PROPERTIES
+    COMPILE_DEFINITIONS "OS1_ACPICA_RENAME_UTPRINT=1"
+)
+target_compile_definitions(os1_acpica PRIVATE OS1_HOST_TEST=1)
+target_include_directories(os1_acpica PRIVATE
+  "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
+  "${OS1_ACPICA_INCLUDE_DIR}"
+)
+set_target_properties(
+  os1_acpica
+  PROPERTIES
+    C_STANDARD 99
+    C_EXTENSIONS ON
+)
+target_compile_options(os1_acpica PRIVATE -O2 -w)
 
 add_library(os1_host_support
   support/cpu_stubs.cpp
@@ -64,6 +109,8 @@ add_library(os1_host_support
   "${OS1_REPO_ROOT}/src/kernel/mm/virtual_memory.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/acpi_aml.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/acpica_integration.cpp"
+  "${OS1_REPO_ROOT}/src/kernel/platform/acpica_osl.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/hpet.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/irq_registry.cpp"
   "${OS1_REPO_ROOT}/src/kernel/platform/power.cpp"
@@ -86,10 +133,14 @@ if(OS1_KMEM_DEBUG)
 endif()
 target_include_directories(os1_host_support PUBLIC
   "${CMAKE_CURRENT_LIST_DIR}"
+  "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
   "${OS1_REPO_ROOT}/src/common"
   "${OS1_REPO_ROOT}/src/kernel"
   "${OS1_REPO_ROOT}/src/uapi"
   "${OS1_HOST_GENERATED_DIR}"
+)
+target_include_directories(os1_host_support SYSTEM PUBLIC
+  "${OS1_ACPICA_INCLUDE_DIR}"
 )
 
 add_executable(os1_host_tests
@@ -100,6 +151,7 @@ add_executable(os1_host_tests
   kernel/atomic_tests.cpp
   kernel/acpi_hpet_tests.cpp
   kernel/acpi_aml_tests.cpp
+  kernel/acpica_integration_tests.cpp
   kernel/cpu_record_tests.cpp
   kernel/utility_tests.cpp
   kernel/event_ring_tests.cpp
@@ -125,10 +177,8 @@ add_executable(os1_host_tests
   proc/user_elf_tests.cpp
   syscall/observe_abi_tests.cpp
 )
-target_link_libraries(os1_host_tests PRIVATE os1_host_support GTest::gtest_main)
+target_link_libraries(os1_host_tests PRIVATE os1_host_support os1_acpica GTest::gtest_main)
 
 include(GoogleTest)
-gtest_discover_tests(os1_host_tests
-  DISCOVERY_TIMEOUT 30
-  PROPERTIES LABELS "host;unit"
-)
+gtest_add_tests(TARGET os1_host_tests TEST_LIST os1_host_tests_TESTS)
+set_tests_properties(${os1_host_tests_TESTS} PROPERTIES LABELS "host;unit")

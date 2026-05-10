@@ -8,8 +8,6 @@
 #include "sync/smp.hpp"
 #include "util/memory.h"
 
-PageFrameContainer::PageFrameContainer() : initialized_(false) {}
-
 bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_regions,
                                     uint64_t bitmap_address,
                                     uint64_t bitmap_limit)
@@ -17,9 +15,24 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
     KASSERT_ON_BSP();
     if(initialized_)
         return false;
+
+    auto align_up_page = [](uint64_t value) {
+        return (value + kPageSize - 1) & ~(kPageSize - 1);
+    };
+    auto align_down_page = [](uint64_t value) { return value & ~(kPageSize - 1); };
+
     bool result = false;
     memory_size_ = 0;
     memory_end_address_ = 0;
+
+    // set up page frame bitmap first so the memory-map pass can clip regions to
+    // the highest physical page this early fixed bitmap can represent.
+    bitmap_physical_address_ = bitmap_address;
+    bitmap_ = kernel_physical_pointer<uint64_t>(bitmap_physical_address_);
+    bitmap_limit_ = bitmap_limit;
+    const uint64_t max_trackable_pages = bitmap_limit_ * 64;
+    const uint64_t max_trackable_end = max_trackable_pages * kPageSize;
+
     debug("num_memory_blocks = ")(memory_regions.size())();
     for(size_t i = 0; i < memory_regions.size(); i++)
     {
@@ -31,19 +44,27 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
         debug.write_int_line(static_cast<uint64_t>(b.type));
         if(boot_memory_region_is_usable(b))
         {
-            // add to usable memory size
-            memory_size_ += b.length;
-            if(memory_end_address_ < b.physical_start + b.length)
+            const uint64_t clipped_start = align_up_page(b.physical_start);
+            const uint64_t region_end = b.physical_start + b.length;
+            uint64_t clipped_end = align_down_page(region_end);
+            if(clipped_end > max_trackable_end)
             {
-                memory_end_address_ = b.physical_start + b.length;
+                clipped_end = max_trackable_end;
+            }
+            if(clipped_end <= clipped_start)
+            {
+                continue;
+            }
+
+            // add only the page-aligned, trackable part of the region.
+            memory_size_ += clipped_end - clipped_start;
+            if(memory_end_address_ < clipped_end)
+            {
+                memory_end_address_ = clipped_end;
             }
         }
     }
 
-    // set up page frame bitmap
-    bitmap_physical_address_ = bitmap_address;
-    bitmap_ = kernel_physical_pointer<uint64_t>(bitmap_physical_address_);
-    bitmap_limit_ = bitmap_limit;
     debug("bitmap_ 0x")((uint64_t)bitmap_, 16)(" limit ")(bitmap_limit_)();
 
     if(memory_size_ > 0 && memory_end_address_ > 0)
@@ -79,17 +100,16 @@ bool PageFrameContainer::initialize(std::span<const BootMemoryRegion> memory_reg
             const BootMemoryRegion& b = memory_regions[i];
             if(boot_memory_region_is_usable(b))
             {
-                // check page start aligned
-                if(b.physical_start & (kPageSize - 1))
+                const uint64_t start = align_up_page(b.physical_start);
+                const uint64_t region_end = b.physical_start + b.length;
+                uint64_t end = align_down_page(region_end);
+                if(end > memory_end_address_)
                 {
-                    result = false;
-                    break;
+                    end = memory_end_address_;
                 }
 
-                const uint64_t start_page = b.physical_start >> 12;
-                const uint64_t end_page = (b.physical_start + b.length) >>
-                                          12;  // exclusive end. if page end is not aligned, the
-                                               // partial last page is lost memory
+                const uint64_t start_page = start >> 12;
+                const uint64_t end_page = end >> 12;  // exclusive end
                 if(end_page <= start_page)
                 {
                     continue;

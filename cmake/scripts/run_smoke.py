@@ -21,6 +21,17 @@ import time
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 MAX_MATCH_BUFFER_CHARS = 1024 * 1024
 SHELL_PROMPT = "os1> "
+QEMU_ENV_UNSET_VARS = (
+    "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "GIO_MODULE_DIR",
+    "GTK_EXE_PREFIX",
+    "GTK_IM_MODULE_FILE",
+    "GTK_MODULES",
+    "GTK_PATH",
+    "XDG_DATA_DIRS",
+    "XDG_DATA_HOME",
+)
 
 @dataclass
 class SendEvent:
@@ -147,6 +158,13 @@ def terminate(proc):
         pass
 
 
+def scrub_qemu_env():
+    env = os.environ.copy()
+    for name in QEMU_ENV_UNSET_VARS:
+        env.pop(name, None)
+    return env
+
+
 def main():
     args, cmd, send_events, monitor_events = parse_args()
     markers = list(args.marker)
@@ -166,6 +184,7 @@ def main():
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
+            env=scrub_qemu_env(),
             text=True,
             errors="replace",
             # Put QEMU in its own process group so we can always kill it cleanly.

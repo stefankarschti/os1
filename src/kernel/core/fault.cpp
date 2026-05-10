@@ -99,8 +99,9 @@ Thread* handle_exception(TrapFrame* frame)
     {
         const uint64_t pid =
             current_thread() && current_thread()->process ? current_thread()->process->pid : 0;
-        debug("user trap vector ")(frame->vector)(" pid ")(pid)(" cr2 0x")(
-            read_cr2(), 16)(" error 0x")(frame->error_code, 16)(" cr3 0x")(read_cr3(), 16)();
+        debug("user trap vector ")(frame->vector)(" pid ")(pid)(" rip 0x")(frame->rip, 16)(
+            " rsp 0x")(frame->rsp, 16)(" cr2 0x")(read_cr2(), 16)(" error 0x")(
+            frame->error_code, 16)(" cr3 0x")(read_cr3(), 16)();
         if(frame->vector == T_PGFLT)
         {
             debug("user page fault killed pid ")(pid)();

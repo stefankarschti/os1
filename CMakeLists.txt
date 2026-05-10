@@ -47,11 +47,69 @@ endfunction()
 set(OS1_ARTIFACT_DIR "${CMAKE_BINARY_DIR}/artifacts")
 set(OS1_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(OS1_ISO_STAGE_DIR "${CMAKE_BINARY_DIR}/iso-root")
+set(OS1_TARGET_MENU_MANIFEST "${OS1_GENERATED_DIR}/target_menu.txt")
+
+function(os1_assert_menu_manifest_field field_name field_value)
+  string(FIND "${field_value}" "|" field_separator_index)
+  if(NOT field_separator_index EQUAL -1)
+    message(FATAL_ERROR
+      "Target menu ${field_name} must not contain '|': ${field_value}"
+    )
+  endif()
+
+  string(FIND "${field_value}" "\n" field_newline_index)
+  if(NOT field_newline_index EQUAL -1)
+    message(FATAL_ERROR
+      "Target menu ${field_name} must be single-line text: ${field_value}"
+    )
+  endif()
+endfunction()
+
+function(os1_register_menu_target target_name title description)
+  if(NOT TARGET "${target_name}")
+    message(FATAL_ERROR "Cannot register menu metadata for missing target: ${target_name}")
+  endif()
+
+  get_target_property(unavailable_reason "${target_name}" OS1_TARGET_UNAVAILABLE_REASON)
+  if(unavailable_reason MATCHES "-NOTFOUND$")
+    set(unavailable_reason "")
+  endif()
+
+  os1_assert_menu_manifest_field("target name" "${target_name}")
+  os1_assert_menu_manifest_field("title" "${title}")
+  os1_assert_menu_manifest_field("description" "${description}")
+  os1_assert_menu_manifest_field("unavailable reason" "${unavailable_reason}")
+
+  get_property(has_entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES SET)
+  if(has_entries)
+    get_property(entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES)
+  else()
+    set(entries "")
+  endif()
+
+  string(APPEND entries
+    "${target_name}|${title}|${description}|${unavailable_reason}\n"
+  )
+  set_property(GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES "${entries}")
+endfunction()
+
+function(os1_write_target_menu_manifest)
+  get_property(has_entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES SET)
+  if(has_entries)
+    get_property(entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES)
+  else()
+    set(entries "")
+  endif()
+
+  file(MAKE_DIRECTORY "${OS1_GENERATED_DIR}")
+  file(WRITE "${OS1_TARGET_MENU_MANIFEST}" "${entries}")
+endfunction()
 
 set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
 set(OS1_CPU_START_BIN "${OS1_ARTIFACT_DIR}/cpu_start.bin")
 set(OS1_KERNEL_ELF "${OS1_ARTIFACT_DIR}/kernel.elf")
+set(OS1_KERNEL_BIOS_ELF "${OS1_ARTIFACT_DIR}/kernel_bios.elf")
 set(OS1_KERNEL_LIMINE_ELF "${OS1_ARTIFACT_DIR}/kernel_limine.elf")
 set(OS1_INITRD_CPIO "${OS1_ARTIFACT_DIR}/initrd.cpio")
 set(OS1_RAW_IMAGE "${OS1_ARTIFACT_DIR}/os1.raw")
@@ -93,12 +151,12 @@ endforeach()
 set(OS1_KERNEL_IMAGE_LOAD_ADDRESS 0x10000)
 set(OS1_INITRD_LOAD_ADDRESS 0x90000)
 set(OS1_KERNEL_RESERVED_PHYSICAL_START 0x100000)
-set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x180000)
+set(OS1_KERNEL_RESERVED_PHYSICAL_END 0x192000)
 set(OS1_KERNEL_VIRTUAL_OFFSET 0xFFFFFFFF80000000)
 set(OS1_KERNEL_SHIM_VIRTUAL_BASE 0xFFFFFFFF90000000)
 set(OS1_DIRECT_MAP_BASE 0xFFFF800000000000)
 math(EXPR OS1_KERNEL_RESERVED_PHYSICAL_BYTES "${OS1_KERNEL_RESERVED_PHYSICAL_END} - ${OS1_KERNEL_RESERVED_PHYSICAL_START}")
-set(OS1_KERNEL_POST_IMAGE_RESERVE_BYTES 0x3000)
+set(OS1_KERNEL_POST_IMAGE_RESERVE_BYTES 0x4000)
 math(EXPR OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES "${OS1_INITRD_LOAD_ADDRESS} - ${OS1_KERNEL_IMAGE_LOAD_ADDRESS}")
 math(EXPR OS1_KERNEL_RESERVED_PHYSICAL_BYTES_REMAINDER "${OS1_KERNEL_RESERVED_PHYSICAL_BYTES} % 512")
 if(NOT OS1_KERNEL_RESERVED_PHYSICAL_BYTES_REMAINDER EQUAL 0)
@@ -108,11 +166,11 @@ endif()
 set(OS1_LOADER16_IMAGE_START_LBA 1)
 set(OS1_LOADER16_IMAGE_SECTOR_COUNT 64)
 math(EXPR OS1_KERNEL_IMAGE_START_LBA "${OS1_LOADER16_IMAGE_START_LBA} + ${OS1_LOADER16_IMAGE_SECTOR_COUNT}")
-# The BIOS raw-image kernel slot intentionally matches the reserved low-physical
-# execution window so the on-disk budget and the in-memory reserved range stay in
-# sync. The build separately asserts that the ELF PT_LOAD range plus the
-# post-image bootstrap reserve fit inside this window.
-math(EXPR OS1_KERNEL_IMAGE_SECTOR_COUNT "${OS1_KERNEL_RESERVED_PHYSICAL_BYTES} / 512")
+# The BIOS raw-image kernel slot is constrained by the low-memory staging buffer
+# between kKernelImageLoadAddress and kInitrdLoadAddress. The build separately
+# asserts that the stripped BIOS ELF fits this slot and that the PT_LOAD range
+# plus the post-image reserve fit inside the higher-half reserved kernel window.
+math(EXPR OS1_KERNEL_IMAGE_SECTOR_COUNT "${OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES} / 512")
 math(EXPR OS1_INITRD_IMAGE_START_LBA "${OS1_KERNEL_IMAGE_START_LBA} + ${OS1_KERNEL_IMAGE_SECTOR_COUNT}")
 set(OS1_INITRD_IMAGE_SECTOR_COUNT 128)
 math(EXPR OS1_KERNEL_IMAGE_MAX_BYTES "${OS1_KERNEL_IMAGE_SECTOR_COUNT} * 512")
@@ -127,6 +185,7 @@ set(OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP "${OS1_ARTIFACT_DIR}/limine-shim-layout-c
 set(OS1_IMAGE_LAYOUT_INC "${OS1_GENERATED_DIR}/image_layout.inc")
 set(OS1_KERNEL_LAYOUT_INC "${OS1_GENERATED_DIR}/kernel_layout.inc")
 set(OS1_KERNEL_LAYOUT_HPP "${OS1_GENERATED_DIR}/kernel_layout.hpp")
+set(OS1_INITRD_PAYLOAD_LAYOUT_INC "${OS1_GENERATED_DIR}/initrd_payload.inc")
 configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/templates/image_layout.inc.in"
   "${OS1_IMAGE_LAYOUT_INC}"
@@ -143,6 +202,23 @@ configure_file(
   @ONLY
 )
 
+add_custom_command(
+  OUTPUT "${OS1_INITRD_PAYLOAD_LAYOUT_INC}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_GENERATED_DIR}"
+  COMMAND
+    "${CMAKE_COMMAND}"
+    "-DINPUT_FILE=${OS1_INITRD_CPIO}"
+    "-DOUTPUT_FILE=${OS1_INITRD_PAYLOAD_LAYOUT_INC}"
+    -P
+    "${PROJECT_SOURCE_DIR}/cmake/scripts/write_initrd_payload_layout.cmake"
+  DEPENDS
+    "${OS1_INITRD_CPIO}"
+    "${PROJECT_SOURCE_DIR}/cmake/scripts/write_initrd_payload_layout.cmake"
+  VERBATIM
+)
+
+add_custom_target(os1_initrd_payload_layout DEPENDS "${OS1_INITRD_PAYLOAD_LAYOUT_INC}")
+
 if(OS1_KERNEL_IMAGE_MAX_BYTES GREATER OS1_KERNEL_IMAGE_STAGING_BUFFER_BYTES)
   message(FATAL_ERROR
     "Kernel BIOS slot exceeds the low-memory staging buffer between kernel_image and initrd_image"
@@ -155,7 +231,26 @@ find_program(OS1_CPIO_EXECUTABLE NAMES cpio REQUIRED)
 find_program(OS1_XORRISO_EXECUTABLE NAMES xorriso REQUIRED)
 find_program(OS1_QEMU_EXECUTABLE NAMES qemu-system-x86_64)
 find_program(OS1_OBJDUMP_EXECUTABLE NAMES x86_64-elf-objdump objdump)
+find_program(OS1_STRIP_EXECUTABLE NAMES x86_64-elf-strip strip REQUIRED)
 find_program(OS1_PYTHON_EXECUTABLE NAMES python3 python REQUIRED)
+
+# Wrapped developer tools such as Snap can inject incompatible runtime linker
+# and GTK plugin paths into child processes. Scrub those variables before
+# launching host-side QEMU so run targets behave consistently.
+set(OS1_QEMU_HOST_COMMAND
+  "${CMAKE_COMMAND}"
+  -E
+  env
+  --unset=LD_LIBRARY_PATH
+  --unset=LD_PRELOAD
+  --unset=GIO_MODULE_DIR
+  --unset=GTK_EXE_PREFIX
+  --unset=GTK_IM_MODULE_FILE
+  --unset=GTK_MODULES
+  --unset=GTK_PATH
+  --unset=XDG_DATA_DIRS
+  --unset=XDG_DATA_HOME
+)
 
 set(OS1_SMOKE_RUNNER "${PROJECT_SOURCE_DIR}/cmake/scripts/run_smoke.py")
 set(OS1_VIRTIO_TEST_DISK_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/scripts/create_virtio_test_disk.cmake")
@@ -261,7 +356,7 @@ add_custom_command(
     "${OS1_PYTHON_EXECUTABLE}"
     "${OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT}"
     --elf
-    "${OS1_KERNEL_ELF}"
+    "${OS1_KERNEL_BIOS_ELF}"
     --disk-slot-bytes
     "${OS1_KERNEL_IMAGE_MAX_BYTES}"
     --staging-buffer-bytes
@@ -286,7 +381,7 @@ add_custom_command(
     "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
   COMMAND "${CMAKE_COMMAND}" -E touch "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
   DEPENDS
-    "${OS1_KERNEL_ELF}"
+    "${OS1_KERNEL_BIOS_ELF}"
     "${OS1_INITRD_CPIO}"
     "${OS1_ASSERT_KERNEL_BOOT_CONTRACT_SCRIPT}"
     "${OS1_ASSERT_MAX_FILE_SIZE_SCRIPT}"
@@ -294,6 +389,15 @@ add_custom_command(
 )
 
 add_custom_target(os1_bios_layout_check DEPENDS "${OS1_BIOS_LAYOUT_CHECK_STAMP}")
+
+add_custom_command(
+  OUTPUT "${OS1_KERNEL_BIOS_ELF}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
+  COMMAND "${OS1_STRIP_EXECUTABLE}" -o "${OS1_KERNEL_BIOS_ELF}" --strip-unneeded "${OS1_KERNEL_ELF}"
+  DEPENDS
+    "${OS1_KERNEL_ELF}"
+  VERBATIM
+)
 
 add_custom_command(
   OUTPUT "${OS1_LIMINE_SHIM_LAYOUT_CHECK_STAMP}"
@@ -334,7 +438,7 @@ add_custom_command(
     conv=notrunc,sync
   COMMAND
     "${OS1_DD_EXECUTABLE}"
-    "if=${OS1_KERNEL_ELF}"
+    "if=${OS1_KERNEL_BIOS_ELF}"
     "of=${OS1_RAW_IMAGE}"
     bs=512
     "seek=${OS1_KERNEL_IMAGE_START_LBA}"
@@ -351,7 +455,7 @@ add_custom_command(
   DEPENDS
     "${OS1_BOOT_BIN}"
     "${OS1_KERNEL16_BIN}"
-    "${OS1_KERNEL_ELF}"
+    "${OS1_KERNEL_BIOS_ELF}"
     "${OS1_INITRD_CPIO}"
     "${OS1_BIOS_LAYOUT_CHECK_STAMP}"
   VERBATIM
@@ -406,6 +510,7 @@ function(os1_add_unavailable_target target_name reason)
     COMMAND "${CMAKE_COMMAND}" -E false
     VERBATIM
   )
+  set_property(TARGET "${target_name}" PROPERTY OS1_TARGET_UNAVAILABLE_REASON "${reason}")
 endfunction()
 
 if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
@@ -415,6 +520,7 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_OVMF_VARS_TEMPLATE}" "${OS1_OVMF_VARS_FILE}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
@@ -451,6 +557,7 @@ if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${OS1_OVMF_VARS_TEMPLATE}" "${OS1_OVMF_VARS_FILE}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
@@ -485,12 +592,24 @@ else()
   os1_add_unavailable_target(run_serial "run_serial target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
 
+os1_register_menu_target(
+  run
+  "Default modern UEFI path"
+  "Boot OVMF on q35 with the generated virtio-blk test disk used by the modern-platform smoke."
+)
+os1_register_menu_target(
+  run_serial
+  "Serial-first UEFI shell session"
+  "Boot the same OVMF + ISO path, route the guest serial console to this terminal, and disable graphics."
+)
+
 if(OS1_QEMU_EXECUTABLE)
   add_custom_target(
     run_bios
     BYPRODUCTS "${OS1_BIOS_SERIAL_LOG}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
@@ -522,6 +641,7 @@ if(OS1_QEMU_EXECUTABLE)
     run_bios_serial
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OS1_ARTIFACT_DIR}"
     COMMAND
+      ${OS1_QEMU_HOST_COMMAND}
       "${OS1_QEMU_EXECUTABLE}"
       -machine
       q35
@@ -552,6 +672,17 @@ else()
   os1_add_unavailable_target(run_bios_serial "run_bios_serial target unavailable: qemu-system-x86_64 was not found")
 endif()
 
+os1_register_menu_target(
+  run_bios
+  "Legacy BIOS compatibility path"
+  "Boot the raw BIOS image on q35 with the same secondary virtio-blk test disk attached."
+)
+os1_register_menu_target(
+  run_bios_serial
+  "Serial-first BIOS shell session"
+  "Keep the BIOS boot path but route the shell through serial stdio instead of the display-first run target."
+)
+
 include(CTest)
 
 # The smoke runner terminates QEMU as soon as every expected marker has been
@@ -569,6 +700,7 @@ set(OS1_SMOKE_REJECT_MARKERS
   "#UD invalid opcode"
   "[user/balancecheck] fail"
   "[user/smpcheck] fail"
+  "[user/acpiprobe] fail"
 )
 
 # The shell prompt does not terminate with a newline, so the line-buffered
@@ -590,7 +722,8 @@ set(OS1_SHELL_OBSERVE_INPUT_EVENTS
   "devices complete::irqs\\n"
   "irqs complete::resources\\n"
   "resources complete::kmem\\n"
-  "kmem complete::smpcheck\\n"
+  "kmem complete::acpiprobe\\n"
+  "shell spawn acpiprobe ok pid=::smpcheck\\n"
 )
 
 set(OS1_SHELL_SPAWN_INPUT_EVENTS
@@ -641,10 +774,17 @@ endif()
 
 set(OS1_QEMU_SMOKE_TESTS)
 
+set(OS1_ACPICA_SMOKE_MARKERS
+  "acpica: tables ready"
+  "acpica: namespace ready"
+  "acpica: methods ready"
+)
+
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
   set(OS1_UEFI_XHCI_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -687,10 +827,16 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     USES_TERMINAL
     VERBATIM
   )
+  os1_register_menu_target(
+    smoke_xhci
+    "Modern UEFI xHCI + USB-keyboard smoke"
+    "Run the UEFI-only xHCI and USB-keyboard smoke."
+  )
 
   set(OS1_UEFI_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "boot rsdp physical=0x"
     "acpi: MADT ready"
     "acpi: MCFG ready"
@@ -743,6 +889,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_OBSERVE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -774,6 +921,8 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     "kmem global caches="
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
+    "[user/acpiprobe] route ok"
+    "[user/acpiprobe] power "
     "[user/smpcheck] observed pids "
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
@@ -819,6 +968,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_BALANCE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -862,6 +1012,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_SPAWN_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -912,6 +1063,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
   set(OS1_UEFI_EXEC_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: limine"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -960,10 +1112,37 @@ else()
   os1_add_unavailable_target(smoke_exec "smoke_exec target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
 
+os1_register_menu_target(
+  smoke
+  "Modern UEFI shell baseline smoke"
+  "Run the baseline UEFI shell smoke test."
+)
+os1_register_menu_target(
+  smoke_observe
+  "Modern UEFI observability smoke"
+  "Run the UEFI observability smoke that exercises shell inspection commands."
+)
+os1_register_menu_target(
+  smoke_balance
+  "Modern UEFI SMP balance smoke"
+  "Run the UEFI SMP balance smoke."
+)
+os1_register_menu_target(
+  smoke_spawn
+  "Modern UEFI child-launch smoke"
+  "Run the UEFI child-process spawn smoke."
+)
+os1_register_menu_target(
+  smoke_exec
+  "Modern UEFI exec smoke"
+  "Run the UEFI exec smoke."
+)
+
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "boot rsdp physical=0x"
     "acpi: MADT ready"
     "acpi: MCFG ready"
@@ -1014,6 +1193,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_OBSERVE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -1045,13 +1225,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
     "kmem global caches="
     "kmem cache kmalloc-16 obj=16"
     "kmem complete"
+    "[user/acpiprobe] route ok"
+    "[user/acpiprobe] power "
     "[user/smpcheck] observed pids "
     "event type seq tick cpu pid tid flags arg0 arg1 arg2 arg3"
     "event net-rx seq="
     "event ap-online seq="
-    "event ap-tick seq="
     "event kernel-thread-ping seq="
-    "event timer-source-lapic seq="
+    "event timer-source-pit seq="
     "event smoke-marker seq="
     "idle thread online"
   )
@@ -1088,6 +1269,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_BALANCE_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -1129,6 +1311,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_SPAWN_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -1177,6 +1360,7 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_EXEC_SMOKE_MARKERS
     "[kernel64] hello!"
     "boot source: bios"
+    ${OS1_ACPICA_SMOKE_MARKERS}
     "virtio-blk smoke ok"
     "virtio-blk threaded smoke ok"
     "virtio-net smoke ok"
@@ -1223,6 +1407,32 @@ else()
   os1_add_unavailable_target(smoke_exec_bios "smoke_exec_bios target unavailable: qemu-system-x86_64 was not found")
 endif()
 
+os1_register_menu_target(
+  smoke_bios
+  "Legacy BIOS shell baseline smoke"
+  "Run the baseline BIOS shell smoke test."
+)
+os1_register_menu_target(
+  smoke_observe_bios
+  "Legacy BIOS observability smoke"
+  "Run the BIOS observability smoke that exercises shell inspection commands."
+)
+os1_register_menu_target(
+  smoke_balance_bios
+  "Legacy BIOS SMP balance smoke"
+  "Run the BIOS SMP balance smoke."
+)
+os1_register_menu_target(
+  smoke_spawn_bios
+  "Legacy BIOS child-launch smoke"
+  "Run the BIOS child-process spawn smoke."
+)
+os1_register_menu_target(
+  smoke_exec_bios
+  "Legacy BIOS exec smoke"
+  "Run the BIOS exec smoke."
+)
+
 if(OS1_QEMU_SMOKE_TESTS)
   set_tests_properties(
     ${OS1_QEMU_SMOKE_TESTS}
@@ -1243,6 +1453,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
 else()
   os1_add_unavailable_target(smoke_all "smoke_all target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
+
+os1_register_menu_target(
+  smoke_all
+  "Full smoke matrix"
+  "Run the full smoke matrix across the configured boot paths."
+)
+
+os1_write_target_menu_manifest()
 
 message(STATUS "Artifacts will be written to ${OS1_ARTIFACT_DIR}")
 message(STATUS "Default image: ${OS1_ISO_IMAGE}")

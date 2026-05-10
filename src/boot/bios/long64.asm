@@ -52,18 +52,21 @@ idt:
     .Base         dd 0
  
 ; Function to switch directly to long mode from real mode.
-; Identity maps the first 2MiB and aliases that window at the higher-half
-; kernel base so the shared kernel can enter at a high virtual address.
+; Identity maps the first 4MiB and aliases that window at the higher-half
+; kernel base so the shared kernel can enter at a high virtual address and
+; still reach the early page-frame bitmap before it installs its own page
+; tables.
 ; Uses Intel syntax.
  
-; es:edi    Should point to a valid page-aligned 16KiB buffer, for the PML4, PDPT, PD and a PT.
+; es:edi    Should point to a valid page-aligned 20KiB buffer, for the PML4,
+;           PDPT, PD, and two PTs.
 ; ss:esp    Should point to memory that can be used as a small (1 uint32_t) stack
  
 switch_to_long_mode:
-    ; Zero out the 16KiB buffer.
+    ; Zero out the 20KiB buffer.
     ; Since we are doing a rep stosd, count should be bytes/4.   
     push di                           ; REP STOSD alters DI.
-    mov ecx, 0x1000
+    mov ecx, 0x1400
     xor eax, eax
     cld
     rep stosd
@@ -86,9 +89,12 @@ switch_to_long_mode:
  
  
     ; Build the Page Directory.
-    lea eax, [es:di + 0x3000]         ; Put the address of the Page Table in to EAX.
+    lea eax, [es:di + 0x3000]         ; Put the address of the first Page Table in to EAX.
     or eax, PAGE_PRESENT | PAGE_WRITE ; Or EAX with the flags - present flag, writeable flag.
     mov [es:di + 0x2000], eax         ; Store to value of EAX as the first PDE.
+    lea eax, [es:di + 0x4000]         ; Put the address of the second Page Table in to EAX.
+    or eax, PAGE_PRESENT | PAGE_WRITE
+    mov [es:di + 0x2008], eax
  
  
     push di                           ; Save DI for the time being.
@@ -96,13 +102,21 @@ switch_to_long_mode:
     mov eax, PAGE_PRESENT | PAGE_WRITE    ; Move the flags into EAX - and point it to 0x0000.
  
  
-    ; Build the Page Table.
+    ; Build the first Page Table.
 .LoopPageTable:
     mov [es:di], eax
     add eax, 0x1000
     add di, 8
-    cmp eax, 0x200000                 ; If we did all 2MiB, end.
+    cmp eax, 0x200000                 ; If we did the first 2MiB, end.
     jb .LoopPageTable
+
+    ; Build the second Page Table.
+.LoopSecondPageTable:
+    mov [es:di], eax
+    add eax, 0x1000
+    add di, 8
+    cmp eax, 0x400000                 ; If we did all 4MiB, end.
+    jb .LoopSecondPageTable
  
     pop di                            ; Restore DI.
  
@@ -176,15 +190,6 @@ long_mode:
     mov fs, ax
     mov gs, ax
     mov ss, ax
-
-    ; Display "64 bit"
-    mov rdi, 0xB8000              
- 
-    mov rax, 0x1F621F201F341F36
-    mov [rdi],rax
- 
-    mov eax, 0x1F741F69
-    mov [rdi + 8], eax
  
 	jmp loader_main64
 

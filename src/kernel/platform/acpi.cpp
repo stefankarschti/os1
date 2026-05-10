@@ -1,8 +1,9 @@
-// ACPI table parser for platform discovery. It normalizes RSDP/XSDT/RSDT,
-// MADT, and MCFG content into platform-state records consumed by topology,
-// interrupt routing, and PCI enumeration.
+// ACPI platform-discovery facade. ACPICA owns table discovery and normalized
+// topology extraction; this file only translates fixed ACPI state and
+// definition block metadata into the kernel's local structs.
 #include "platform/acpi.hpp"
 
+#include "platform/acpica_integration.hpp"
 #include "debug/debug.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/boot_mapping.hpp"
@@ -11,20 +12,12 @@
 #if defined(OS1_HOST_TEST)
 #include <string.h>
 #else
-#include "arch/x86_64/cpu/cpu.hpp"
-#include "arch/x86_64/cpu/x86.hpp"
 #include "util/string.h"
 #endif
 
 namespace
 {
 constexpr uint64_t kAcpiMaxTableLength = 1ull << 20;
-constexpr uint8_t kAcpiIsaBus = 0;
-constexpr uint8_t kAcpiMadtTypeLocalApic = 0;
-constexpr uint8_t kAcpiMadtTypeIoApic = 1;
-constexpr uint8_t kAcpiMadtTypeInterruptOverride = 2;
-constexpr uint8_t kAcpiMadtTypeLocalApicAddressOverride = 5;
-constexpr uint8_t kAcpiAddressSpaceSystemMemory = 0;
 
 struct [[gnu::packed]] AcpiGas
 {
@@ -33,19 +26,6 @@ struct [[gnu::packed]] AcpiGas
     uint8_t register_bit_offset;
     uint8_t access_size;
     uint64_t address;
-};
-
-struct [[gnu::packed]] AcpiRsdp
-{
-    char signature[8];
-    uint8_t checksum;
-    char oem_id[6];
-    uint8_t revision;
-    uint32_t rsdt_address;
-    uint32_t length;
-    uint64_t xsdt_address;
-    uint8_t extended_checksum;
-    uint8_t reserved[3];
 };
 
 struct [[gnu::packed]] AcpiSdtHeader
@@ -59,75 +39,6 @@ struct [[gnu::packed]] AcpiSdtHeader
     uint32_t oem_revision;
     uint32_t creator_id;
     uint32_t creator_revision;
-};
-
-struct [[gnu::packed]] AcpiMadt
-{
-    AcpiSdtHeader header;
-    uint32_t lapic_address;
-    uint32_t flags;
-};
-
-struct [[gnu::packed]] AcpiMadtLocalApic
-{
-    uint8_t type;
-    uint8_t length;
-    uint8_t acpi_processor_id;
-    uint8_t apic_id;
-    uint32_t flags;
-};
-
-struct [[gnu::packed]] AcpiMadtIoApic
-{
-    uint8_t type;
-    uint8_t length;
-    uint8_t ioapic_id;
-    uint8_t reserved;
-    uint32_t ioapic_address;
-    uint32_t gsi_base;
-};
-
-struct [[gnu::packed]] AcpiMadtInterruptOverride
-{
-    uint8_t type;
-    uint8_t length;
-    uint8_t bus;
-    uint8_t source_irq;
-    uint32_t global_irq;
-    uint16_t flags;
-};
-
-struct [[gnu::packed]] AcpiMadtLocalApicAddressOverride
-{
-    uint8_t type;
-    uint8_t length;
-    uint16_t reserved;
-    uint64_t lapic_address;
-};
-
-struct [[gnu::packed]] AcpiMcfg
-{
-    AcpiSdtHeader header;
-    uint64_t reserved;
-};
-
-struct [[gnu::packed]] AcpiMcfgEntry
-{
-    uint64_t base_address;
-    uint16_t segment_group;
-    uint8_t bus_start;
-    uint8_t bus_end;
-    uint32_t reserved;
-};
-
-struct [[gnu::packed]] AcpiHpet
-{
-    AcpiSdtHeader header;
-    uint32_t event_timer_block_id;
-    AcpiGas base_address;
-    uint8_t hpet_number;
-    uint16_t minimum_tick;
-    uint8_t page_protection;
 };
 
 struct [[gnu::packed]] AcpiFadt
@@ -206,16 +117,6 @@ struct AcpiOutput
     size_t& definition_block_count;
 };
 
-[[nodiscard]] inline uint64_t align_down(uint64_t value, uint64_t alignment)
-{
-    return value & ~(alignment - 1);
-}
-
-[[nodiscard]] inline uint64_t align_up(uint64_t value, uint64_t alignment)
-{
-    return (value + alignment - 1) & ~(alignment - 1);
-}
-
 [[nodiscard]] bool validate_checksum(const void* base, size_t length)
 {
     const auto* bytes = static_cast<const uint8_t*>(base);
@@ -235,17 +136,6 @@ struct AcpiOutput
 void copy_signature(char (&destination)[4], const char* source)
 {
     memcpy(destination, source, sizeof(destination));
-}
-
-[[nodiscard]] uint8_t current_apic_id()
-{
-#if defined(OS1_HOST_TEST)
-    return 0;
-#else
-    cpuinfo info{};
-    cpuid(1, &info);
-    return static_cast<uint8_t>((info.ebx >> 24) & 0xFFu);
-#endif
 }
 
 [[nodiscard]] bool map_acpi_range(VirtualMemory& kernel_vm,
@@ -278,7 +168,8 @@ template<typename T>
     {
         return nullptr;
     }
-    if(expected_signature && !signature_equals(header->signature, expected_signature, 4))
+    if((nullptr != expected_signature) &&
+       !signature_equals(header->signature, expected_signature, 4))
     {
         debug("acpi: unexpected signature at 0x")(physical_address, 16)();
         return nullptr;
@@ -286,7 +177,7 @@ template<typename T>
     if((header->length < sizeof(AcpiSdtHeader)) || (header->length > kAcpiMaxTableLength))
     {
         debug("acpi: invalid table length 0x")(header->length, 16)(" at 0x")(physical_address,
-                                                                             16)();
+                                                                     16)();
         return nullptr;
     }
     if(!map_acpi_range(kernel_vm, physical_address, header->length))
@@ -300,230 +191,6 @@ template<typename T>
         return nullptr;
     }
     return header;
-}
-
-[[nodiscard]] bool add_interrupt_override(AcpiOutput& output,
-                                          uint8_t bus_irq,
-                                          uint32_t global_irq,
-                                          uint16_t flags)
-{
-    if(output.override_count >= kPlatformMaxInterruptOverrides)
-    {
-        debug("acpi: interrupt override table full")();
-        return false;
-    }
-    InterruptOverride& entry = output.overrides[output.override_count++];
-    entry.bus_irq = bus_irq;
-    entry.flags = flags;
-    entry.global_irq = global_irq;
-    return true;
-}
-
-[[nodiscard]] bool parse_madt(VirtualMemory& kernel_vm,
-                              uint64_t physical_address,
-                              AcpiOutput& output)
-{
-    const auto* header = map_acpi_table(kernel_vm, physical_address, "APIC");
-    if(nullptr == header)
-    {
-        return false;
-    }
-
-    const auto* madt = reinterpret_cast<const AcpiMadt*>(header);
-    output.lapic_base = madt->lapic_address;
-    output.cpu_count = 0;
-    output.ioapic_count = 0;
-    output.override_count = 0;
-
-    const auto* cursor = reinterpret_cast<const uint8_t*>(madt + 1);
-    const auto* end = reinterpret_cast<const uint8_t*>(madt) + madt->header.length;
-    while(cursor < end)
-    {
-        if((cursor + 2) > end)
-        {
-            debug("acpi: MADT truncated")();
-            return false;
-        }
-        const uint8_t type = cursor[0];
-        const uint8_t length = cursor[1];
-        if((length < 2) || ((cursor + length) > end))
-        {
-            debug("acpi: MADT entry length invalid")();
-            return false;
-        }
-
-        switch(type)
-        {
-            case kAcpiMadtTypeLocalApic: {
-                const auto* entry = reinterpret_cast<const AcpiMadtLocalApic*>(cursor);
-                if(entry->flags & 0x1u)
-                {
-                    if(output.cpu_count >= kPlatformMaxCpus)
-                    {
-                        debug("acpi: CPU table full")();
-                        return false;
-                    }
-                    CpuInfo& cpu = output.cpus[output.cpu_count++];
-                    cpu.apic_id = entry->apic_id;
-                    cpu.enabled = true;
-                    cpu.is_bsp = false;
-                }
-            }
-            break;
-            case kAcpiMadtTypeIoApic: {
-                const auto* entry = reinterpret_cast<const AcpiMadtIoApic*>(cursor);
-                if(output.ioapic_count >= kPlatformMaxIoApics)
-                {
-                    debug("acpi: IOAPIC table full")();
-                    return false;
-                }
-                IoApicInfo& ioapic_info = output.ioapics[output.ioapic_count++];
-                ioapic_info.id = entry->ioapic_id;
-                ioapic_info.address = entry->ioapic_address;
-                ioapic_info.gsi_base = entry->gsi_base;
-            }
-            break;
-            case kAcpiMadtTypeInterruptOverride: {
-                const auto* entry = reinterpret_cast<const AcpiMadtInterruptOverride*>(cursor);
-                if(entry->bus == kAcpiIsaBus)
-                {
-                    if(!add_interrupt_override(
-                           output, entry->source_irq, entry->global_irq, entry->flags))
-                    {
-                        return false;
-                    }
-                }
-            }
-            break;
-            case kAcpiMadtTypeLocalApicAddressOverride: {
-                const auto* entry =
-                    reinterpret_cast<const AcpiMadtLocalApicAddressOverride*>(cursor);
-                output.lapic_base = entry->lapic_address;
-            }
-            break;
-            default:
-                break;
-        }
-
-        cursor += length;
-    }
-
-    if((0 == output.cpu_count) || (0 == output.ioapic_count) || (0 == output.lapic_base))
-    {
-        debug("acpi: MADT missing required topology")();
-        return false;
-    }
-
-    const uint8_t bsp_apic_id = current_apic_id();
-    bool found_bsp = false;
-    for(size_t i = 0; i < output.cpu_count; ++i)
-    {
-        if(output.cpus[i].apic_id == bsp_apic_id)
-        {
-            output.cpus[i].is_bsp = true;
-            found_bsp = true;
-            break;
-        }
-    }
-    if(!found_bsp)
-    {
-        debug("acpi: BSP APIC ID not found in MADT")();
-        return false;
-    }
-
-    debug("acpi: MADT ready cpus=")(output.cpu_count)(" ioapics=")(output.ioapic_count)(
-        " overrides=")(output.override_count)();
-    return true;
-}
-
-[[nodiscard]] bool parse_mcfg(VirtualMemory& kernel_vm,
-                              uint64_t physical_address,
-                              AcpiOutput& output)
-{
-    const auto* header = map_acpi_table(kernel_vm, physical_address, "MCFG");
-    if(nullptr == header)
-    {
-        return false;
-    }
-    if(header->length < sizeof(AcpiMcfg))
-    {
-        debug("acpi: MCFG too short")();
-        return false;
-    }
-
-    output.ecam_region_count = 0;
-    const uint32_t payload_length = header->length - sizeof(AcpiMcfg);
-    if(0 != (payload_length % sizeof(AcpiMcfgEntry)))
-    {
-        debug("acpi: MCFG length misaligned")();
-        return false;
-    }
-
-    const auto* entries = reinterpret_cast<const AcpiMcfgEntry*>(
-        reinterpret_cast<const uint8_t*>(header) + sizeof(AcpiMcfg));
-    const size_t entry_count = payload_length / sizeof(AcpiMcfgEntry);
-    if(0 == entry_count)
-    {
-        debug("acpi: MCFG contains no ECAM regions")();
-        return false;
-    }
-
-    for(size_t i = 0; i < entry_count; ++i)
-    {
-        if(output.ecam_region_count >= kPlatformMaxPciEcamRegions)
-        {
-            debug("acpi: ECAM region table full")();
-            return false;
-        }
-        if(entries[i].bus_start > entries[i].bus_end)
-        {
-            debug("acpi: invalid ECAM bus range")();
-            return false;
-        }
-
-        PciEcamRegion& region = output.ecam_regions[output.ecam_region_count++];
-        region.base_address = entries[i].base_address;
-        region.segment_group = entries[i].segment_group;
-        region.bus_start = entries[i].bus_start;
-        region.bus_end = entries[i].bus_end;
-    }
-
-    debug("acpi: MCFG ready regions=")(output.ecam_region_count)();
-    return true;
-}
-
-[[nodiscard]] bool parse_hpet(VirtualMemory& kernel_vm,
-                              uint64_t physical_address,
-                              AcpiOutput& output)
-{
-    const auto* header = map_acpi_table(kernel_vm, physical_address, "HPET");
-    if(nullptr == header)
-    {
-        return false;
-    }
-    if(header->length < sizeof(AcpiHpet))
-    {
-        debug("acpi: HPET too short")();
-        return false;
-    }
-
-    const auto* hpet = reinterpret_cast<const AcpiHpet*>(header);
-    if((hpet->base_address.address_space_id != kAcpiAddressSpaceSystemMemory) ||
-       (0 == hpet->base_address.address))
-    {
-        debug("acpi: HPET has unsupported base address")();
-        return false;
-    }
-
-    output.hpet = {};
-    output.hpet.present = true;
-    output.hpet.hpet_number = hpet->hpet_number;
-    output.hpet.page_protection = hpet->page_protection;
-    output.hpet.minimum_tick = hpet->minimum_tick;
-    output.hpet.physical_address = hpet->base_address.address;
-    debug("acpi: HPET discovered base=0x")(output.hpet.physical_address, 16)(" number=")(
-        output.hpet.hpet_number)(" min_tick=")(output.hpet.minimum_tick)();
-    return true;
 }
 
 [[nodiscard]] bool add_definition_block(AcpiOutput& output,
@@ -606,123 +273,6 @@ template<typename T>
         output.acpi_fixed.sci_interrupt)(" blocks=")(output.definition_block_count)();
     return true;
 }
-
-[[nodiscard]] bool resolve_acpi_tables(VirtualMemory& kernel_vm,
-                                       const BootInfo& boot_info,
-                                       AcpiRootTables& tables)
-{
-    tables = {};
-    if(0 == boot_info.rsdp_physical)
-    {
-        debug("acpi: boot did not supply an RSDP")();
-        return false;
-    }
-    if(!map_acpi_range(kernel_vm, boot_info.rsdp_physical, sizeof(AcpiRsdp)))
-    {
-        return false;
-    }
-
-    const auto* rsdp = kernel_physical_pointer<const AcpiRsdp>(boot_info.rsdp_physical);
-    if(!signature_equals(rsdp->signature, "RSD PTR ", 8))
-    {
-        debug("acpi: RSDP signature invalid")();
-        return false;
-    }
-    if(!validate_checksum(rsdp, 20))
-    {
-        debug("acpi: RSDP checksum invalid")();
-        return false;
-    }
-    debug("boot rsdp physical=0x")(boot_info.rsdp_physical, 16)();
-
-    uint64_t root_table_physical = 0;
-    bool use_xsdt = false;
-    if((rsdp->revision >= 2) && (rsdp->length >= sizeof(AcpiRsdp)) && (0 != rsdp->xsdt_address))
-    {
-        if(!validate_checksum(rsdp, rsdp->length))
-        {
-            debug("acpi: XSDP extended checksum invalid")();
-            return false;
-        }
-        root_table_physical = rsdp->xsdt_address;
-        use_xsdt = true;
-    }
-    else if(0 != rsdp->rsdt_address)
-    {
-        root_table_physical = rsdp->rsdt_address;
-    }
-    else
-    {
-        debug("acpi: neither XSDT nor RSDT is available")();
-        return false;
-    }
-
-    const AcpiSdtHeader* root =
-        map_acpi_table(kernel_vm, root_table_physical, use_xsdt ? "XSDT" : "RSDT");
-    if((nullptr == root) && use_xsdt && (0 != rsdp->rsdt_address))
-    {
-        debug("acpi: XSDT unavailable, falling back to RSDT")();
-        root = map_acpi_table(kernel_vm, rsdp->rsdt_address, "RSDT");
-        use_xsdt = false;
-    }
-    if(nullptr == root)
-    {
-        return false;
-    }
-
-    const size_t entry_size = use_xsdt ? sizeof(uint64_t) : sizeof(uint32_t);
-    if(root->length < sizeof(AcpiSdtHeader))
-    {
-        return false;
-    }
-    const uint32_t payload_length = root->length - sizeof(AcpiSdtHeader);
-    if(0 != (payload_length % entry_size))
-    {
-        debug("acpi: root table length misaligned")();
-        return false;
-    }
-
-    const size_t entry_count = payload_length / entry_size;
-    const auto* cursor = reinterpret_cast<const uint8_t*>(root) + sizeof(AcpiSdtHeader);
-    for(size_t i = 0; i < entry_count; ++i)
-    {
-        const uint64_t entry_physical = use_xsdt ? reinterpret_cast<const uint64_t*>(cursor)[i]
-                                                 : reinterpret_cast<const uint32_t*>(cursor)[i];
-        const auto* entry_header = map_acpi_object<AcpiSdtHeader>(kernel_vm, entry_physical);
-        if(nullptr == entry_header)
-        {
-            return false;
-        }
-        if(signature_equals(entry_header->signature, "APIC", 4))
-        {
-            tables.madt_physical = entry_physical;
-        }
-        else if(signature_equals(entry_header->signature, "MCFG", 4))
-        {
-            tables.mcfg_physical = entry_physical;
-        }
-        else if(signature_equals(entry_header->signature, "HPET", 4))
-        {
-            tables.hpet_physical = entry_physical;
-        }
-        else if(signature_equals(entry_header->signature, "FACP", 4))
-        {
-            tables.fadt_physical = entry_physical;
-        }
-        else if(signature_equals(entry_header->signature, "SSDT", 4))
-        {
-            if(tables.ssdt_count >= kPlatformMaxAcpiDefinitionBlocks)
-            {
-                debug("acpi: too many SSDTs")();
-                return false;
-            }
-            tables.ssdt_physical[tables.ssdt_count++] = entry_physical;
-        }
-    }
-
-    return (0 != tables.madt_physical) && (0 != tables.mcfg_physical) &&
-           (0 != tables.fadt_physical);
-}
 }  // namespace
 
 bool discover_acpi_platform(VirtualMemory& kernel_vm,
@@ -746,13 +296,27 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
     {
         return false;
     }
+    if(!acpica_tables_initialized())
+    {
+        debug("acpi: ACPICA table manager not initialized")();
+        return false;
+    }
 
     definition_block_count = 0;
+    hpet = {};
     acpi_fixed = {};
 
     AcpiRootTables tables{};
-    if(!resolve_acpi_tables(kernel_vm, boot_info, tables))
+    debug("boot rsdp physical=0x")(boot_info.rsdp_physical, 16)();
+    if(!acpica_discover_tables(tables.madt_physical,
+                               tables.mcfg_physical,
+                               tables.hpet_physical,
+                               tables.fadt_physical,
+                               tables.ssdt_physical,
+                               kPlatformMaxAcpiDefinitionBlocks,
+                               tables.ssdt_count))
     {
+        debug("acpi: ACPICA table discovery failed status=")(acpica_last_status())();
         return false;
     }
 
@@ -771,9 +335,15 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
         .definition_blocks = definition_blocks,
         .definition_block_count = definition_block_count,
     };
-    output.hpet = {};
-    if(!parse_madt(kernel_vm, tables.madt_physical, output) ||
-       !parse_mcfg(kernel_vm, tables.mcfg_physical, output) ||
+
+    if(!acpica_parse_madt(output.lapic_base,
+                          output.cpus,
+                          output.cpu_count,
+                          output.ioapics,
+                          output.ioapic_count,
+                          output.overrides,
+                          output.override_count) ||
+       !acpica_parse_mcfg(output.ecam_regions, output.ecam_region_count) ||
        !parse_fadt(kernel_vm, tables.fadt_physical, output))
     {
         return false;
@@ -792,7 +362,7 @@ bool discover_acpi_platform(VirtualMemory& kernel_vm,
         }
     }
 
-    if((0 != tables.hpet_physical) && !parse_hpet(kernel_vm, tables.hpet_physical, output))
+    if((0 != tables.hpet_physical) && !acpica_parse_hpet(output.hpet))
     {
         debug("acpi: ignoring unusable HPET table")();
         output.hpet = {};

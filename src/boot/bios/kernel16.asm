@@ -1,5 +1,6 @@
 %include "../kernel/handoff/memory_layout.inc"
 %include "image_layout.inc"
+%include "initrd_payload.inc"
 
 struc boot_text_console_info_struct
 	.columns:		resw 1
@@ -179,21 +180,23 @@ loader_full_main16:
 	call check_long_mode
 	jc no_long_mode
 
-	; Load both fixed raw-image payloads through the same chunked LBA helper.
+	; Load both fixed raw-image payloads through the CHS helper. Stage 0 already
+	; proved that this BIOS can read the USB image through classic INT 13h CHS,
+	; while some real machines fail the packet-read path used by the old helper.
+	mov byte [disk_load_phase], 1
 	mov edi, kernel_image
-	xor ebx, ebx
-	mov eax, KERNEL_IMAGE_START_LBA
+	mov ax, KERNEL_IMAGE_START_LBA
 	mov dl, [boot_device]
 	mov cx, KERNEL_IMAGE_SECTOR_COUNT
-	call disk_read_lba_range
+	call disk_read_chs_range
 	jc .disk_error
 
+	mov byte [disk_load_phase], 2
 	mov edi, initrd_image
-	xor ebx, ebx
-	mov eax, INITRD_IMAGE_START_LBA
+	mov ax, INITRD_IMAGE_START_LBA
 	mov dl, [boot_device]
-	mov cx, INITRD_IMAGE_SECTOR_COUNT
-	call disk_read_lba_range
+	mov cx, INITRD_PAYLOAD_SECTOR_COUNT
+	call disk_read_chs_range
 	jc .disk_error
 
 	; success
@@ -206,6 +209,7 @@ loader_full_main16:
 .disk_error:
 	mov si, str_elf_fail_disk
 	call print16
+	call print_loader_disk_debug
 	jmp .stop
 .elf_error:
 	mov si, str_elf_fail_check
@@ -269,6 +273,71 @@ no_long_mode:
 	call print16
 	jmp $
 
+print_loader_disk_debug:
+	cmp byte [disk_load_phase], 2
+	je .phase_initrd
+	mov si, str_disk_phase_kernel
+	call print16
+	jmp .phase_done
+.phase_initrd:
+	mov si, str_disk_phase_initrd
+	call print16
+.phase_done:
+
+	mov si, str_disk_status
+	call print16
+	xor ax, ax
+	mov al, [load_range_error_status]
+	call print16_whex
+
+	mov si, str_disk_retry
+	call print16
+	xor ax, ax
+	mov al, [load_range_error_attempt]
+	call print16_whex
+
+	mov si, str_disk_lba
+	call print16
+	mov ax, [load_range_error_lba]
+	call print16_whex
+
+	mov si, str_disk_cylinder
+	call print16
+	mov ax, [load_range_error_cylinder]
+	call print16_whex
+
+	mov si, str_disk_head
+	call print16
+	xor ax, ax
+	mov al, [load_range_error_head]
+	call print16_whex
+
+	mov si, str_disk_sector
+	call print16
+	xor ax, ax
+	mov al, [load_range_error_sector]
+	call print16_whex
+
+	mov si, str_disk_drive
+	call print16
+	xor ax, ax
+	mov al, [load_range_drive]
+	call print16_whex
+
+	mov si, str_disk_spt
+	call print16
+	mov ax, [loader_sectors_per_track]
+	call print16_whex
+
+	mov si, str_disk_heads
+	call print16
+	mov ax, [loader_head_count]
+	call print16_whex
+
+	mov si, crlf
+	call print16
+	ret
+
 crlf		   	db 13, 10, 0
 newline			db 10, 0
 space		   	db " ", 0
@@ -277,11 +346,23 @@ str_no_long_mode   		db "[loader16] 64bit mode not available", 13, 10, 0
 str_e820_failed			db "[loader16] Memory detection failed", 13, 10, 0
 str_elf_fail_disk    	db "[loader16] ELF load disk error", 13, 10, 0
 str_elf_fail_check    	db "[loader16] ELF check failed", 13, 10, 0
+str_disk_phase_kernel		db "[loader16] slot kernel", 13, 10, 0
+str_disk_phase_initrd		db "[loader16] slot initrd", 13, 10, 0
+str_disk_status			db "[loader16] bios ah=0x", 0
+str_disk_retry			db " retry=0x", 0
+str_disk_lba			db " lba=0x", 0
+str_disk_cylinder		db " cyl=0x", 0
+str_disk_head			db " head=0x", 0
+str_disk_sector			db " sec=0x", 0
+str_disk_drive			db " drive=0x", 0
+str_disk_spt			db " spt=0x", 0
+str_disk_heads			db " heads=0x", 0
 str_a20					db "[loader16] A20 ", 0
 str_on					db "on", 0
 str_off					db "off", 0
 str_bootloader_name		db "bios-loader", 0
 str_initrd_name			db "initrd.cpio", 0
+disk_load_phase			db 0
 
 %include "disk16_range.asm"
 %include "biosmemory.asm"
@@ -292,6 +373,8 @@ str_initrd_name			db "initrd.cpio", 0
 [bits 64]
 loader_main64:
 	mov rsi, str_loader_hello
+	call print64
+	mov rsi, str_loader_stage_elf
 	call print64
 
 	;; expand the kernel ELF at [kernel_image] (quick and dirty = no checks)
@@ -398,6 +481,8 @@ loader_main64:
 	mov rax, [kernel_load_start]
 	cmp rax, -1
 	je .elf_program_error
+	mov rsi, str_loader_stage_segments
+	call print64
 
 	; Publish the immutable pieces of the BIOS boot contract right before the
 	; kernel takes over. The kernel copies this block immediately on entry.
@@ -405,6 +490,8 @@ loader_main64:
 	mov [boot_info + boot_info_struct.magic], rax
 	mov rax, str_bootloader_name
 	mov [boot_info + boot_info_struct.bootloader_name], rax
+	mov rsi, str_loader_stage_rsdp
+	call print64
 	call find_rsdp64
 	mov [boot_info + boot_info_struct.rsdp_physical], rax
 	mov rax, boot_memory_map
@@ -417,17 +504,19 @@ loader_main64:
 	mov [boot_info + boot_info_struct.modules], rax
 	mov dword [boot_info + boot_info_struct.module_count], 1
 	mov qword [boot_modules + boot_module_info_struct.physical_start], initrd_image
-	mov qword [boot_modules + boot_module_info_struct.length], INITRD_IMAGE_LENGTH_BYTES
+	mov qword [boot_modules + boot_module_info_struct.length], INITRD_PAYLOAD_LENGTH_BYTES
 	mov rax, str_initrd_name
 	mov [boot_modules + boot_module_info_struct.name], rax
+	mov rsi, str_loader_stage_kernel
+	call print64
     ; init program stack
 	mov rbp, [kernel_load_end]
 	add rbp, PAGE_SIZE
 	shr rbp, 12
 	shl rbp, 12
-	mov rsi, rbp			; base of stack: param to kernel main
+	mov rsi, rbp			; base of BSP cpu record: param to kernel main
 	add rbp, PAGE_SIZE
-	mov rsp, rbp			; give at least 4k stack
+	lea rsp, [rbp + PAGE_SIZE]	; give the kernel a dedicated 4k bootstrap stack
 
 	; jump
 	mov rax, [e_entry]
@@ -445,6 +534,10 @@ loader_main64:
 
 ; Data
 str_loader_hello	db "[loader64] hello", 10, 0
+str_loader_stage_elf db "[loader64] load elf", 10, 0
+str_loader_stage_segments db "[loader64] segments ready", 10, 0
+str_loader_stage_rsdp db "[loader64] scan rsdp", 10, 0
+str_loader_stage_kernel db "[loader64] jump kernel", 10, 0
 str_elf_fail_program db "[loader64] ELF program header error", 10, 0
 hexdigit			db "0123456789ABCDEF",0
 

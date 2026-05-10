@@ -169,7 +169,6 @@ bool Interrupts::initialize()
     irq_vector_allocator_reset();
 
     load();
-    asm volatile("sti");
     return true;
 }
 

@@ -74,6 +74,8 @@ set(KERNEL_CORE_SOURCES
 set(KERNEL_PLATFORM_SOURCES
   platform/acpi.cpp
   platform/acpi_aml.cpp
+  platform/acpica_integration.cpp
+  platform/acpica_osl.cpp
   platform/device_probe.cpp
   platform/hpet.cpp
   platform/init.cpp
@@ -151,15 +153,60 @@ set(KERNEL_CXX_SOURCES
   "${PROJECT_SOURCE_DIR}/src/libc/stdlib.cpp"
 )
 
+set(OS1_REPO_ROOT "${PROJECT_SOURCE_DIR}")
+include("${PROJECT_SOURCE_DIR}/cmake/acpica_sources.cmake")
+
+set(OS1_KERNEL_ACPICA_SOURCES ${OS1_ACPICA_SOURCES})
+set(OS1_ACPICA_UTCLIB_SOURCE
+  "${OS1_ACPICA_ROOT}/source/components/utilities/utclib.c"
+)
+
+add_library(os1_acpica STATIC ${OS1_KERNEL_ACPICA_SOURCES})
+set_source_files_properties(
+  "${OS1_ACPICA_UTCLIB_SOURCE}"
+  PROPERTIES
+    COMPILE_DEFINITIONS "memcpy=os1_acpica_memcpy;memset=os1_acpica_memset"
+)
+target_include_directories(os1_acpica PRIVATE
+  "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
+  "${OS1_ACPICA_INCLUDE_DIR}"
+)
+set_target_properties(
+  os1_acpica
+  PROPERTIES
+    C_STANDARD 99
+    C_EXTENSIONS ON
+)
+target_compile_options(
+  os1_acpica
+  PRIVATE
+    -ffreestanding
+    -mno-red-zone
+    -march=x86-64
+    -mtune=generic
+    -mgeneral-regs-only
+    -mcmodel=kernel
+    -fno-pic
+    -fno-pie
+    -O1
+    -fno-asynchronous-unwind-tables
+    -fno-unwind-tables
+    -w
+)
+
 add_library(kernel_core_objects OBJECT ${KERNEL_CXX_SOURCES})
 target_include_directories(kernel_core_objects PRIVATE
   "${PROJECT_SOURCE_DIR}/src/common"
+  "${OS1_ACPICA_CUSTOM_INCLUDE_DIR}"
   "${OS1_GENERATED_DIR}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${KERNEL_ARCH_DIR}"
   "${PROJECT_SOURCE_DIR}/src/libc"
   "${PROJECT_SOURCE_DIR}/src/uapi"
   "${PROJECT_SOURCE_DIR}/third_party/font8x16"
+)
+target_include_directories(kernel_core_objects SYSTEM PRIVATE
+  "${OS1_ACPICA_INCLUDE_DIR}"
 )
 set_target_properties(
   kernel_core_objects
@@ -275,8 +322,10 @@ add_custom_command(
     -z max-page-size=0x1000
     $<TARGET_OBJECTS:kernel_core_objects>
     ${KERNEL_ASM_OBJECTS}
+    "$<TARGET_FILE:os1_acpica>"
     -o "${OS1_KERNEL_ELF}"
   DEPENDS
+    os1_acpica
     kernel_core_objects
     $<TARGET_OBJECTS:kernel_core_objects>
     "${KERNEL_CORE_LINKER_SCRIPT}"

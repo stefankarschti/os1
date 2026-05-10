@@ -1,9 +1,11 @@
 #include "drivers/bus/device.hpp"
 #include "drivers/bus/driver_registry.hpp"
+#include "handoff/boot_info.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "platform/acpi_aml.hpp"
+#include "platform/acpica_integration.hpp"
 #include "platform/platform.hpp"
 #include "platform/state.hpp"
 #include "support/physical_memory.hpp"
@@ -19,8 +21,25 @@ namespace
 {
 constexpr uint64_t kArenaBytes = 2ull * 1024ull * 1024ull;
 constexpr uint64_t kBitmapPhysical = 0x100000;
+constexpr uint64_t kRsdpPhysical = 0x1000;
+constexpr uint64_t kXsdtPhysical = 0x2000;
+constexpr uint64_t kFadtPhysical = 0x3000;
+constexpr uint64_t kFacsPhysical = 0x4000;
 constexpr uint64_t kDsdtPhysical = 0x7000;
 constexpr uint64_t kSsdtPhysical = 0x8000;
+
+struct [[gnu::packed]] TestRsdp
+{
+    char signature[8];
+    uint8_t checksum;
+    char oem_id[6];
+    uint8_t revision;
+    uint32_t rsdt_address;
+    uint32_t length;
+    uint64_t xsdt_address;
+    uint8_t extended_checksum;
+    uint8_t reserved[3];
+};
 
 struct [[gnu::packed]] TestSdtHeader
 {
@@ -33,6 +52,85 @@ struct [[gnu::packed]] TestSdtHeader
     uint32_t oem_revision;
     uint32_t creator_id;
     uint32_t creator_revision;
+};
+
+struct [[gnu::packed]] TestXsdt
+{
+    TestSdtHeader header;
+    uint64_t entries[2];
+};
+
+struct [[gnu::packed]] TestGas
+{
+    uint8_t address_space_id;
+    uint8_t register_bit_width;
+    uint8_t register_bit_offset;
+    uint8_t access_size;
+    uint64_t address;
+};
+
+struct [[gnu::packed]] TestFadt
+{
+    TestSdtHeader header;
+    uint32_t firmware_ctrl;
+    uint32_t dsdt;
+    uint8_t reserved0;
+    uint8_t preferred_pm_profile;
+    uint16_t sci_interrupt;
+    uint32_t smi_command_port;
+    uint8_t acpi_enable;
+    uint8_t acpi_disable;
+    uint8_t s4bios_request;
+    uint8_t pstate_control;
+    uint32_t pm1a_event_block;
+    uint32_t pm1b_event_block;
+    uint32_t pm1a_control_block;
+    uint32_t pm1b_control_block;
+    uint32_t pm2_control_block;
+    uint32_t pm_timer_block;
+    uint32_t gpe0_block;
+    uint32_t gpe1_block;
+    uint8_t pm1_event_length;
+    uint8_t pm1_control_length;
+    uint8_t pm2_control_length;
+    uint8_t pm_timer_length;
+    uint8_t gpe0_block_length;
+    uint8_t gpe1_block_length;
+    uint8_t gpe1_base;
+    uint8_t cstate_control;
+    uint16_t c2_latency;
+    uint16_t c3_latency;
+    uint16_t flush_size;
+    uint16_t flush_stride;
+    uint8_t duty_offset;
+    uint8_t duty_width;
+    uint8_t day_alarm;
+    uint8_t month_alarm;
+    uint8_t century;
+    uint16_t boot_architecture_flags;
+    uint8_t reserved1;
+    uint32_t flags;
+    TestGas reset_register;
+    uint8_t reset_value;
+    uint16_t arm_boot_architecture_flags;
+    uint8_t minor_version;
+    uint64_t x_firmware_control;
+    uint64_t x_dsdt;
+};
+
+struct [[gnu::packed]] TestFacs
+{
+    char signature[4];
+    uint32_t length;
+    uint32_t hardware_signature;
+    uint32_t firmware_waking_vector;
+    uint32_t global_lock;
+    uint32_t flags;
+    uint64_t x_firmware_waking_vector;
+    uint8_t version;
+    uint8_t reserved[3];
+    uint32_t ospm_flags;
+    uint8_t reserved1[24];
 };
 
 uint8_t checksum_value(const void* data, size_t length)
@@ -62,6 +160,16 @@ PageFrameContainer make_frames()
     return frames;
 }
 
+BootInfo make_boot_info()
+{
+    BootInfo info{};
+    info.magic = kBootInfoMagic;
+    info.version = kBootInfoVersion;
+    info.source = BootSource::TestHarness;
+    info.rsdp_physical = kRsdpPhysical;
+    return info;
+}
+
 void initialize_header(TestSdtHeader& header, const char* signature, uint32_t length)
 {
     std::memset(&header, 0, sizeof(header));
@@ -80,6 +188,46 @@ void finalize_table(TestSdtHeader& header, size_t total_length)
     header.length = static_cast<uint32_t>(total_length);
     header.checksum = 0;
     header.checksum = checksum_value(&header, total_length);
+}
+
+void build_acpica_firmware_tables(os1::host_test::PhysicalMemoryArena& arena, bool include_ssdt)
+{
+    auto* rsdp = reinterpret_cast<TestRsdp*>(arena.data() + kRsdpPhysical);
+    auto* xsdt = reinterpret_cast<TestXsdt*>(arena.data() + kXsdtPhysical);
+    auto* fadt = reinterpret_cast<TestFadt*>(arena.data() + kFadtPhysical);
+    auto* facs = reinterpret_cast<TestFacs*>(arena.data() + kFacsPhysical);
+
+    std::memset(rsdp, 0, sizeof(*rsdp));
+    std::memcpy(rsdp->signature, "RSD PTR ", 8);
+    std::memcpy(rsdp->oem_id, "OS1   ", 6);
+    rsdp->revision = 2;
+    rsdp->length = sizeof(*rsdp);
+    rsdp->xsdt_address = kXsdtPhysical;
+    rsdp->checksum = checksum_value(rsdp, 20);
+    rsdp->extended_checksum = checksum_value(rsdp, sizeof(*rsdp));
+
+    std::memset(xsdt, 0, sizeof(*xsdt));
+    initialize_header(xsdt->header,
+                      "XSDT",
+                      static_cast<uint32_t>(sizeof(TestSdtHeader) +
+                                            (include_ssdt ? 2u : 1u) * sizeof(uint64_t)));
+    xsdt->entries[0] = kFadtPhysical;
+    xsdt->entries[1] = include_ssdt ? kSsdtPhysical : 0;
+    finalize_table(xsdt->header, xsdt->header.length);
+
+    std::memset(fadt, 0, sizeof(*fadt));
+    initialize_header(fadt->header, "FACP", sizeof(*fadt));
+    fadt->preferred_pm_profile = 2;
+    fadt->sci_interrupt = 9;
+    fadt->firmware_ctrl = static_cast<uint32_t>(kFacsPhysical);
+    fadt->x_firmware_control = kFacsPhysical;
+    fadt->x_dsdt = kDsdtPhysical;
+    finalize_table(fadt->header, sizeof(*fadt));
+
+    std::memset(facs, 0, sizeof(*facs));
+    std::memcpy(facs->signature, "FACS", 4);
+    facs->length = sizeof(*facs);
+    facs->version = 1;
 }
 
 void append_pkg_length(std::vector<uint8_t>& out, size_t body_length)
@@ -191,10 +339,12 @@ void append_integer(std::vector<uint8_t>& out, uint64_t value)
 
 uint32_t encode_eisa_id(const char* hardware_id)
 {
-    return (static_cast<uint32_t>(hardware_id[0] - '@') << 26) |
-           (static_cast<uint32_t>(hardware_id[1] - '@') << 21) |
-           (static_cast<uint32_t>(hardware_id[2] - '@') << 16) |
-           static_cast<uint32_t>(std::strtoul(hardware_id + 3, nullptr, 16));
+    const uint32_t expanded = (static_cast<uint32_t>(hardware_id[0] - '@') << 26) |
+                              (static_cast<uint32_t>(hardware_id[1] - '@') << 21) |
+                              (static_cast<uint32_t>(hardware_id[2] - '@') << 16) |
+                              static_cast<uint32_t>(std::strtoul(hardware_id + 3, nullptr, 16));
+    return ((expanded & 0x000000FFu) << 24) | ((expanded & 0x0000FF00u) << 8) |
+           ((expanded & 0x00FF0000u) >> 8) | ((expanded & 0xFF000000u) >> 24);
 }
 
 std::vector<uint8_t> make_name_integer(const char* name, uint64_t value)
@@ -465,6 +615,24 @@ const AcpiDeviceInfo* find_device(const std::array<AcpiDeviceInfo, kAcpiMaxDevic
 std::array<char, 8> g_power_order{};
 size_t g_power_order_count = 0;
 
+class AcpiAml : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        acpica_reset_for_tests();
+    }
+};
+
+class AcpicaScopedReset final
+{
+public:
+    ~AcpicaScopedReset()
+    {
+        acpica_reset_for_tests();
+    }
+};
+
 bool stub_probe(VirtualMemory&, PageFrameContainer&, const PciDevice&, size_t, DeviceId)
 {
     return true;
@@ -495,16 +663,20 @@ bool resume_driver_b(DeviceId)
 }
 }  // namespace
 
-TEST(AcpiAml, LoadsDevicesResourcesRoutesAndPowerMethods)
+TEST_F(AcpiAml, LoadsDevicesResourcesRoutesAndPowerMethods)
 {
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
     size_t block_count = 0;
     build_aml_tables(arena, blocks, block_count);
+    build_acpica_firmware_tables(arena, true);
 
     PageFrameContainer frames = make_frames();
+    kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info())) << acpica_last_status();
     ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count))
         << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
 
@@ -553,17 +725,20 @@ TEST(AcpiAml, LoadsDevicesResourcesRoutesAndPowerMethods)
     EXPECT_EQ(3u, value);
 }
 
-TEST(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
+TEST_F(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
 {
     os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
     std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
     size_t block_count = 0;
     build_aml_tables(arena, blocks, block_count);
+    build_acpica_firmware_tables(arena, true);
 
     PageFrameContainer frames = make_frames();
     kmem_init(frames);
     VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
 
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
     ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), block_count));
 
     std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
@@ -577,6 +752,10 @@ TEST(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
     g_power_order = {};
     g_power_order_count = 0;
 
+    g_platform.acpi_device_capacity = device_count;
+    g_platform.acpi_devices = static_cast<AcpiDeviceInfo*>(
+        kcalloc(device_count, sizeof(AcpiDeviceInfo)));
+    ASSERT_TRUE((0u == device_count) || (nullptr != g_platform.acpi_devices));
     g_platform.acpi_device_count = device_count;
     for(size_t i = 0; i < device_count; ++i)
     {
@@ -625,4 +804,138 @@ TEST(AcpiAml, SuspendsAndResumesBoundDevicesInDeterministicOrder)
     EXPECT_EQ(std::string_view("BAab"), std::string_view(g_power_order.data(), g_power_order_count));
 
     platform_reset_state();
+}
+
+TEST_F(AcpiAml, IgnoresMalformedDeviceCrs)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto bad0 = make_device(
+        "BAD0",
+        {make_name_eisa_id("_HID", "PNP0C0C"),
+         make_buffer_name("_CRS", std::vector<uint8_t>{0x22}),
+         make_method_return_integer("_STA", 0x0F)});
+    const auto good0 = make_device(
+        "GOOD",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope("\\_SB_", {bad0, good0});
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+    build_acpica_firmware_tables(arena, false);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
+
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), 1));
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count));
+
+    const AcpiDeviceInfo* bad_device = find_device(devices, device_count, "\\_SB_.BAD0");
+    ASSERT_NE(nullptr, bad_device);
+    EXPECT_EQ(0u, bad_device->flags & kAcpiDeviceHasCrs);
+    EXPECT_EQ(0u, bad_device->resource_count);
+
+    const AcpiDeviceInfo* good_device = find_device(devices, device_count, "\\_SB_.GOOD");
+    ASSERT_NE(nullptr, good_device);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", good_device->hardware_id));
+}
+
+TEST_F(AcpiAml, IgnoresMalformedDevicePrt)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto pci0 = make_device(
+        "PCI0",
+        {make_name_eisa_id("_HID", "PNP0A08"), make_name_integer("_BBN", 0),
+         make_name_package("_PRT", {std::vector<uint8_t>{0x00}}),
+         make_method_return_integer("_STA", 0x0F)});
+    const auto pwrb = make_device(
+        "PWRB",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope("\\_SB_", {pci0, pwrb});
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+    build_acpica_firmware_tables(arena, false);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
+
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), 1));
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count));
+
+    const AcpiDeviceInfo* pci_device = find_device(devices, device_count, "\\_SB_.PCI0");
+    ASSERT_NE(nullptr, pci_device);
+    EXPECT_EQ(0u, pci_device->flags & kAcpiDeviceHasPrt);
+    EXPECT_EQ(0u, route_count);
+
+    const AcpiDeviceInfo* power_button = find_device(devices, device_count, "\\_SB_.PWRB");
+    ASSERT_NE(nullptr, power_button);
+    EXPECT_EQ(0, std::strcmp("PNP0C0C", power_button->hardware_id));
+}
+
+TEST_F(AcpiAml, RunsDeviceIniBeforeSelectedMethodEvaluation)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+
+    const auto dev0 = make_device(
+        "DEV0",
+        {make_name_eisa_id("_HID", "PNP0C0C"), make_name_integer("INIV", 0),
+         make_method_store_integer("_INI", 1, "INIV"), make_method_return_integer("_STA", 0x0F)});
+    const auto dsdt = make_scope("\\_SB_", {dev0});
+    write_definition_block(arena, kDsdtPhysical, "DSDT", dsdt);
+    build_acpica_firmware_tables(arena, false);
+
+    std::array<AcpiDefinitionBlock, kPlatformMaxAcpiDefinitionBlocks> blocks{};
+    blocks[0].active = true;
+    std::memcpy(blocks[0].signature, "DSDT", 4);
+    blocks[0].length = static_cast<uint32_t>(sizeof(TestSdtHeader) + dsdt.size());
+    blocks[0].physical_address = kDsdtPhysical;
+
+    PageFrameContainer frames = make_frames();
+    kmem_init(frames);
+    VirtualMemory vm(frames);
+    AcpicaScopedReset acpica_reset;
+
+    ASSERT_TRUE(acpica_initialize_tables(vm, make_boot_info()));
+    ASSERT_TRUE(acpi_namespace_load(vm, blocks.data(), 1))
+        << acpi_namespace_last_error() << " last=" << acpi_namespace_last_object();
+
+    uint64_t value = 0;
+    ASSERT_TRUE(acpi_read_named_integer("\\_SB_.DEV0.INIV", value));
+    EXPECT_EQ(1u, value);
+
+    std::array<AcpiDeviceInfo, kAcpiMaxDevices> devices{};
+    size_t device_count = 0;
+    std::array<AcpiPciRoute, kAcpiMaxPciRoutes> routes{};
+    size_t route_count = 0;
+    ASSERT_TRUE(acpi_build_device_info(devices.data(), device_count, routes.data(), route_count));
+
+    const AcpiDeviceInfo* device = find_device(devices, device_count, "\\_SB_.DEV0");
+    ASSERT_NE(nullptr, device);
+    EXPECT_EQ(0x0Fu, device->status);
 }

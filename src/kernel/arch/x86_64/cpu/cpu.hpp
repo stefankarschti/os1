@@ -140,8 +140,12 @@ static inline cpu* cpu_cur()
         return c;
     }
     c = (cpu*)(read_rsp() & ~0xFFF);
-    assert(c->magic == CPU_MAGIC);
-    return c;
+    if(c->magic == CPU_MAGIC)
+    {
+        return c;
+    }
+    assert((nullptr != g_cpu_boot) && (g_cpu_boot->magic == CPU_MAGIC));
+    return g_cpu_boot;
 }
 
 // Return true when running on the bootstrap CPU.
