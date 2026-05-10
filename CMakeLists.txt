@@ -47,6 +47,63 @@ endfunction()
 set(OS1_ARTIFACT_DIR "${CMAKE_BINARY_DIR}/artifacts")
 set(OS1_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(OS1_ISO_STAGE_DIR "${CMAKE_BINARY_DIR}/iso-root")
+set(OS1_TARGET_MENU_MANIFEST "${OS1_GENERATED_DIR}/target_menu.txt")
+
+function(os1_assert_menu_manifest_field field_name field_value)
+  string(FIND "${field_value}" "|" field_separator_index)
+  if(NOT field_separator_index EQUAL -1)
+    message(FATAL_ERROR
+      "Target menu ${field_name} must not contain '|': ${field_value}"
+    )
+  endif()
+
+  string(FIND "${field_value}" "\n" field_newline_index)
+  if(NOT field_newline_index EQUAL -1)
+    message(FATAL_ERROR
+      "Target menu ${field_name} must be single-line text: ${field_value}"
+    )
+  endif()
+endfunction()
+
+function(os1_register_menu_target target_name title description)
+  if(NOT TARGET "${target_name}")
+    message(FATAL_ERROR "Cannot register menu metadata for missing target: ${target_name}")
+  endif()
+
+  get_target_property(unavailable_reason "${target_name}" OS1_TARGET_UNAVAILABLE_REASON)
+  if(unavailable_reason MATCHES "-NOTFOUND$")
+    set(unavailable_reason "")
+  endif()
+
+  os1_assert_menu_manifest_field("target name" "${target_name}")
+  os1_assert_menu_manifest_field("title" "${title}")
+  os1_assert_menu_manifest_field("description" "${description}")
+  os1_assert_menu_manifest_field("unavailable reason" "${unavailable_reason}")
+
+  get_property(has_entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES SET)
+  if(has_entries)
+    get_property(entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES)
+  else()
+    set(entries "")
+  endif()
+
+  string(APPEND entries
+    "${target_name}|${title}|${description}|${unavailable_reason}\n"
+  )
+  set_property(GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES "${entries}")
+endfunction()
+
+function(os1_write_target_menu_manifest)
+  get_property(has_entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES SET)
+  if(has_entries)
+    get_property(entries GLOBAL PROPERTY OS1_TARGET_MENU_ENTRIES)
+  else()
+    set(entries "")
+  endif()
+
+  file(MAKE_DIRECTORY "${OS1_GENERATED_DIR}")
+  file(WRITE "${OS1_TARGET_MENU_MANIFEST}" "${entries}")
+endfunction()
 
 set(OS1_BOOT_BIN "${OS1_ARTIFACT_DIR}/boot.bin")
 set(OS1_KERNEL16_BIN "${OS1_ARTIFACT_DIR}/kernel16.bin")
@@ -453,6 +510,7 @@ function(os1_add_unavailable_target target_name reason)
     COMMAND "${CMAKE_COMMAND}" -E false
     VERBATIM
   )
+  set_property(TARGET "${target_name}" PROPERTY OS1_TARGET_UNAVAILABLE_REASON "${reason}")
 endfunction()
 
 if(OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEMPLATE)
@@ -534,6 +592,17 @@ else()
   os1_add_unavailable_target(run_serial "run_serial target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
 
+os1_register_menu_target(
+  run
+  "Default modern UEFI path"
+  "Boot OVMF on q35 with the generated virtio-blk test disk used by the modern-platform smoke."
+)
+os1_register_menu_target(
+  run_serial
+  "Serial-first UEFI shell session"
+  "Boot the same OVMF + ISO path, route the guest serial console to this terminal, and disable graphics."
+)
+
 if(OS1_QEMU_EXECUTABLE)
   add_custom_target(
     run_bios
@@ -602,6 +671,17 @@ else()
   os1_add_unavailable_target(run_bios "run_bios target unavailable: qemu-system-x86_64 was not found")
   os1_add_unavailable_target(run_bios_serial "run_bios_serial target unavailable: qemu-system-x86_64 was not found")
 endif()
+
+os1_register_menu_target(
+  run_bios
+  "Legacy BIOS compatibility path"
+  "Boot the raw BIOS image on q35 with the same secondary virtio-blk test disk attached."
+)
+os1_register_menu_target(
+  run_bios_serial
+  "Serial-first BIOS shell session"
+  "Keep the BIOS boot path but route the shell through serial stdio instead of the display-first run target."
+)
 
 include(CTest)
 
@@ -746,6 +826,11 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
     DEPENDS os1_image "${OS1_VIRTIO_TEST_DISK}"
     USES_TERMINAL
     VERBATIM
+  )
+  os1_register_menu_target(
+    smoke_xhci
+    "Modern UEFI xHCI + USB-keyboard smoke"
+    "Run the UEFI-only xHCI and USB-keyboard smoke."
   )
 
   set(OS1_UEFI_SMOKE_MARKERS
@@ -1027,6 +1112,32 @@ else()
   os1_add_unavailable_target(smoke_exec "smoke_exec target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
 
+os1_register_menu_target(
+  smoke
+  "Modern UEFI shell baseline smoke"
+  "Run the baseline UEFI shell smoke test."
+)
+os1_register_menu_target(
+  smoke_observe
+  "Modern UEFI observability smoke"
+  "Run the UEFI observability smoke that exercises shell inspection commands."
+)
+os1_register_menu_target(
+  smoke_balance
+  "Modern UEFI SMP balance smoke"
+  "Run the UEFI SMP balance smoke."
+)
+os1_register_menu_target(
+  smoke_spawn
+  "Modern UEFI child-launch smoke"
+  "Run the UEFI child-process spawn smoke."
+)
+os1_register_menu_target(
+  smoke_exec
+  "Modern UEFI exec smoke"
+  "Run the UEFI exec smoke."
+)
+
 if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE)
   set(OS1_BIOS_SMOKE_MARKERS
     "[kernel64] hello!"
@@ -1296,6 +1407,32 @@ else()
   os1_add_unavailable_target(smoke_exec_bios "smoke_exec_bios target unavailable: qemu-system-x86_64 was not found")
 endif()
 
+os1_register_menu_target(
+  smoke_bios
+  "Legacy BIOS shell baseline smoke"
+  "Run the baseline BIOS shell smoke test."
+)
+os1_register_menu_target(
+  smoke_observe_bios
+  "Legacy BIOS observability smoke"
+  "Run the BIOS observability smoke that exercises shell inspection commands."
+)
+os1_register_menu_target(
+  smoke_balance_bios
+  "Legacy BIOS SMP balance smoke"
+  "Run the BIOS SMP balance smoke."
+)
+os1_register_menu_target(
+  smoke_spawn_bios
+  "Legacy BIOS child-launch smoke"
+  "Run the BIOS child-process spawn smoke."
+)
+os1_register_menu_target(
+  smoke_exec_bios
+  "Legacy BIOS exec smoke"
+  "Run the BIOS exec smoke."
+)
+
 if(OS1_QEMU_SMOKE_TESTS)
   set_tests_properties(
     ${OS1_QEMU_SMOKE_TESTS}
@@ -1316,6 +1453,14 @@ if(BUILD_TESTING AND OS1_QEMU_EXECUTABLE AND OS1_OVMF_CODE AND OS1_OVMF_VARS_TEM
 else()
   os1_add_unavailable_target(smoke_all "smoke_all target unavailable: qemu-system-x86_64 or OVMF firmware was not found")
 endif()
+
+os1_register_menu_target(
+  smoke_all
+  "Full smoke matrix"
+  "Run the full smoke matrix across the configured boot paths."
+)
+
+os1_write_target_menu_manifest()
 
 message(STATUS "Artifacts will be written to ${OS1_ARTIFACT_DIR}")
 message(STATUS "Default image: ${OS1_ISO_IMAGE}")

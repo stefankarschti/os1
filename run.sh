@@ -4,27 +4,24 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 BUILD_DIR="${BUILD_DIR:-$SCRIPT_DIR/build}"
 TOOLCHAIN_FILE="${TOOLCHAIN_FILE:-$SCRIPT_DIR/cmake/toolchains/x86_64-elf.cmake}"
+TARGET_MENU_MANIFEST="$BUILD_DIR/generated/target_menu.txt"
 
-TARGET_MENU_ITEMS=$(cat <<'EOF'
-run|Default modern UEFI path|Boot OVMF on q35 with the generated virtio-blk test disk used by the modern-platform smoke.
-run_serial|Serial-first UEFI shell session|Boot the same OVMF + ISO path, route the guest serial console to this terminal, and disable graphics.
-run_bios|Legacy BIOS compatibility path|Boot the raw BIOS image on q35 with the same secondary virtio-blk test disk attached.
-run_bios_serial|Serial-first BIOS shell session|Keep the BIOS boot path but route the shell through serial stdio instead of the display-first run target.
-smoke|Modern UEFI shell baseline smoke|Run the baseline UEFI shell smoke test.
-smoke_observe|Modern UEFI observability smoke|Run the UEFI observability smoke that exercises shell inspection commands.
-smoke_balance|Modern UEFI SMP balance smoke|Run the UEFI SMP balance smoke.
-smoke_spawn|Modern UEFI child-launch smoke|Run the UEFI child-process spawn smoke.
-smoke_exec|Modern UEFI exec smoke|Run the UEFI exec smoke.
-smoke_xhci|Modern UEFI xHCI + USB-keyboard smoke|Run the UEFI-only xHCI and USB-keyboard smoke.
-smoke_bios|Legacy BIOS shell baseline smoke|Run the baseline BIOS shell smoke test.
-smoke_observe_bios|Legacy BIOS observability smoke|Run the BIOS observability smoke that exercises shell inspection commands.
-smoke_balance_bios|Legacy BIOS SMP balance smoke|Run the BIOS SMP balance smoke.
-smoke_spawn_bios|Legacy BIOS child-launch smoke|Run the BIOS child-process spawn smoke.
-smoke_exec_bios|Legacy BIOS exec smoke|Run the BIOS exec smoke.
-smoke_all|Full smoke matrix|Run the full smoke matrix across the configured boot paths.
-EOF
-)
-TARGET_MENU_COUNT=$(printf '%s\n' "$TARGET_MENU_ITEMS" | wc -l | tr -d '[:space:]')
+TARGET_MENU_ITEMS=
+TARGET_MENU_COUNT=0
+
+configure_workspace() {
+	cmake --preset default -B "$BUILD_DIR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE"
+}
+
+load_target_menu_items() {
+	if [ ! -s "$TARGET_MENU_MANIFEST" ]; then
+		printf 'Target menu manifest not found or empty: %s\n' "$TARGET_MENU_MANIFEST" >&2
+		exit 1
+	fi
+
+	TARGET_MENU_ITEMS=$(cat "$TARGET_MENU_MANIFEST")
+	TARGET_MENU_COUNT=$(wc -l < "$TARGET_MENU_MANIFEST" | tr -d '[:space:]')
+}
 
 menu_cleanup() {
 	if [ -n "${MENU_STTY-}" ]; then
@@ -38,12 +35,23 @@ menu_record() {
 	printf '%s\n' "$TARGET_MENU_ITEMS" | sed -n "${1}p"
 }
 
+parse_menu_record() {
+	menu_record_value=$1
+	MENU_TARGET_NAME=${menu_record_value%%|*}
+	menu_record_rest=${menu_record_value#*|}
+	MENU_TARGET_LABEL=${menu_record_rest%%|*}
+	menu_record_rest=${menu_record_rest#*|}
+	MENU_TARGET_DESCRIPTION=${menu_record_rest%%|*}
+	MENU_TARGET_UNAVAILABLE_REASON=${menu_record_rest#*|}
+}
+
 draw_target_menu() {
 	selection=$1
 	selected_record=$(menu_record "$selection")
-	selected_rest=${selected_record#*|}
-	selected_label=${selected_rest%%|*}
-	selected_description=${selected_rest#*|}
+	parse_menu_record "$selected_record"
+	selected_label=$MENU_TARGET_LABEL
+	selected_description=$MENU_TARGET_DESCRIPTION
+	selected_unavailable_reason=$MENU_TARGET_UNAVAILABLE_REASON
 
 	printf '\033[2J\033[H' >&2
 	printf 'Select an os1 target\n' >&2
@@ -52,13 +60,15 @@ draw_target_menu() {
 	i=1
 	while [ "$i" -le "$TARGET_MENU_COUNT" ]; do
 		record=$(menu_record "$i")
-		target_name=${record%%|*}
-		record_rest=${record#*|}
-		target_label=${record_rest%%|*}
+		parse_menu_record "$record"
+		target_status=
+		if [ -n "$MENU_TARGET_UNAVAILABLE_REASON" ]; then
+			target_status=' [unavailable]'
+		fi
 		if [ "$i" -eq "$selection" ]; then
-			printf '\033[7m> %-20s %s\033[0m\n' "$target_name" "$target_label" >&2
+			printf '\033[7m> %-20s %s%s\033[0m\n' "$MENU_TARGET_NAME" "$MENU_TARGET_LABEL" "$target_status" >&2
 		else
-			printf '  %-20s %s\n' "$target_name" "$target_label" >&2
+			printf '  %-20s %s%s\n' "$MENU_TARGET_NAME" "$MENU_TARGET_LABEL" "$target_status" >&2
 		fi
 		i=$((i + 1))
 	done
@@ -66,6 +76,9 @@ draw_target_menu() {
 	printf '\nDescription\n' >&2
 	printf '  %s\n' "$selected_label" >&2
 	printf '  %s\n' "$selected_description" >&2
+	if [ -n "$selected_unavailable_reason" ]; then
+		printf '  Unavailable: %s\n' "$selected_unavailable_reason" >&2
+	fi
 }
 
 read_menu_key() {
@@ -119,9 +132,12 @@ choose_target() {
 	printf '%s\n' "${record%%|*}"
 }
 
+configure_workspace
+
 if [ "$#" -gt 0 ]; then
 	TARGET=$1
 elif [ -t 0 ] && [ -t 1 ]; then
+	load_target_menu_items
 	TARGET=$(choose_target)
 	printf 'Selected target: %s\n' "$TARGET"
 else
@@ -129,7 +145,5 @@ else
 	printf 'No target specified and no interactive terminal is available; defaulting to %s.\n' "$TARGET" >&2
 fi
 
-cmake --preset default
-cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE"
 cmake --build "$BUILD_DIR"
 cmake --build "$BUILD_DIR" --target "$TARGET"
