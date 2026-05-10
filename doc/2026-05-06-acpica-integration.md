@@ -1,6 +1,8 @@
 # ACPICA Integration Spec - 2026-05-06
 
-Status: design/specification. Source code is the authority for current behavior.
+Status: implemented design/specification. Source code is the authority for current behavior.
+
+Implementation note: this design landed before the [2026-05-10 review](2026-05-10-review.md). ACPI table discovery, ACPICA namespace load, device enumeration, `_PRT` route resolution, resource parsing, and `_PS0`/`_PS3` power transitions now flow through the ACPICA-backed platform facade. ACPICA is pinned under `third_party/acpica` at submodule SHA `232ff3f8` (release `20260408`), with OS glue in `src/kernel/platform/acpica_*` and no in-place edits to the third-party source.
 
 ## Source Inputs Reviewed
 
@@ -38,7 +40,7 @@ External reference points:
 - ACPICA overview and component list: <https://www.intel.com/content/www/us/en/developer/topic-technology/open/acpica/overview.html>
 - ACPICA documentation/release page: <https://www.intel.com/content/www/us/en/developer/topic-technology/open/acpica/documentation.html>
 
-## Current ACPI Shape
+## Pre-Integration ACPI Shape Reviewed
 
 Both boot frontends normalize firmware discovery into `BootInfo::rsdp_physical`.
 The BIOS path scans EBDA/base memory/BIOS ROM for RSDP. The Limine path requests
@@ -59,10 +61,12 @@ registration cannot be enabled until after the interrupt subsystem is online.
 - SSDT pointers into `AcpiDefinitionBlock`
 - optional HPET table into `HpetInfo`
 
-`acpi_aml.cpp` is a minimal AML namespace loader/evaluator. It recognizes enough
-AML to build ACPI device records, PCI `_PRT` routes, `_CRS` resources, `_STA`,
-`_HID`, `_UID`, `_ADR`, `_BBN`, and simple `_PS0`/`_PS3` power hooks. It is
-already carrying interpreter risk that should not grow.
+At design time, `acpi_aml.cpp` was a minimal AML namespace loader/evaluator. It
+recognized enough AML to build ACPI device records, PCI `_PRT` routes, `_CRS`
+resources, `_STA`, `_HID`, `_UID`, `_ADR`, `_BBN`, and simple `_PS0`/`_PS3`
+power hooks. That interpreter risk is the reason this design selected ACPICA;
+the source now keeps `acpi_aml.cpp` as a compatibility shim over ACPICA-backed
+platform behavior rather than as the substantive AML implementation.
 
 ## Decision
 
@@ -475,21 +479,24 @@ Regression checks:
 - The size impact is recorded and still fits the BIOS image and kernel reserved
   physical window constraints.
 
-## Cleanup Plan
+## Cleanup Plan Status
 
-1. Introduce a backend boundary around current `discover_acpi_platform()` and
-   `acpi_namespace_*()` behavior so old and ACPICA backends can be compared in
-   host tests.
-2. Land ACPICA table discovery behind the existing platform facade.
-3. Switch MADT/MCFG/HPET/FADT consumers to ACPICA and keep the old parser only
-   for parity tests.
-4. Switch namespace/device/resource/route code to ACPICA.
-5. Make ACPICA the default backend and keep the home-grown parser behind a
-   temporary test-only or debug CMake option for one migration window.
-6. Delete local SDT/MADT/MCFG/HPET/FADT struct parsing and the minimal AML
-   interpreter once ACPICA-backed tests and smokes are stable.
-7. Rename remaining files so `platform/acpi.cpp` is a facade over ACPICA rather
-   than a parser implementation.
-8. Update architecture docs and smoke markers to remove transitional
-   "home-grown parser" language.
+The cleanup sequence below was the migration plan. As of the
+[2026-05-10 review](2026-05-10-review.md), the source is on the ACPICA-backed
+side of this boundary.
 
+1. Completed: introduce a backend boundary around `discover_acpi_platform()`
+   and `acpi_namespace_*()` behavior so old and ACPICA-backed results could be
+   compared in host tests.
+2. Completed: land ACPICA table discovery behind the existing platform facade.
+3. Completed: switch MADT/MCFG/HPET/FADT consumers to ACPICA-backed
+   extraction.
+4. Completed: switch namespace/device/resource/route code to ACPICA.
+5. Completed: make ACPICA the default backend.
+6. Completed: remove the old parser/interpreter as the substantive ACPI
+   implementation. The remaining `acpi_aml.cpp` file is a compatibility shim
+   over ACPICA-backed platform behavior.
+7. Partially complete: `platform/acpi.cpp` is a facade over ACPICA-backed
+   behavior, but some file names still carry historical `acpi_aml` naming.
+8. Completed for live docs: architecture and review pointers now describe
+   ACPICA-resident behavior.
