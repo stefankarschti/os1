@@ -107,6 +107,79 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
     return true;
 }
 
+bool try_complete_or_block_wait_pid(PageFrameContainer& frames,
+                                    Thread* thread,
+                                    uint64_t pid,
+                                    uint64_t user_status_pointer,
+                                    long& result)
+{
+    result = -1;
+    if((nullptr == thread) || (nullptr == thread->process) || ((pid >> 63) != 0))
+    {
+        return true;
+    }
+
+    Process* child = nullptr;
+    uint64_t child_pid = 0;
+    int exit_status = 0;
+    {
+        IrqSpinGuard process_guard(g_process_table_lock);
+        child = find_child_process_locked(thread->process, pid, true);
+        {
+            IrqSpinGuard thread_guard(g_thread_registry_lock);
+            if((nullptr != child) && process_has_any_threads_locked(child))
+            {
+                child = nullptr;
+            }
+        }
+
+        if(nullptr != child)
+        {
+            child_pid = child->pid;
+            exit_status = child->exit_status;
+        }
+        else
+        {
+            child = find_child_process_locked(thread->process, pid, false);
+            if(nullptr == child)
+            {
+                return true;
+            }
+
+            ThreadWaitState wait{};
+            wait.reason = ThreadWaitReason::ChildExit;
+            wait.child_exit = ChildExitWaitState{
+                .user_status_pointer = user_status_pointer,
+                .pid = pid,
+            };
+
+            WaitQueue& queue = thread->process->child_exit_waiters;
+            IrqSpinGuard queue_guard(queue.lock);
+            thread->wait = wait;
+            thread->state = ThreadState::Blocked;
+            if(ProcessState::Dying != thread->process->state)
+            {
+                thread->process->state = ProcessState::Ready;
+            }
+            wait_queue_enqueue_locked(queue, thread);
+            return false;
+        }
+    }
+
+    if((0 != user_status_pointer) &&
+       !copy_to_user(frames, thread, user_status_pointer, &exit_status, sizeof(exit_status)))
+    {
+        return true;
+    }
+
+    result = static_cast<long>(child_pid);
+    if(!reap_process(child, frames))
+    {
+        result = -1;
+    }
+    return true;
+}
+
 void wake_child_waiters(PageFrameContainer& frames)
 {
     (void)frames;

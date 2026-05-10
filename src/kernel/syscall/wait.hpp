@@ -13,6 +13,13 @@ bool try_complete_wait_pid(PageFrameContainer& frames,
                            uint64_t pid,
                            uint64_t user_status_pointer,
                            long& result);
+// Complete waitpid if possible, otherwise atomically block the current thread
+// before a child-exit wake can be missed.
+bool try_complete_or_block_wait_pid(PageFrameContainer& frames,
+                                    Thread* thread,
+                                    uint64_t pid,
+                                    uint64_t user_status_pointer,
+                                    long& result);
 // Wake threads blocked on child-exit waits after a process exits or reaps.
 void wake_child_waiters(PageFrameContainer& frames);
 void wake_child_waiters(PageFrameContainer& frames, Process* parent);

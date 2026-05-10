@@ -86,13 +86,13 @@ Thread* handle_syscall(TrapFrame* frame)
             return thread;
         case os1_sys_waitpid: {
             long wait_result = -1;
-            if(try_complete_wait_pid(page_frames, thread, frame->rdi, frame->rsi, wait_result))
+            if(try_complete_or_block_wait_pid(
+                   page_frames, thread, frame->rdi, frame->rsi, wait_result))
             {
                 frame->rax = static_cast<uint64_t>(wait_result);
                 return thread;
             }
 
-            block_current_thread_on_child_exit(frame->rsi, frame->rdi);
             return schedule_next(false);
         }
         case os1_sys_exec:

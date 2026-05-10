@@ -1,12 +1,22 @@
 #include "proc/process.hpp"
 
 #include "arch/x86_64/apic/ipi.hpp"
+#include "arch/x86_64/cpu/cpu.hpp"
 #include "handoff/memory_layout.h"
 #include "mm/kmem.hpp"
 #include "mm/virtual_memory.hpp"
 #include "proc/thread.hpp"
 #include "support/lapic_stub.hpp"
 #include "support/physical_memory.hpp"
+#include "syscall/wait.hpp"
+
+#ifdef assert
+#undef assert
+#endif
+
+#ifdef static_assert
+#undef static_assert
+#endif
 
 #include <gtest/gtest.h>
 
@@ -38,6 +48,30 @@ PageFrameContainer initialized_frames()
 void noop_thread_entry()
 {
 }
+
+struct HostApCpuScope
+{
+    HostApCpuScope() : saved_next(g_cpu_boot->next), saved_current(g_cpu_host_current)
+    {
+        ap.self = &ap;
+        ap.next = saved_next;
+        ap.id = 1;
+        ap.booted = 1;
+        ap.magic = CPU_MAGIC;
+        g_cpu_boot->next = &ap;
+        g_cpu_host_current = g_cpu_boot;
+    }
+
+    ~HostApCpuScope()
+    {
+        g_cpu_boot->next = saved_next;
+        g_cpu_host_current = saved_current;
+    }
+
+    cpu ap{};
+    cpu* saved_next = nullptr;
+    cpu* saved_current = nullptr;
+};
 }  // namespace
 
 TEST(TaskRegistry, ProcessesGrowPastLegacyLimit)
@@ -157,6 +191,107 @@ TEST(TaskRegistry, ZombieProcessSurvivesThreadReapUntilWaitpidCanCollectIt)
     child->state = ProcessState::Dying;
     EXPECT_TRUE(reap_process(child, frames));
     EXPECT_TRUE(reap_process(parent, frames));
+    EXPECT_EQ(nullptr, first_process());
+}
+
+TEST(TaskRegistry, WaitpidBlocksBeforeChildExitCanBeWoken)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+
+    ASSERT_TRUE(init_tasks(frames));
+
+    Process* parent = create_user_process("parent", 0);
+    ASSERT_NE(nullptr, parent);
+    Process* child = create_user_process("child", 0);
+    ASSERT_NE(nullptr, child);
+    child->parent = parent;
+    const uint64_t child_pid = child->pid;
+
+    Thread* parent_thread = create_user_thread(parent, 0x1000, 0x2000, frames, false);
+    ASSERT_NE(nullptr, parent_thread);
+    Thread* child_thread = create_user_thread(child, 0x1000, 0x3000, frames, false);
+    ASSERT_NE(nullptr, child_thread);
+
+    set_current_thread(parent_thread);
+    long result = -1;
+    EXPECT_FALSE(try_complete_or_block_wait_pid(frames, parent_thread, child->pid, 0, result));
+    EXPECT_EQ(ThreadState::Blocked, parent_thread->state);
+    EXPECT_EQ(1u, wait_queue_count(parent->child_exit_waiters));
+
+    set_current_thread(nullptr);
+    child_thread->exit_status = 9;
+    child_thread->state = ThreadState::Dying;
+    child->exit_status = 9;
+    child->state = ProcessState::Zombie;
+
+    reap_dead_threads(frames);
+
+    EXPECT_EQ(0u, wait_queue_count(parent->child_exit_waiters));
+    EXPECT_EQ(ThreadState::Ready, parent_thread->state);
+    EXPECT_EQ(child_pid, parent_thread->frame.rax);
+    EXPECT_EQ(parent, first_process());
+    EXPECT_EQ(nullptr, next_process(parent));
+
+    parent_thread->state = ThreadState::Dying;
+    parent->state = ProcessState::Dying;
+    reap_dead_threads(frames);
+    EXPECT_EQ(nullptr, first_process());
+}
+
+TEST(TaskRegistry, ReaperSkipsDyingThreadStillCurrentOnAnotherCpu)
+{
+    os1::host_test::PhysicalMemoryArena arena(kArenaBytes);
+    PageFrameContainer frames = initialized_frames();
+    kmem_init(frames);
+    HostApCpuScope cpus;
+
+    ASSERT_TRUE(init_tasks(frames));
+
+    Process* parent = create_user_process("parent", 0);
+    ASSERT_NE(nullptr, parent);
+    Process* child = create_user_process("child", 0);
+    ASSERT_NE(nullptr, child);
+    child->parent = parent;
+    const uint64_t child_pid = child->pid;
+
+    Thread* parent_thread = create_user_thread(parent, 0x1000, 0x2000, frames, false);
+    ASSERT_NE(nullptr, parent_thread);
+    Thread* child_thread = create_user_thread(child, 0x1000, 0x3000, frames, false);
+    ASSERT_NE(nullptr, child_thread);
+
+    set_current_thread(parent_thread);
+    long result = -1;
+    ASSERT_FALSE(try_complete_or_block_wait_pid(frames, parent_thread, child_pid, 0, result));
+    set_current_thread(nullptr);
+
+    g_cpu_host_current = &cpus.ap;
+    set_current_thread(child_thread);
+    mark_current_thread_dying(5);
+
+    g_cpu_host_current = g_cpu_boot;
+    set_current_thread(nullptr);
+    reap_dead_threads(frames);
+
+    EXPECT_EQ(1u, wait_queue_count(parent->child_exit_waiters));
+    EXPECT_EQ(ThreadState::Blocked, parent_thread->state);
+    EXPECT_EQ(ThreadState::Dying, child_thread->state);
+    EXPECT_EQ(ProcessState::Zombie, child->state);
+    EXPECT_EQ(child_thread, cpus.ap.current_thread);
+
+    cpus.ap.current_thread = nullptr;
+    reap_dead_threads(frames);
+
+    EXPECT_EQ(0u, wait_queue_count(parent->child_exit_waiters));
+    EXPECT_EQ(ThreadState::Ready, parent_thread->state);
+    EXPECT_EQ(child_pid, parent_thread->frame.rax);
+    EXPECT_EQ(parent, first_process());
+    EXPECT_EQ(nullptr, next_process(parent));
+
+    parent_thread->state = ThreadState::Dying;
+    parent->state = ProcessState::Dying;
+    reap_dead_threads(frames);
     EXPECT_EQ(nullptr, first_process());
 }
 
