@@ -1,8 +1,8 @@
 # Harness Engineering Proposal for `os1`
 
-> Status: proposed  
-> Prepared: 2026-08-19  
-> Repository snapshot: `native-api` at `59d39a1`  
+> Status: Phase A implemented; Phases B and C proposed
+> Prepared: 2026-08-19
+> Repository snapshot: `harness1` at `d255142`
 > Source: OpenAI, [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/), 2026-02-11
 
 ## Executive Decision
@@ -47,11 +47,12 @@ the article alone. The review covered:
   [run.sh](../run.sh), [host-tests.sh](../host-tests.sh), and
   [autoformat.sh](../autoformat.sh)
 - source ownership under `src/`, current review findings, and the shape of the
-  42 Markdown documents that existed under `doc/` before this proposal
+  40 Markdown documents that existed under `doc/` before this proposal
 
 The configured local test manifests expose 150 host tests and 11 QEMU smoke
-tests. This inventory was inspected but not executed for this documentation-only
-proposal.
+tests. The initial documentation-only assessment inspected that inventory
+without executing it; the Phase A implementation subsequently exercised it
+through the shared fast and full verification contracts.
 
 ## What the Article Changes for `os1`
 
@@ -471,6 +472,13 @@ Deliver as three small, reviewable changes:
 Exit condition: a fresh agent session can orient, make a small change, and
 produce the same fast validation result as CI without additional instructions.
 
+Implementation record (2026-08-19): the repository and documentation maps,
+execution-plan lifecycle, shared fast/full verifier, non-mutating format and
+documentation checks, CI integration, and ratcheted architecture rules are now
+checked in as one coherent foundation. The current tree has no architecture
+exceptions; legacy formatting deviations are pinned by content hash so new or
+changed drift fails without rewriting source.
+
 ### Phase B — Legibility
 
 1. Add smoke JSON summaries and upload logs/summaries on CI failure.
@@ -536,10 +544,10 @@ technically serious OS, not maximum code production.
 
 ## Immediate Recommendation
 
-Approve Phase A as the next harness investment. The first implementation PR
-should add only the repository map and knowledge index; the second should add
-the unified verification contract; the third should introduce architecture
-checks in ratchet mode.
+Keep the completed Phase A contract on every patch and in CI. Begin Phase B
+with structured smoke summaries and failure-artifact upload only after the
+foundation has accumulated enough normal use to expose any portability or
+signal-quality gaps.
 
 That sequence applies the article's central lesson to `os1`: human attention
 should go to OS design, invariants, and acceptance criteria, while the repository

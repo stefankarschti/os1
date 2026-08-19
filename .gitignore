@@ -1,4 +1,6 @@
-/build
-/build-host-tests*
+/build/
+/build-*/
 /.act-cache
 /.claude
+__pycache__/
+*.py[cod]

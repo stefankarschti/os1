@@ -1,6 +1,6 @@
 # os1 Architecture
 
-> generated-by: GitHub Copilot; updated-by: Codex (GPT-5) - last-reviewed: 2026-05-05 - git-state: working tree
+> generated-by: GitHub Copilot; updated-by: Codex - last-reviewed: 2026-08-19 - git-state: `harness1` working tree
 
 This document is the current-state source of truth for `os1`. It describes what is implemented in the repository today. For build, run, and smoke workflows, see [README](../README.md). For the longer-term direction, see [GOALS](../GOALS.md). For the external specifications, firmware manuals, ABI references, and protocol standards that inform the project, see [REFERENCES](REFERENCES.md). For the shell/operator milestone that produced the current user-facing environment, see [Milestone 5 Design: Interactive Shell And Observability](2026-04-23-milestone-5-interactive-shell-and-observability.md). For a full code-grounded review of the project, see [Latest Review](latest-review.md). The review documents under `doc/` are historical context, not the live system contract.
 
@@ -184,6 +184,27 @@ Current kernel folders:
 | [../src/kernel/linker/](../src/kernel/linker) | Kernel linker scripts and link-layout variants. | `kernel_core.ld`, `kernel_limine.ld` |
 
 The split is intentionally monolithic at link time. These folders express ownership and readability, not a module ABI or loadable-driver boundary.
+
+## Mechanically Enforced Source Boundaries
+
+[`tools/check_architecture.py`](../tools/check_architecture.py) turns the
+highest-confidence ownership rules into a repository check:
+
+- `src/common/` cannot depend on kernel or boot implementation headers;
+- `src/user/` cannot include kernel or boot implementation headers;
+- the shared kernel cannot depend on BIOS- or Limine-specific frontend code;
+- boot frontends may use only `arch`, `handoff`, and `util` from the kernel,
+  plus `src/common/`, frontend-local files, UAPI, and vendored boot interfaces.
+
+The checker scans quoted/angle C and C++ includes plus NASM `%include`
+directives. Reviewed legacy exceptions, if ever required, live in
+[`tools/architecture-baseline.txt`](../tools/architecture-baseline.txt). The
+baseline is a ratchet: a new dependency and a stale exception both fail with a
+corrective message. At the Phase A baseline there are no exceptions.
+
+These rules deliberately cover only boundaries that are already unambiguous.
+Additional subsystem directions should become blocking only after the current
+include graph and legitimate interfaces are documented here.
 
 ## System Diagram
 

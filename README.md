@@ -209,6 +209,30 @@ markers for both boot paths. CI drives the shell through serial input rather
 than relying on display-only interaction, so local smoke transcripts closely
 match the automated coverage.
 
+## Repository Verification
+
+Run the non-mutating fast contract before handing off ordinary code or tooling
+changes:
+
+```sh
+tools/verify.sh fast
+```
+
+This validates the repository tooling, C/C++ formatting ratchet, documentation
+index and live links, source-boundary rules, and host unit tests.
+
+Run the full contract for boot, memory-management, interrupt, SMP, syscall/UAPI,
+driver, security, or cross-build changes:
+
+```sh
+tools/verify.sh full
+```
+
+The full mode adds the freestanding cross build and all registered UEFI and BIOS
+QEMU smokes. Override `OS1_BUILD_DIR` or `OS1_HOST_BUILD_DIR` to isolate outputs
+when multiple worktrees or agents validate concurrently. The default output
+directories are ignored; keep overrides outside tracked source and documentation.
+
 ## Local CI With `act`
 
 The main CI job is still:
@@ -267,6 +291,8 @@ The helper wrapper scripts remain available as thin CMake frontends:
 
 ## Documentation
 
+- [Documentation Map](doc/README.md) — complete index separating live contracts, plans, reviews, drafts, and historical context
+- [Agent Map](AGENTS.md) — concise repository operating contract and verification entry points
 - [Goals](GOALS.md) — project direction and design principles
 - [References](doc/REFERENCES.md) — central index of external standards, vendor manuals, protocol RFCs, and public specifications used by the project
 - [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture; includes a system diagram and end-to-end workflow
