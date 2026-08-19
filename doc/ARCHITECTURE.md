@@ -206,6 +206,14 @@ These rules deliberately cover only boundaries that are already unambiguous.
 Additional subsystem directions should become blocking only after the current
 include graph and legitimate interfaces are documented here.
 
+Phase C adds two more objective repository boundaries to `tools/verify.sh fast`:
+the exact ACPICA/GoogleTest gitlinks and Limine artifact set are checked against
+`tools/dependency-lock.json`, while tracked build outputs and new unowned task
+markers are rejected by a ratcheted hygiene check. The debt ledger's required
+ownership/evidence fields are enforced by the documentation checker. Advisory
+file-size, source-reference, test-inventory, and footprint deltas remain outside
+the architecture contract until their signal quality is proven.
+
 ## System Diagram
 
 The diagram below is the end-to-end picture of a running `os1` system: the two boot frontends, the shared `BootInfo` contract, the kernel subsystems that come up on top of it, and the user-facing shell plus observability UAPI. Solid arrows are runtime data/control flow; dashed arrows mark per-boot one-shot handoffs.
@@ -1148,10 +1156,15 @@ GitHub Actions runs on `ubuntu-24.04` and does all of the following on every pus
 - explicitly build the BIOS compatibility artifact
 - run the full eleven-test shell smoke matrix (including the UEFI-only xHCI smoke) through `ctest`
 - upload serial logs, JSON summaries, and CTest's failure log when verification fails
+- on the weekly schedule or manual dispatch, always generate and upload the advisory Markdown/JSON repository-health report
 
 CI invokes [`tools/verify.sh full`](../tools/verify.sh), so local and CI checks
 select the same invariants and tests. The same single job name is kept for local
 `act` compatibility; artifact upload is skipped under `act`.
+
+The scheduled report reuses this job and full verifier. Its findings do not fail
+the job or create external issues/PRs; a true verification failure remains red,
+and report generation still runs so the failure is represented in the artifact.
 
 ## Current Constraints And Next Step
 

@@ -12,7 +12,8 @@ not prove.
 ## Verification Contract
 
 - [`tools/verify.sh fast`](../tools/verify.sh) runs harness tests, the formatting
-  ratchet, documentation and architecture checks, and the host CTest suite.
+  ratchet, documentation/architecture/dependency/hygiene checks, and the host
+  CTest suite.
 - [`tools/verify.sh full`](../tools/verify.sh) adds both boot-image builds and
   every QEMU test registered in [CMake](../CMakeLists.txt).
 - [`run_smoke.py`](../cmake/scripts/run_smoke.py) writes a serial `.log` and an
@@ -21,6 +22,18 @@ not prove.
   QEMU version and normalized arguments, and a stable result reason.
 - Required CI coverage never silently skips UEFI: `OS1_REQUIRE_UEFI_SMOKE=ON`
   turns missing QEMU/OVMF prerequisites into a configuration failure.
+
+The promoted dependency and hygiene checks are deliberately narrow:
+
+- [`check_dependencies.py`](../tools/check_dependencies.py) verifies the strict
+  [dependency lock](../tools/dependency-lock.json), initialized submodule
+  checkouts, vendored sizes/checksums, local-modification policy, and matching
+  dependency notes.
+- [`check_hygiene.py`](../tools/check_hygiene.py) rejects tracked build outputs
+  and ratchets four reviewed legacy task markers. New markers must name a debt
+  item, issue, or concrete local rationale.
+- [`check_docs.py`](../tools/check_docs.py) requires every live debt item to keep
+  its status, owner, impact, evidence, prerequisite, and next action.
 
 The current inventory is 150 host tests and 11 QEMU smokes. Refresh counts from
 the configured build trees rather than editing code to preserve a number:
@@ -70,6 +83,21 @@ publish a final outcome and must not be treated as a pass.
 - QEMU/q35 evidence is not a real-hardware support claim.
 - No percentage coverage claim is maintained because freestanding/assembly and
   integration paths make a single percentage misleading.
+
+## Scheduled Repository Health
+
+[`repository_health.py`](../tools/repository_health.py) compares advisory signals
+with the reviewed [health baseline](../tools/repository-health-baseline.json).
+After weekly or manually dispatched full CI, it emits atomic Markdown and JSON
+covering verification status, check drift, test/smoke inventory, architecture
+exceptions, active plans and debt, task markers, large/unreferenced source
+candidates, live-document ancestry, and ACPICA/kernel footprint deltas.
+
+Report findings never change the reporter's exit status and create no issue,
+pull request, or repository mutation. Invalid input or an unwritable report is a
+hard error because no trustworthy artifact exists. Promote a reported delta to
+`verify fast` only after its rule is objective, remediation is understood,
+false positives are acceptably low, and the failure teaches the fix.
 
 ## Maintenance Contract
 

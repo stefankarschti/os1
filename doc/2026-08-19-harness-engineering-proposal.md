@@ -1,6 +1,6 @@
 # Harness Engineering Proposal for `os1`
 
-> Status: Phases A and B implemented; Phase C proposed
+> Status: Phases A, B, and C implemented
 > Prepared: 2026-08-19
 > Repository snapshot: `harness1` at `d255142`
 > Source: OpenAI, [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/), 2026-02-11
@@ -513,6 +513,26 @@ retries.
 Exit condition: the repository detects and corrects common drift continuously,
 without depending on a periodic large manual cleanup.
 
+Implementation record (2026-08-19): the fast contract now blocks exact
+dependency-pin/checksum/document drift, tracked build artifacts, new unowned
+task markers, and malformed live debt records. The existing full CI workflow
+runs weekly or on manual dispatch, generates bounded Markdown/JSON repository
+health evidence even after verification failure, and uploads one artifact bundle
+without opening an issue or pull request. Advisory baselines cover test
+inventory, architecture exceptions, large files, unreferenced translation units,
+and ACPICA/kernel footprint; the first report exposed and led to removal of the
+proven-dead legacy `src/boot/bios/disk16.asm` instead of normalizing it.
+
+The repository-local [smoke triage playbook](playbooks/smoke-failure-triage.md)
+and [autonomy contract](AUTONOMY.md) record a real-QEMU Level 2 pilot: an
+intentional marker-contract mismatch retained `failed / timeout` evidence, the
+corrected contract retained `passed / all_markers_seen` evidence, and the full
+51-tooling/150-host/11-smoke verification matrix passed. This authorizes the
+bounded reproduce-correct-validate loop only; Levels 3/4 and sensitive system
+decisions still require explicit human authority. The completed
+[Phase C execution plan](exec-plans/completed/2026-08-19-phase-c-compounding-maintenance.md)
+preserves the detailed decisions and evidence.
+
 ## Measures of Success
 
 Track outcomes that reflect saved human attention:
@@ -557,10 +577,11 @@ technically serious OS, not maximum code production.
 
 ## Immediate Recommendation
 
-Keep the completed Phase A and Phase B contracts on every patch and in CI. Let
-their normal use expose portability and signal-quality gaps before starting
-Phase C's scheduled repository-health report or promoting new findings into
-blocking checks.
+Keep the completed Phase A, B, and C contracts on every patch and in CI. Review
+scheduled health deltas as evidence accumulates, and promote a new threshold
+only after its rule, remediation, and false-positive behavior are understood.
+Consider Level 3 or Level 4 only through a separate explicit decision; Phase C
+does not authorize automated publication or merge.
 
 That sequence applies the article's central lesson to `os1`: human attention
 should go to OS design, invariants, and acceptance criteria, while the repository

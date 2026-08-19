@@ -31,6 +31,14 @@ change to their contract.
   actions for repeated architectural findings.
 - [Major dependency contract](DEPENDENCIES.md) — exact pins, adapter boundaries,
   upgrade procedures, footprint references, and fallback implications.
+- [Staged agent autonomy](AUTONOMY.md) — capability ladder, permanent human
+  judgment boundaries, and the completed Level 2 pilot.
+
+## Playbooks
+
+- [Smoke failure triage](playbooks/smoke-failure-triage.md) — preserve and
+  classify JSON/log evidence, reproduce narrowly, route ownership, and validate
+  without retrying away timing failures.
 
 ## Current Proposals
 
@@ -47,12 +55,19 @@ change to their contract.
 
 Active plans live in `doc/exec-plans/active/`; completed plans move to
 `doc/exec-plans/completed/`. Existing historical plans remain at their current
-paths to avoid link churn.
+paths to avoid link churn. There are currently no active execution plans.
 
-There are currently no active execution plans.
+## Decisions
+
+- [ADR-001 — Scheduled Health Report Policy](decisions/001-scheduled-health-report-policy.md) —
+  reuse the authoritative CI environment and publish advisory findings only as
+  artifacts.
 
 ## Implemented Designs and Plans
 
+- [Phase C — Compounding Maintenance](exec-plans/completed/2026-08-19-phase-c-compounding-maintenance.md) —
+  blocking drift checks, scheduled advisory health evidence, a smoke-triage
+  playbook, and the bounded Level 2 pilot.
 - [Phase B — Harness Legibility](exec-plans/completed/2026-08-19-phase-b-legibility.md) —
   structured smoke evidence and live quality, debt, and dependency records.
 - [Milestone 1: Boot Contract and Kernel Stabilization](2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md)

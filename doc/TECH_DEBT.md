@@ -44,17 +44,20 @@ choice without review.
 
 ## TD-003 — Enforce ACPICA upgrade and footprint budgets
 
-- **Status:** open; upgrade procedure documented, automated budget pending
+- **Status:** open; scheduled footprint reporting implemented, budget pending
 - **Owner:** `kernel/platform`, build maintainers
 - **Impact:** an upstream update can silently change freestanding size, selected
   component breadth, OSL requirements, warnings, or BIOS image headroom.
 - **Evidence:** [the dependency record](DEPENDENCIES.md#acpica), the
   [ACPICA integration plan](2026-05-06-acpica-integration.md), and
-  [`cmake/acpica_sources.cmake`](../cmake/acpica_sources.cmake).
+  [`cmake/acpica_sources.cmake`](../cmake/acpica_sources.cmake). Phase C's
+  [health reporter](../tools/repository_health.py) now records archive/kernel
+  section and file-size deltas against a reviewed baseline.
 - **Prerequisite:** choose reviewed warning thresholds for ACPICA archive text
   and the final kernel/image envelopes across the supported cross toolchain.
-- **Next action:** make Phase C report ACPICA gitlink changes together with
-  `x86_64-elf-size` deltas; promote a size threshold only after stable runs.
+- **Next action:** review at least four successful scheduled footprint reports,
+  account for toolchain variance, then propose warning/failure thresholds only
+  if the deltas are stable enough to avoid false positives.
 
 ## TD-004 — Steer device interrupts beyond the BSP
 

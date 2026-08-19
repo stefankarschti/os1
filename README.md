@@ -219,7 +219,8 @@ tools/verify.sh fast
 ```
 
 This validates the repository tooling, C/C++ formatting ratchet, documentation
-index and live links, source-boundary rules, and host unit tests.
+index/live contracts, source-boundary rules, dependency pins/artifacts,
+repository hygiene, and host unit tests.
 
 Run the full contract for boot, memory-management, interrupt, SMP, syscall/UAPI,
 driver, security, or cross-build changes:
@@ -299,6 +300,8 @@ The helper wrapper scripts remain available as thin CMake frontends:
 - [Quality](doc/QUALITY.md) — subsystem coverage linked to host/QEMU evidence, artifact interpretation, and explicit gaps
 - [Technical Debt](doc/TECH_DEBT.md) — live owners, prerequisites, and next actions for repeated architectural findings
 - [Dependencies](doc/DEPENDENCIES.md) — exact ACPICA, Limine, and GoogleTest pins plus upgrade and validation procedures
+- [Staged Agent Autonomy](doc/AUTONOMY.md) — evidence requirements, human-review boundaries, and the completed Level 2 pilot
+- [Smoke Failure Triage](doc/playbooks/smoke-failure-triage.md) — structured QEMU failure classification and ownership workflow
 - [OS API Drafts](doc/os-api-draft/README.md) — design exploration for the descriptor/object model, VFS shape, and user ABI growth; not the live kernel contract
 - [Latest Review](doc/latest-review.md) — current code-grounded project review (recommended entry point for readers)
 - [Driver, Device, And Platform Implementation Plan 2026-04-29](doc/2026-04-29-driver-device-platform-implementation-plan.md) — live plan-and-status document for the driver/device/platform substrate; tracks the 2026-04-30 implementation pass that landed the static PCI driver registry, IRQ vector allocator, MSI-X/MSI/INTx fallback, DMA buffers, shared virtio transport, BlockDevice v2, HPET/LAPIC timer migration, `virtio-net`, xHCI + HID boot keyboard, and the minimal AML interpreter

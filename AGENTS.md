@@ -16,6 +16,9 @@ feature count or code volume.
 - [doc/latest-review.md](doc/latest-review.md): current code-grounded gaps.
 - [doc/QUALITY.md](doc/QUALITY.md), [doc/TECH_DEBT.md](doc/TECH_DEBT.md), and
   [doc/DEPENDENCIES.md](doc/DEPENDENCIES.md): evidence, owned gaps, and pins.
+- [doc/AUTONOMY.md](doc/AUTONOMY.md): capability and human-review boundaries.
+- [Smoke failure triage](doc/playbooks/smoke-failure-triage.md): first-response
+  workflow for QEMU/CTest evidence.
 - [doc/REFERENCES.md](doc/REFERENCES.md): external specifications.
 
 Source code and executable checks are authoritative. When historical documents
@@ -64,10 +67,10 @@ cross-build changes:
 tools/verify.sh full
 ```
 
-`fast` checks tooling, formatting, docs, architecture, and host tests. `full`
-adds the cross build and every registered UEFI/BIOS QEMU smoke. Both commands
-are read-only with respect to tracked source. `./autoformat.sh` is the explicit
-mutating formatter.
+`fast` checks tooling, formatting, docs, architecture, dependency integrity,
+repository hygiene, and host tests. `full` adds the cross build and every
+registered UEFI/BIOS QEMU smoke. Both commands are read-only with respect to
+tracked source. `./autoformat.sh` is the explicit mutating formatter.
 
 ## Plans and Decisions
 

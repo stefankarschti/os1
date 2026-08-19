@@ -88,7 +88,7 @@ if [ "$OS1_BUILD_DIR" = "$OS1_HOST_BUILD_DIR" ]; then
     exit 2
 fi
 
-for command in clang-format cmake ctest ninja; do
+for command in clang-format cmake ctest git ninja; do
     require_command "$command"
 done
 
@@ -111,6 +111,12 @@ python3 tools/check_docs.py
 
 stage "Source architecture boundaries"
 python3 tools/check_architecture.py
+
+stage "Dependency integrity"
+python3 tools/check_dependencies.py
+
+stage "Repository hygiene"
+python3 tools/check_hygiene.py
 
 stage "Configure host tests"
 cmake -S tests/host -B "$OS1_HOST_BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DOS1_KMEM_DEBUG=ON

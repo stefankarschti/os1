@@ -8,6 +8,12 @@ This document records the major vendored dependencies that materially shape the
 kernel, boot path, or test harness. Source adapters and executable validation
 remain authoritative.
 
+[`tools/dependency-lock.json`](../tools/dependency-lock.json) is the executable
+identity contract. [`tools/check_dependencies.py`](../tools/check_dependencies.py)
+strictly validates its schema, parent gitlinks, initialized/clean submodule
+checkouts, the complete Limine file set, sizes/checksums, and synchronization of
+the pins below. It runs in `tools/verify.sh fast`.
+
 ## Pin Summary
 
 | Dependency | Exact pin | Form | Purpose |
@@ -57,7 +63,7 @@ tracks promotion to an automated budget.
 2. Update only the ACPICA gitlink, verify `ACPI_CA_VERSION` in `acpixf.h`, and
    inspect component additions/removals against `cmake/acpica_sources.cmake`.
 3. Keep `git diff --submodule=log` in the review evidence and update the pin and
-   footprint reference in this document.
+   footprint reference in this document plus `tools/dependency-lock.json`.
 4. Run targeted host tests, then the complete contract:
 
    ```sh
@@ -98,7 +104,8 @@ in review.
 1. Obtain the complete upstream release bundle and verify its published source
    and licenses outside the repository.
 2. Add a new `third_party/limine/vX.Y.Z/` directory, refresh the size/checksum
-   table, and update `OS1_LIMINE_DIR` once—never mix artifacts across releases.
+   table and dependency lock, then update `OS1_LIMINE_DIR` once—never mix
+   artifacts across releases.
 3. Review protocol-structure changes against every file in `src/boot/limine/`.
 4. Run `tools/verify.sh full` and inspect all UEFI smokes, the Limine shim
    contract assertions, ISO contents, and the BIOS matrix for shared-kernel
@@ -123,7 +130,8 @@ build time and compatibility with the supported C++20 host compilers.
 ### Upgrade procedure
 
 1. Review upstream release notes, update only the GoogleTest gitlink, and keep
-   `git diff --submodule=log` in the review evidence.
+   `git diff --submodule=log` in the review evidence. Update the dependency lock
+   and this pin in the same change.
 2. Confirm the target resolves to the pin recorded above and that no local
    submodule changes exist.
 3. Configure a clean host-test build and run `tools/verify.sh fast` on the

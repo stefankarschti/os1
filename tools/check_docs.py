@@ -19,6 +19,16 @@ LIVE_DOCUMENTS = (
     "doc/ARCHITECTURE.md",
     "doc/REFERENCES.md",
     "doc/latest-review.md",
+    "doc/QUALITY.md",
+    "doc/TECH_DEBT.md",
+    "doc/DEPENDENCIES.md",
+    "doc/AUTONOMY.md",
+)
+STANDARD_LIVE_DOCUMENTS = (
+    "doc/QUALITY.md",
+    "doc/TECH_DEBT.md",
+    "doc/DEPENDENCIES.md",
+    "doc/AUTONOMY.md",
 )
 INLINE_LINK_RE = re.compile(r"!?\[[^\]]*\]\((?P<target>[^)]+)\)")
 REFERENCE_LINK_RE = re.compile(r"^\s*\[[^\]]+\]:\s*(?P<target>\S+)", re.MULTILINE)
@@ -29,6 +39,10 @@ PLAN_VERIFIED_RE = re.compile(
     re.MULTILINE,
 )
 MAX_LINK_TARGET_LENGTH = 4096
+DEBT_HEADING_RE = re.compile(r"^## TD-(?P<id>\d{3}) — .+$", re.MULTILINE)
+DEBT_LIKE_HEADING_RE = re.compile(r"^## TD-[^\r\n]+$", re.MULTILINE)
+DEBT_FIELDS = ("Status", "Owner", "Impact", "Evidence", "Prerequisite", "Next action")
+DEBT_STATUSES = ("decision required", "open", "blocked", "resolved")
 
 
 def _contains_control_character(value: str) -> bool:
@@ -139,6 +153,67 @@ def _check_plan_metadata(repo_root: Path) -> list[str]:
     return errors
 
 
+def _check_live_metadata(repo_root: Path) -> list[str]:
+    errors: list[str] = []
+    for relative in STANDARD_LIVE_DOCUMENTS:
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        contents = path.read_text(encoding="utf-8")
+        if re.search(r"^> Status: active$", contents, re.MULTILINE) is None:
+            errors.append(f"{relative}: live document status must be active")
+        owner = PLAN_OWNER_RE.search(contents)
+        if owner is None or not owner.group("owner").strip() or "<" in owner.group("owner"):
+            errors.append(f"{relative}: missing concrete owner")
+        if PLAN_VERIFIED_RE.search(contents) is None:
+            errors.append(f"{relative}: invalid last-verified date/commit")
+    return errors
+
+
+def check_debt_ledger(path: Path, repo_root: Path) -> list[str]:
+    relative = path.relative_to(repo_root)
+    contents = path.read_text(encoding="utf-8")
+    headings = list(DEBT_HEADING_RE.finditer(contents))
+    errors = [
+        f"{relative}: debt items must use the canonical TD heading '## TD-001 — Title'"
+        for match in DEBT_LIKE_HEADING_RE.finditer(contents)
+        if DEBT_HEADING_RE.fullmatch(match.group(0)) is None
+    ]
+    if not headings:
+        errors.append(f"{relative}: debt ledger must contain at least one TD item")
+        return errors
+    ids = [int(match.group("id")) for match in headings]
+    expected_ids = list(range(1, len(ids) + 1))
+    if ids != expected_ids:
+        errors.append(
+            f"{relative}: debt IDs must be unique and sequential from TD-001; found "
+            + ", ".join(f"TD-{item:03d}" for item in ids)
+        )
+    for index, heading in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(contents)
+        block = contents[heading.end():end]
+        item_id = f"TD-{int(heading.group('id')):03d}"
+        values: dict[str, str] = {}
+        for field in DEBT_FIELDS:
+            matches = re.findall(
+                rf"^- \*\*{re.escape(field)}:\*\* (?P<value>.+?)\s*$", block, re.MULTILINE
+            )
+            if len(matches) != 1 or not matches[0].strip():
+                errors.append(f"{relative}: {item_id} must contain exactly one non-empty {field}")
+            else:
+                values[field] = matches[0].strip()
+        status = values.get("Status", "")
+        if status and not any(
+            status == allowed or status.startswith(allowed + " ") or status.startswith(allowed + ";")
+            for allowed in DEBT_STATUSES
+        ):
+            errors.append(f"{relative}: {item_id} has unsupported status '{status}'")
+        owner = values.get("Owner", "")
+        if owner and "<" in owner:
+            errors.append(f"{relative}: {item_id} owner must be concrete")
+    return errors
+
+
 def check_repository(repo_root: Path) -> tuple[list[str], int]:
     repo_root = repo_root.resolve()
     errors: list[str] = []
@@ -158,6 +233,10 @@ def check_repository(repo_root: Path) -> tuple[list[str], int]:
     if (repo_root / "doc" / "README.md").is_file():
         errors.extend(_check_index(repo_root, documents))
     errors.extend(_check_plan_metadata(repo_root))
+    errors.extend(_check_live_metadata(repo_root))
+    debt_path = repo_root / "doc" / "TECH_DEBT.md"
+    if debt_path.is_file():
+        errors.extend(check_debt_ledger(debt_path, repo_root))
     return sorted(set(errors)), len(documents)
 
 
