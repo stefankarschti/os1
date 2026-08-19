@@ -533,6 +533,150 @@ decisions still require explicit human authority. The completed
 [Phase C execution plan](exec-plans/completed/2026-08-19-phase-c-compounding-maintenance.md)
 preserves the detailed decisions and evidence.
 
+## Foundation Completion Assessment
+
+### Verdict
+
+The harness-engineering foundation is **implemented in the repository**. Phases
+A–C cover the article's core prerequisites: a small map into a repository-local
+system of record, one local/CI verification contract, mechanically enforced
+boundaries, machine-readable runtime evidence, first-class plans and debt,
+staged autonomy through Level 2, and a quiet recurring garbage-collection
+signal.
+
+What remains is operational acceptance, not another broad foundation-building
+phase. Until the gates below have real usage evidence, describe the foundation
+as **implementation-complete and operations-provisional**. Do not add more
+generic harness machinery merely to make the system look more agent-first.
+
+| Foundation capability | Current evidence | Remaining acceptance evidence |
+| --- | --- | --- |
+| Repository map and system of record | `AGENTS.md`, the complete documentation index, live contracts, execution-plan lifecycle, and checked links/metadata | One cold-start agent session must complete a real scoped change without private setup instructions or copied context |
+| Reproducible verification and isolation | `tools/verify.sh fast/full`, CI parity, build-directory overrides, 51 tooling tests, 150 host tests, and 11 QEMU smokes | Run two worktrees concurrently with distinct build directories and retain proof that artifacts, sockets, firmware copies, and summaries do not collide |
+| Agent-legible runtime behavior | Serial logs, schema-v1 smoke summaries, stable markers, the observe ABI/event ring, and a completed before/after Level 2 pilot | Resolve [TD-007](TECH_DEBT.md#td-007--isolate-the-intermittent-bios-child-launch-fault) with a deterministic reproducer or regression; a streak of passing reruns is not completion |
+| Enforceable architecture and maintenance rules | Formatting/architecture/dependency/hygiene/debt checks with corrective messages and ratchet baselines | Use normal work to validate false-positive rates; promote only repeated, objective findings rather than inventing speculative rules |
+| Recurring garbage collection | Weekly/manual health workflow, bounded Markdown/JSON report, advisory baselines, and artifact-only publication policy | Produce one successful manual GitHub artifact, then review four scheduled reports across the real CI toolchain and record accepted variance or remediation in the owning live document/debt item |
+| Human/agent responsibility boundary | `doc/AUTONOMY.md` defines permanent human decisions and proves Level 2 without granting publication or merge authority | Confirm the boundary during the next real high-risk design decision; no Level 3/4 capability is implied by completing these foundation gates |
+
+The foundation is accepted when all four concrete gates are closed:
+
+1. **Cold-start operability:** a fresh agent follows only `AGENTS.md` and linked
+   repository documents to implement one real low-risk change, run the correct
+   verifier, and hand off a reviewable diff. Record time, missing context, and
+   any human intervention; turn each repeated intervention into a map, check,
+   playbook, or owned debt item.
+2. **Concurrent isolation:** two worktrees run verification concurrently with
+   separate `OS1_BUILD_DIR` and `OS1_HOST_BUILD_DIR` values without shared
+   mutable state or artifact leakage.
+3. **Scheduled evidence:** a manual dispatch and four normal weekly health runs
+   produce readable artifacts. Review test inventory, live-document ancestry,
+   large/unreferenced source deltas, and footprint variance before changing a
+   baseline or promoting a check.
+4. **Trustworthy blocking signal:** TD-007 is deterministically reproduced and
+   fixed or reduced to a deterministic lower-level regression. Do not close it
+   by adding retries, quarantine, or a larger timeout.
+
+These are evidence-gathering tasks. They should result in small corrections to
+the existing harness when evidence exposes a real gap, not a new parallel set of
+commands, dashboards, or agent-only documentation.
+
+## Post-Foundation Roadmap
+
+The article's strongest lesson is to use real product work to reveal missing
+capabilities. Once the four acceptance gates are closed, stop treating the
+harness as the product. Apply it to `os1` goals, and feed only demonstrated
+friction back into repository scaffolding.
+
+### 1. Use Level 2 on a real OS objective
+
+Resolve TD-007 first because an intermittent blocking smoke weakens every later
+signal. Then select a real, bounded vertical slice from the product/debt roadmap.
+For high-risk work such as the descriptor/handle model in TD-001, a human first
+chooses the contract; the agent may then implement the approved design with
+host-testable policy, before/after evidence, and full QEMU validation.
+
+For every failed run, ask which category owns the correction:
+
+- a product defect needs the narrowest deterministic regression;
+- repeated mechanical drift needs a blocking check with remediation text;
+- a stable diagnostic workflow needs a playbook;
+- missing rationale or navigation needs a live document or decision record; or
+- unresolved judgment needs an owned technical-debt item.
+
+Do not treat “prompt the agent harder” or “rerun until green” as a corrective
+category.
+
+### 2. Build a small replay/evaluation corpus from real failures
+
+Index representative failures only after they occur and have a trustworthy
+oracle. Initial candidates already include the smoke deadline race, vendored
+artifact symlink substitution, marker-contract drift, duplicate task-marker
+masking, and—once deterministic—the BIOS child-launch fault. Each replay should
+state the input, expected classification, forbidden workaround, corrective
+evidence, and verification tier.
+
+This is an evaluation harness for repository behavior, not a benchmark of how
+much code an agent produces. Track first-attempt correct classification,
+time-to-owned-subsystem, false-green outcomes, and human intervention.
+
+### 3. Pilot Level 3 without merge authority
+
+After the foundation gates and one real Level 2 product cycle succeed, choose a
+low- or medium-risk maintenance change. Let an agent prepare a **draft** pull
+request, run an independent adversarial review, respond to CI/review feedback,
+and update the branch until required checks pass. Publication and merge remain
+explicitly human-authorized external actions.
+
+The pilot succeeds only if:
+
+- local and CI evidence agree without bypasses or hidden retries;
+- review comments are answered with code/evidence rather than assertion;
+- the final diff remains within its stated risk class and scope; and
+- rollback is obvious and documented.
+
+Record the pilot in `doc/AUTONOMY.md`; do not generalize authority from one
+successful pull request.
+
+### 4. Increase OS-specific runtime legibility
+
+Extend observability where real work is still hard to diagnose: bounded QEMU
+repetition for timing faults, allocation/fault injection, scheduler and IRQ
+event snapshots, long-run stress summaries, and reproducible machine/firmware
+manifests for any real-hardware claim. Prefer structured state and deterministic
+oracles over more informal serial text.
+
+New observability must respect the permanent human boundaries for privilege,
+credentials, memory safety, interrupt/locking contracts, boot handoff, and
+real-hardware support claims.
+
+### 5. Let garbage collection graduate cautiously
+
+After scheduled evidence demonstrates a low-noise rule, allow the maintenance
+workflow to prepare a targeted patch or draft PR instead of only reporting it.
+Keep one finding per change, retain the source artifact, and require the same
+fast/full checks as a human-authored patch. Do not open recurring issues for
+unchanged observations and do not auto-update baselines to make reports green.
+
+### 6. Consider Level 4 only for a proven allowlist
+
+Level 4 is not the default destination for kernel development. Consider it only
+after a reviewed sample of successful Level 3 changes demonstrates stable CI,
+no escaped regressions, a tested rollback path, and a narrow path/rule allowlist.
+Reasonable candidates are mechanical documentation-index repair or regeneration
+of explicitly non-behavioral metadata; boot, MM, interrupts, SMP, syscalls/UAPI,
+drivers, security policy, dependencies, and real-hardware claims remain
+human-merged.
+
+### Recommended next three execution plans
+
+1. **Foundation operational acceptance:** cold-start drill, concurrent-worktree
+   proof, manual health artifact, and four scheduled report reviews.
+2. **TD-007 deterministic BIOS reproduction:** retain the first failure and
+   reduce it without retry/quarantine before changing kernel behavior.
+3. **Level 3 draft-PR pilot:** only after the first two plans close, and only on
+   a bounded low/medium-risk maintenance task with explicit human publication
+   and merge approval.
+
 ## Measures of Success
 
 Track outcomes that reflect saved human attention:
@@ -577,11 +721,15 @@ technically serious OS, not maximum code production.
 
 ## Immediate Recommendation
 
-Keep the completed Phase A, B, and C contracts on every patch and in CI. Review
-scheduled health deltas as evidence accumulates, and promote a new threshold
-only after its rule, remediation, and false-positive behavior are understood.
-Consider Level 3 or Level 4 only through a separate explicit decision; Phase C
-does not authorize automated publication or merge.
+Keep the completed Phase A, B, and C contracts on every patch and in CI, and
+close the four operational acceptance gates above. The first substantial work
+after that should be a real `os1` objective, beginning with deterministic
+reduction of TD-007—not another generic harness layer. Let normal use expose
+signal and capability gaps, then encode only the lessons that recur.
+
+Pilot Level 3 through a separate execution plan after the foundation is proven.
+Level 4 remains a later, allowlisted decision and is not implied by this
+proposal; Phase C authorizes neither automated publication nor merge.
 
 That sequence applies the article's central lesson to `os1`: human attention
 should go to OS design, invariants, and acceptance criteria, while the repository

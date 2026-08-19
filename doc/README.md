@@ -43,8 +43,8 @@ change to their contract.
 ## Current Proposals
 
 - [Harness engineering proposal](2026-08-19-harness-engineering-proposal.md) —
-  Phase A/B implementation record and proposal for compounding
-  repository-harness maintenance.
+  Phase A–C implementation record, operational acceptance gates, and the
+  post-foundation repository-harness roadmap.
 
 ## Execution Plans
 
