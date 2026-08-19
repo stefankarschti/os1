@@ -25,12 +25,18 @@ change to their contract.
 - [References](REFERENCES.md) — curated external specifications and standards.
 - [Latest review](latest-review.md) — stable pointer to the newest
   source-grounded review and its carried-forward gaps.
+- [Quality and validation coverage](QUALITY.md) — evidence-linked subsystem
+  coverage, artifact interpretation, and explicit gaps.
+- [Technical debt ledger](TECH_DEBT.md) — live owners, prerequisites, and next
+  actions for repeated architectural findings.
+- [Major dependency contract](DEPENDENCIES.md) — exact pins, adapter boundaries,
+  upgrade procedures, footprint references, and fallback implications.
 
 ## Current Proposals
 
 - [Harness engineering proposal](2026-08-19-harness-engineering-proposal.md) —
-  Phase A implementation record and proposal for later agent-legibility and
-  repository-harness improvements.
+  Phase A/B implementation record and proposal for compounding
+  repository-harness maintenance.
 
 ## Execution Plans
 
@@ -39,12 +45,16 @@ change to their contract.
 - [Execution-plan template](exec-plans/_template.md) — required structure for
   new multi-step plans.
 
-Active plans live in `doc/exec-plans/active/`; future completed plans move to
+Active plans live in `doc/exec-plans/active/`; completed plans move to
 `doc/exec-plans/completed/`. Existing historical plans remain at their current
 paths to avoid link churn.
 
+There are currently no active execution plans.
+
 ## Implemented Designs and Plans
 
+- [Phase B — Harness Legibility](exec-plans/completed/2026-08-19-phase-b-legibility.md) —
+  structured smoke evidence and live quality, debt, and dependency records.
 - [Milestone 1: Boot Contract and Kernel Stabilization](2026-04-22-milestone-1-boot-contract-and-kernel-stabilization.md)
 - [Milestone 2: Process Model and Isolation](2026-04-22-milestone-2-process-model-and-isolation.md)
 - [Milestone 3: Modern Default Boot Path](2026-04-22-milestone-3-modern-default-boot-path.md)

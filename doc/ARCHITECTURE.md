@@ -1128,6 +1128,13 @@ The dedicated observe, balance, spawn, exec, and xHCI smokes then exercise the o
 - in-place `exec` replacement without the old shell prompt returning
 - xHCI controller bring-up, root-port enumeration, HID boot keyboard configuration, and USB key reports feeding the same console-input path used by PS/2
 
+Each smoke writes a complete serial `.log` and an atomic `.json` sidecar under
+the selected build's artifact directory. The summary carries the CTest name,
+UEFI/BIOS path, elapsed/timeout values, expected/seen/missing/forbidden markers,
+the exact log path, QEMU version, normalized command arguments, and a stable
+result reason. A `running` result is interruption evidence, never success. See
+[QUALITY.md](QUALITY.md) for the coverage and interpretation contract.
+
 ### CI
 
 GitHub Actions runs on `ubuntu-24.04` and does all of the following on every push and pull request:
@@ -1140,8 +1147,11 @@ GitHub Actions runs on `ubuntu-24.04` and does all of the following on every pus
 - build the default modern artifact
 - explicitly build the BIOS compatibility artifact
 - run the full eleven-test shell smoke matrix (including the UEFI-only xHCI smoke) through `ctest`
+- upload serial logs, JSON summaries, and CTest's failure log when verification fails
 
-The same single CI job name is kept for local `act` compatibility.
+CI invokes [`tools/verify.sh full`](../tools/verify.sh), so local and CI checks
+select the same invariants and tests. The same single job name is kept for local
+`act` compatibility; artifact upload is skipped under `act`.
 
 ## Current Constraints And Next Step
 

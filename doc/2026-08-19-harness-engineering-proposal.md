@@ -1,6 +1,6 @@
 # Harness Engineering Proposal for `os1`
 
-> Status: Phase A implemented; Phases B and C proposed
+> Status: Phases A and B implemented; Phase C proposed
 > Prepared: 2026-08-19
 > Repository snapshot: `harness1` at `d255142`
 > Source: OpenAI, [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/), 2026-02-11
@@ -489,6 +489,19 @@ changed drift fails without rewriting source.
 Exit condition: a failure or project gap can be traced from index to evidence to
 an owned next action.
 
+Implementation record (2026-08-19): every registered smoke now emits a bounded,
+atomic JSON summary beside its full serial log; each summary carries explicit
+test and boot-path identity, timing, marker state, stable result classification,
+artifact paths, QEMU version, and normalized arguments. CI retains summaries,
+serial logs, and the CTest failure log on failure. The live
+[quality](QUALITY.md), [technical-debt](TECH_DEBT.md), and
+[dependency](DEPENDENCIES.md) contracts link current claims and gaps to evidence,
+owners, prerequisites, upgrade procedures, and next actions. The completed
+[Phase B execution plan](exec-plans/completed/2026-08-19-phase-b-legibility.md)
+made this work the first user of the active/completed plan lifecycle; it records
+validation and the decision not to mask a recurring BIOS spawn flake with
+retries.
+
 ### Phase C — Compounding Maintenance
 
 1. Add the scheduled repository-health report.
@@ -544,10 +557,10 @@ technically serious OS, not maximum code production.
 
 ## Immediate Recommendation
 
-Keep the completed Phase A contract on every patch and in CI. Begin Phase B
-with structured smoke summaries and failure-artifact upload only after the
-foundation has accumulated enough normal use to expose any portability or
-signal-quality gaps.
+Keep the completed Phase A and Phase B contracts on every patch and in CI. Let
+their normal use expose portability and signal-quality gaps before starting
+Phase C's scheduled repository-health report or promoting new findings into
+blocking checks.
 
 That sequence applies the article's central lesson to `os1`: human attention
 should go to OS design, invariants, and acceptance criteria, while the repository

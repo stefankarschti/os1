@@ -296,6 +296,9 @@ The helper wrapper scripts remain available as thin CMake frontends:
 - [Goals](GOALS.md) — project direction and design principles
 - [References](doc/REFERENCES.md) — central index of external standards, vendor manuals, protocol RFCs, and public specifications used by the project
 - [Architecture](doc/ARCHITECTURE.md) — current-state source of truth for boot, memory, console, process, and test architecture; includes a system diagram and end-to-end workflow
+- [Quality](doc/QUALITY.md) — subsystem coverage linked to host/QEMU evidence, artifact interpretation, and explicit gaps
+- [Technical Debt](doc/TECH_DEBT.md) — live owners, prerequisites, and next actions for repeated architectural findings
+- [Dependencies](doc/DEPENDENCIES.md) — exact ACPICA, Limine, and GoogleTest pins plus upgrade and validation procedures
 - [OS API Drafts](doc/os-api-draft/README.md) — design exploration for the descriptor/object model, VFS shape, and user ABI growth; not the live kernel contract
 - [Latest Review](doc/latest-review.md) — current code-grounded project review (recommended entry point for readers)
 - [Driver, Device, And Platform Implementation Plan 2026-04-29](doc/2026-04-29-driver-device-platform-implementation-plan.md) — live plan-and-status document for the driver/device/platform substrate; tracks the 2026-04-30 implementation pass that landed the static PCI driver registry, IRQ vector allocator, MSI-X/MSI/INTx fallback, DMA buffers, shared virtio transport, BlockDevice v2, HPET/LAPIC timer migration, `virtio-net`, xHCI + HID boot keyboard, and the minimal AML interpreter

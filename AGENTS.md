@@ -14,6 +14,8 @@ feature count or code volume.
   ownership contract.
 - [doc/README.md](doc/README.md): complete documentation map and document roles.
 - [doc/latest-review.md](doc/latest-review.md): current code-grounded gaps.
+- [doc/QUALITY.md](doc/QUALITY.md), [doc/TECH_DEBT.md](doc/TECH_DEBT.md), and
+  [doc/DEPENDENCIES.md](doc/DEPENDENCIES.md): evidence, owned gaps, and pins.
 - [doc/REFERENCES.md](doc/REFERENCES.md): external specifications.
 
 Source code and executable checks are authoritative. When historical documents
