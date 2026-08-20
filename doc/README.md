@@ -2,7 +2,7 @@
 
 > Status: live index
 > Owner: repository maintainers
-> Last verified: 2026-08-19 at `d255142`
+> Last verified: 2026-08-20 at `82e5964`
 
 This file is the complete map of repository documentation. It distinguishes
 live contracts from plans, implemented designs, reviews, drafts, and historical
@@ -42,6 +42,9 @@ change to their contract.
 
 ## Current Proposals
 
+- [Level 5 agentic software engineering roadmap](2026-08-20-level-5-agentic-engineering-proposal.md) —
+  current maturity matrix, repository-specific evidence/certification model,
+  risk envelope, scientific advancement gates, and a no-date autonomy roadmap.
 - [Harness engineering proposal](2026-08-19-harness-engineering-proposal.md) —
   Phase A–C implementation record, operational acceptance gates, and the
   post-foundation repository-harness roadmap.
